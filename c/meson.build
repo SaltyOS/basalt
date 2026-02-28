@@ -3,9 +3,8 @@
 
 saltyc_link = meson.current_source_dir() / 'saltyc.ld'
 rust_build_dir = meson.project_build_root() / 'rust'
-libsalty_build_dir = meson.project_build_root() / 'besalt' / 'lib'
 
-# Step 1: Rust -> .o + .rmeta (depends on libsalty for --extern salty)
+# Step 1: Rust -> .o + .rmeta (depends on libbesalt for --extern salty)
 saltyc_rust = custom_target('saltyc_rust',
   input: files('src/lib.rs'),
   output: ['saltyc.o', 'saltyc.rmeta'],
@@ -15,10 +14,10 @@ saltyc_rust = custom_target('saltyc_rust',
     '--emit=obj=@OUTPUT0@,metadata=@OUTPUT1@,dep-info=@DEPFILE@',
     '--crate-name=saltyc',
     '--crate-type=lib',
-    '--extern', 'salty=' + libsalty_build_dir / 'libsalty.rmeta',
+    '--extern', 'salty=' + libbesalt_build_dir / 'libbesalt.rmeta',
     '@INPUT@',
   ],
-  depends: [core, compiler_builtins, libsalty_rust],
+  depends: [core, compiler_builtins, libbesalt_rust],
   build_by_default: true,
 )
 
@@ -128,6 +127,10 @@ libc_so = custom_target('libc_so',
 saltyc_inc = include_directories('include')
 saltyc_inc_dir = meson.current_source_dir() / 'include'
 
+# Aliases used by the outer repo's userland/ports meson.build files.
+besaltc_inc_dir = saltyc_inc_dir
+besaltc_build_dir = meson.current_build_dir()
+
 # Collect all C headers for port dependency tracking.
 # Ports compile with -isystem pointing here; when headers change, ports
 # must rebuild.  Mirrors the kernel's find-based .S discovery.
@@ -142,3 +145,5 @@ if _saltyc_hdr_list != ''
     saltyc_header_files += files(h)
   endforeach
 endif
+
+besaltc_header_files = saltyc_header_files

@@ -1,7 +1,8 @@
-# libsalty.so - SaltyOS System Call Library (Rust)
+# libbesalt.so - SaltyOS System Call Library (Rust)
 # SPDX-License-Identifier: GPL-2.0-only
 
-libsalty_link = meson.current_source_dir() / 'libsalty.ld'
+libbesalt_link = meson.current_source_dir() / 'libsalty.ld'
+libbesalt_build_dir = meson.current_build_dir()
 rust_build_dir = meson.project_build_root() / 'rust'
 
 # Common rustc flags for userland (PIC, small code model)
@@ -31,10 +32,10 @@ if get_option('arch') == 'x86_64'
 endif
 
 # Step 1: Rust -> .o + .rmeta
-libsalty_rust = custom_target('libsalty_rust',
+libbesalt_rust = custom_target('libbesalt_rust',
   input: files('src/lib.rs'),
-  output: ['libsalty.o', 'libsalty.rmeta'],
-  depfile: 'libsalty.d',
+  output: ['libbesalt.o', 'libbesalt.rmeta'],
+  depfile: 'libbesalt.d',
   command: [rustc,
     rust_userland_args,
     '--emit=obj=@OUTPUT0@,metadata=@OUTPUT1@,dep-info=@DEPFILE@',
@@ -46,8 +47,8 @@ libsalty_rust = custom_target('libsalty_rust',
   build_by_default: true,
 )
 
-libsalty_obj = libsalty_rust[0]
-libsalty_rmeta = libsalty_rust[1]
+libbesalt_obj = libbesalt_rust[0]
+libbesalt_rmeta = libbesalt_rust[1]
 
 # Step 2: fork.S -> fork.o
 fork_obj = custom_target('fork_asm',
@@ -57,18 +58,18 @@ fork_obj = custom_target('fork_asm',
   build_by_default: true,
 )
 
-# Step 3: libsalty.o + fork.o + core.o -> libsalty.so
-libsalty_so = custom_target('libsalty_so',
-  input: [libsalty_obj, fork_obj, core_obj, compiler_builtins_obj],
-  output: 'libsalty.so',
+# Step 3: libbesalt.o + fork.o + core.o -> libbesalt.so
+libbesalt_so = custom_target('libbesalt_so',
+  input: [libbesalt_obj, fork_obj, core_obj, compiler_builtins_obj],
+  output: 'libbesalt.so',
   command: [cc_cmd,
     '--target=' + c_target,
     '-shared',
     '-nostdlib', '-nostartfiles',
     '-fno-stack-protector',
     '-mno-red-zone',
-    '-Wl,-soname,libsalty.so',
-    '-T', libsalty_link,
+    '-Wl,-soname,libbesalt.so',
+    '-T', libbesalt_link,
     '-o', '@OUTPUT@',
     '@INPUT@',
   ],
