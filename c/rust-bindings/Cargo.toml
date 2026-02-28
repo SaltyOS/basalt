@@ -1,0 +1,15 @@
+[package]
+name = "libc"
+version = "0.2.178"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Raw FFI bindings to platform libraries like libc"
+
+[features]
+default = ["std"]
+std = []
+rustc-dep-of-std = ["align", "rustc-std-workspace-core"]
+align = []
+
+[dependencies]
+rustc-std-workspace-core = { version = "1.0.0", optional = true }

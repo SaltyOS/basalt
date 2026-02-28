@@ -814,3 +814,133 @@ pub unsafe extern "C" fn pthread_condattr_init(_attr: *mut PthreadCondattrT) -> 
 pub unsafe extern "C" fn pthread_condattr_destroy(_attr: *mut PthreadCondattrT) -> i32 {
     0
 }
+
+// =========================================================================
+// Thread-specific data (pthread_key_*)
+// =========================================================================
+
+/// Maximum number of TSD keys. POSIX requires at least 128.
+const PTHREAD_KEYS_MAX: usize = 64;
+
+/// Maximum threads tracked (must match libsalty's MAX_THREADS).
+const KEY_MAX_THREADS: usize = 64;
+
+/// Key table entry: tracks whether the key is in use and its destructor.
+struct KeyEntry {
+    in_use: bool,
+    destructor: Option<unsafe extern "C" fn(*mut u8)>,
+}
+
+/// Spinlock for key table (allocation/deallocation only).
+static KEY_LOCK: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// Key metadata table (protected by KEY_LOCK for create/delete).
+static mut KEY_TABLE: [KeyEntry; PTHREAD_KEYS_MAX] = {
+    const EMPTY: KeyEntry = KeyEntry { in_use: false, destructor: None };
+    [EMPTY; PTHREAD_KEYS_MAX]
+};
+
+/// Per-thread key values. Indexed as [key][thread_id].
+/// Thread ID is obtained from the TLS block's thread_id field.
+static mut KEY_VALUES: [[*mut u8; KEY_MAX_THREADS]; PTHREAD_KEYS_MAX] = {
+    [[core::ptr::null_mut(); KEY_MAX_THREADS]; PTHREAD_KEYS_MAX]
+};
+
+fn key_lock_acquire() {
+    use core::sync::atomic::Ordering;
+    while KEY_LOCK.compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        while KEY_LOCK.load(Ordering::Relaxed) != 0 {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+fn key_lock_release() {
+    KEY_LOCK.store(0, core::sync::atomic::Ordering::Release);
+}
+
+/// Get the current thread index (0..63) for key value lookup.
+fn current_thread_index() -> usize {
+    if let Some(tls) = salty::tls::current_tls() {
+        // SAFETY: tls is a valid pointer to ThreadLocalBlock, thread_id is a u64 field.
+        let tid = unsafe { (*tls).thread_id } as usize;
+        if tid < KEY_MAX_THREADS { tid } else { 0 }
+    } else {
+        0 // main thread before TLS init
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_key_create(
+    key: *mut u32,
+    destructor: Option<unsafe extern "C" fn(*mut u8)>,
+) -> i32 {
+    if key.is_null() {
+        return errno::EINVAL;
+    }
+    key_lock_acquire();
+    unsafe {
+        let table = &raw mut KEY_TABLE;
+        for i in 0..PTHREAD_KEYS_MAX {
+            if !(*table)[i].in_use {
+                (*table)[i].in_use = true;
+                (*table)[i].destructor = destructor;
+                // Clear all per-thread values for this key
+                let vals = &raw mut KEY_VALUES;
+                for t in 0..KEY_MAX_THREADS {
+                    (*vals)[i][t] = core::ptr::null_mut();
+                }
+                *key = i as u32;
+                key_lock_release();
+                return 0;
+            }
+        }
+    }
+    key_lock_release();
+    errno::EAGAIN
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_key_delete(key: u32) -> i32 {
+    if key as usize >= PTHREAD_KEYS_MAX {
+        return errno::EINVAL;
+    }
+    key_lock_acquire();
+    unsafe {
+        let table = &raw mut KEY_TABLE;
+        if !(*table)[key as usize].in_use {
+            key_lock_release();
+            return errno::EINVAL;
+        }
+        (*table)[key as usize].in_use = false;
+        (*table)[key as usize].destructor = None;
+    }
+    key_lock_release();
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_getspecific(key: u32) -> *mut u8 {
+    if key as usize >= PTHREAD_KEYS_MAX {
+        return core::ptr::null_mut();
+    }
+    let tid = current_thread_index();
+    // SAFETY: key and tid are bounds-checked.
+    unsafe { (*(&raw const KEY_VALUES))[key as usize][tid] }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_setspecific(key: u32, value: *mut u8) -> i32 {
+    if key as usize >= PTHREAD_KEYS_MAX {
+        return errno::EINVAL;
+    }
+    unsafe {
+        if !(*(&raw const KEY_TABLE))[key as usize].in_use {
+            return errno::EINVAL;
+        }
+    }
+    let tid = current_thread_index();
+    // SAFETY: key and tid are bounds-checked, in_use is confirmed.
+    unsafe { (*(&raw mut KEY_VALUES))[key as usize][tid] = value; }
+    0
+}

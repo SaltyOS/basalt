@@ -52,5 +52,7 @@ pub mod pthread_impl;
 pub mod search_impl;
 pub mod dlfcn_impl;
 pub mod compat;
+pub mod socket;
+pub mod getrandom;
 
 // Panic handler is provided by libsalty (our dependency)
