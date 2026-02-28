@@ -6,7 +6,7 @@
 //! the process manager (CSpace expansion via Signal+probe or blocking Call).
 //!
 //! The pool base and count are communicated via auxv entries
-//! `AT_SALTY_SLOT_BASE` and `AT_SALTY_SLOT_COUNT`.
+//! `AT_BESALT_SLOT_BASE` and `AT_BESALT_SLOT_COUNT`.
 //!
 //! SPDX-License-Identifier: GPL-2.0-only
 
@@ -111,7 +111,7 @@ fn slot_lock_release() {
 /// Called during process startup (from CRT or RTLD) with values from auxv.
 /// `base==0` means "not provided".
 /// `cspace_ntfn` is the notification cap for CSpace expansion signaling
-/// (from AT_SALTY_CSPACE_NTFN auxv), or 0 if not available.
+/// (from AT_BESALT_CSPACE_NTFN auxv), or 0 if not available.
 ///
 /// # Safety
 /// Must be called exactly once during process initialization.
@@ -522,8 +522,8 @@ fn try_blocking_cspace_expand(state: &mut SlotAllocState) -> SlotResult {
 /// Perform blocking PM_EXPAND_CSPACE Call and return the new segment.
 fn request_expand_blocking(ep: Cap) -> Option<(Cap, u64)> {
     unsafe {
-        let mut msg = crate::types::SaltyMsg::zeroed();
-        let mut reply = crate::types::SaltyMsg::zeroed();
+        let mut msg = crate::types::BesaltMsg::zeroed();
+        let mut reply = crate::types::BesaltMsg::zeroed();
         msg.label = POSIX_PM_EXPAND_CSPACE;
         msg.length = 1;
         msg.regs[0] = SLOT_EXPAND_BITS_DEFAULT;
@@ -534,7 +534,7 @@ fn request_expand_blocking(ep: Cap) -> Option<(Cap, u64)> {
             &raw const msg,
             &raw mut reply,
         );
-        if err != 0 || reply.label != SALTY_OK || reply.length < 2 {
+        if err != 0 || reply.label != BESALT_OK || reply.length < 2 {
             return None;
         }
 

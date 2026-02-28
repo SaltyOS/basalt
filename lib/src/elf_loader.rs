@@ -98,9 +98,9 @@ fn try_retype_frame_any_untyped(ctx: &mut ElfLoaderCtx, frame_slot: Cap) -> i32 
             }
             return 0;
         }
-        if err != SALTY_INVALID_CAPABILITY as i32
-            && err != SALTY_INVALID_OPERATION as i32
-            && err != SALTY_NOT_FOUND as i32
+        if err != BESALT_INVALID_CAPABILITY as i32
+            && err != BESALT_INVALID_OPERATION as i32
+            && err != BESALT_NOT_FOUND as i32
         {
             best_err = err;
         }
@@ -118,9 +118,9 @@ fn try_retype_frame_any_untyped(ctx: &mut ElfLoaderCtx, frame_slot: Cap) -> i32 
             }
             return 0;
         }
-        if err != SALTY_INVALID_CAPABILITY as i32
-            && err != SALTY_INVALID_OPERATION as i32
-            && err != SALTY_NOT_FOUND as i32
+        if err != BESALT_INVALID_CAPABILITY as i32
+            && err != BESALT_INVALID_OPERATION as i32
+            && err != BESALT_NOT_FOUND as i32
         {
             best_err = err;
         }

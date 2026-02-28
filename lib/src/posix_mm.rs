@@ -99,8 +99,8 @@ pub unsafe fn posix_brk(addr: u64) -> i32 {
         if !*(&raw const MM_INITIALIZED) {
             return -1;
         }
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = MM_BRK;
         msg.length = 1;
         msg.regs[0] = addr;
@@ -110,7 +110,7 @@ pub unsafe fn posix_brk(addr: u64) -> i32 {
             &raw const msg,
             &raw mut reply,
         );
-        if err != 0 || reply.label != SALTY_OK { -1 } else { 0 }
+        if err != 0 || reply.label != BESALT_OK { -1 } else { 0 }
     }
 }
 
@@ -121,8 +121,8 @@ pub unsafe fn posix_sbrk(increment: i64) -> u64 {
         if !*(&raw const MM_INITIALIZED) {
             return u64::MAX;
         }
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = MM_SBRK;
         msg.length = 1;
         msg.regs[0] = increment as u64;
@@ -132,7 +132,7 @@ pub unsafe fn posix_sbrk(increment: i64) -> u64 {
             &raw const msg,
             &raw mut reply,
         );
-        if err != 0 || reply.label != SALTY_OK {
+        if err != 0 || reply.label != BESALT_OK {
             u64::MAX
         } else {
             reply.regs[0]
@@ -183,8 +183,8 @@ unsafe fn posix_mmap_fd(
         );
 
         // Send POSIX_VFS_MMAP to VFS
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_MMAP;
         msg.length = 5;
         msg.regs[0] = fd as u64;
@@ -199,7 +199,7 @@ unsafe fn posix_mmap_fd(
             &raw const msg,
             &raw mut reply,
         );
-        if err != 0 || reply.label != SALTY_OK {
+        if err != 0 || reply.label != BESALT_OK {
             invoke::cnode_delete(CAP_SELF_CSPACE, recv_slot);
             return usize::MAX as *mut u8;
         }
@@ -315,8 +315,8 @@ pub unsafe fn posix_mmap(
         }
 
         // Anonymous mmap → mmsrv IPC
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = MM_MMAP;
         msg.length = 4;
         msg.regs[0] = addr as u64;
@@ -329,7 +329,7 @@ pub unsafe fn posix_mmap(
             &raw const msg,
             &raw mut reply,
         );
-        if err != 0 || reply.label != SALTY_OK {
+        if err != 0 || reply.label != BESALT_OK {
             usize::MAX as *mut u8
         } else {
             reply.regs[0] as *mut u8
@@ -370,8 +370,8 @@ pub unsafe fn posix_munmap(addr: *mut u8, length: u64) -> i32 {
         device_lock_release();
 
         // Anonymous region → mmsrv IPC
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = MM_MUNMAP;
         msg.length = 2;
         msg.regs[0] = base;
@@ -382,7 +382,7 @@ pub unsafe fn posix_munmap(addr: *mut u8, length: u64) -> i32 {
             &raw const msg,
             &raw mut reply,
         );
-        if err != 0 || reply.label != SALTY_OK { -1 } else { 0 }
+        if err != 0 || reply.label != BESALT_OK { -1 } else { 0 }
     }
 }
 
@@ -393,8 +393,8 @@ pub unsafe fn posix_mprotect(addr: *mut u8, length: u64, prot: i32) -> i32 {
         if !*(&raw const MM_INITIALIZED) {
             return -1;
         }
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = MM_MPROTECT;
         msg.length = 3;
         msg.regs[0] = addr as u64;
@@ -406,6 +406,6 @@ pub unsafe fn posix_mprotect(addr: *mut u8, length: u64, prot: i32) -> i32 {
             &raw const msg,
             &raw mut reply,
         );
-        if err != 0 || reply.label != SALTY_OK { -1 } else { 0 }
+        if err != 0 || reply.label != BESALT_OK { -1 } else { 0 }
     }
 }

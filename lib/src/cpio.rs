@@ -1,7 +1,7 @@
 //! CPIO newc archive parser
 //! SPDX-License-Identifier: GPL-2.0-only
 //!
-//! Parses CPIO "newc" (070701) format archives used for the SaltyOS initrd.
+//! Parses CPIO "newc" (070701) format archives used for the BesaltOS initrd.
 //! Provides three iteration styles: search by name (`cpio_find_file`),
 //! sequential iteration (`cpio_next`), and sequential iteration with
 //! extended metadata (`cpio_next_ext`). Also computes archive total size

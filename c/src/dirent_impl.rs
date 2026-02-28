@@ -132,14 +132,14 @@ pub unsafe extern "C" fn readdir(dir: *mut DIR) -> *mut Dirent {
     }
 
     unsafe {
-        let mut salty_entry = salty::types::SaltyDirent::zeroed();
+        let mut salty_entry = salty::types::BesaltDirent::zeroed();
         let ret = salty::posix::posix_readdir((*dir).fd, &raw mut salty_entry);
         if ret == 0 {
             // No more entries
             return core::ptr::null_mut();
         }
 
-        // Copy fields from SaltyDirent into our Dirent
+        // Copy fields from BesaltDirent into our Dirent
         (*dir).entry.d_ino = salty_entry.d_ino;
         (*dir).entry.d_off = 0;
         (*dir).entry.d_reclen = core::mem::size_of::<Dirent>() as u16;
@@ -147,7 +147,7 @@ pub unsafe extern "C" fn readdir(dir: *mut DIR) -> *mut Dirent {
         (*dir).entry.d_pad0 = 0;
         (*dir).entry.d_pad1 = 0;
 
-        // Copy name, capping at the smaller of SaltyDirent.d_name (62 bytes)
+        // Copy name, capping at the smaller of BesaltDirent.d_name (62 bytes)
         // and our d_name (256 bytes)
         let name_len = salty_entry.d_namlen as usize;
         let copy_len = if name_len < 62 { name_len } else { 61 };

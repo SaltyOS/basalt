@@ -114,7 +114,7 @@ pub unsafe fn set_receive_slot_ctx(ctx: *mut IpcContext, cnode: Cap, index: u64,
 
 /// Write overflow message registers (regs[4..19]) into the IPC buffer.
 /// Called before send/call/reply_recv when the message exceeds 4 registers.
-unsafe fn write_overflow_ctx(ctx: *mut IpcContext, msg: *const SaltyMsg) {
+unsafe fn write_overflow_ctx(ctx: *mut IpcContext, msg: *const BesaltMsg) {
     unsafe {
         let len = (*msg).length as u32;
         let len = if len > 20 { 20 } else { len };
@@ -134,7 +134,7 @@ unsafe fn write_overflow_ctx(ctx: *mut IpcContext, msg: *const SaltyMsg) {
 
 /// Blocking send on an endpoint. Blocks until a receiver is ready.
 /// Transfers `msg` and any staged capabilities. Returns 0 on success.
-pub unsafe fn send_ctx(ctx: *mut IpcContext, ep: Cap, msg: *const SaltyMsg) -> i32 {
+pub unsafe fn send_ctx(ctx: *mut IpcContext, ep: Cap, msg: *const BesaltMsg) -> i32 {
     unsafe {
         let caps = if ctx.is_null() { 0 } else { (*ctx).send_cap_count };
         let info = msginfo((*msg).label, (*msg).length, caps as u64);
@@ -161,7 +161,7 @@ pub unsafe fn send_ctx(ctx: *mut IpcContext, ep: Cap, msg: *const SaltyMsg) -> i
 pub unsafe fn recv_ctx(
     ctx: *mut IpcContext,
     ep: Cap,
-    msg: *mut SaltyMsg,
+    msg: *mut BesaltMsg,
     badge: *mut u64,
 ) -> i32 {
     let r = syscall(SYS_RECV, ep, 0, 0, 0, 0, 0);
@@ -171,7 +171,7 @@ pub unsafe fn recv_ctx(
                 *badge = r.value;
             }
             if !msg.is_null() && !ctx.is_null() && !(*ctx).ipc_buffer.is_null() {
-                let buf = (*ctx).ipc_buffer as *const SaltyMsg;
+                let buf = (*ctx).ipc_buffer as *const BesaltMsg;
                 *msg = *buf;
             }
         }
@@ -185,8 +185,8 @@ pub unsafe fn recv_ctx(
 pub unsafe fn call_ctx(
     ctx: *mut IpcContext,
     ep: Cap,
-    msg: *const SaltyMsg,
-    reply: *mut SaltyMsg,
+    msg: *const BesaltMsg,
+    reply: *mut BesaltMsg,
 ) -> i32 {
     unsafe {
         let caps = if ctx.is_null() { 0 } else { (*ctx).send_cap_count };
@@ -205,7 +205,7 @@ pub unsafe fn call_ctx(
             clear_send_caps_ctx(ctx);
         }
         if r.error == 0 && !reply.is_null() && !ctx.is_null() && !(*ctx).ipc_buffer.is_null() {
-            let buf = (*ctx).ipc_buffer as *const SaltyMsg;
+            let buf = (*ctx).ipc_buffer as *const BesaltMsg;
             *reply = *buf;
         }
         r.error as i32
@@ -221,8 +221,8 @@ pub unsafe fn call_ctx(
 pub unsafe fn reply_recv_ctx(
     ctx: *mut IpcContext,
     ep: Cap,
-    reply: *const SaltyMsg,
-    out_msg: *mut SaltyMsg,
+    reply: *const BesaltMsg,
+    out_msg: *mut BesaltMsg,
     badge: *mut u64,
 ) -> i32 {
     unsafe {
@@ -246,7 +246,7 @@ pub unsafe fn reply_recv_ctx(
                 *badge = r.value;
             }
             if !out_msg.is_null() && !ctx.is_null() && !(*ctx).ipc_buffer.is_null() {
-                let buf = (*ctx).ipc_buffer as *const SaltyMsg;
+                let buf = (*ctx).ipc_buffer as *const BesaltMsg;
                 *out_msg = *buf;
             }
         }
@@ -256,7 +256,7 @@ pub unsafe fn reply_recv_ctx(
 
 /// Non-blocking send: delivers `msg` to a waiting receiver if one exists,
 /// otherwise returns immediately with an error (no blocking).
-pub unsafe fn nbsend_ctx(ctx: *mut IpcContext, ep: Cap, msg: *const SaltyMsg) -> i32 {
+pub unsafe fn nbsend_ctx(ctx: *mut IpcContext, ep: Cap, msg: *const BesaltMsg) -> i32 {
     unsafe {
         let caps = if ctx.is_null() { 0 } else { (*ctx).send_cap_count };
         let info = msginfo((*msg).label, (*msg).length, caps as u64);

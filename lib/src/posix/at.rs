@@ -10,8 +10,8 @@ use super::{pack_path, CAP_VFS_EP};
 pub unsafe fn posix_openat(dirfd: i32, path: *const u8, flags: i32, mode: u32) -> i32 {
     unsafe {
         let mode = mode & !super::misc::get_umask();
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_OPENAT;
         msg.regs[0] = dirfd as u32 as u64;
         msg.regs[1] = flags as u32 as u64;
@@ -28,8 +28,8 @@ pub unsafe fn posix_openat(dirfd: i32, path: *const u8, flags: i32, mode: u32) -
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -37,10 +37,10 @@ pub unsafe fn posix_openat(dirfd: i32, path: *const u8, flags: i32, mode: u32) -
 
 /// fstatat(dirfd, path, statbuf, flags)
 /// IPC: reg[0]=dirfd, reg[1]=at_flags, reg[2..]=path(len+data)
-pub unsafe fn posix_fstatat(dirfd: i32, path: *const u8, st: *mut SaltyStat, at_flags: i32) -> i32 {
+pub unsafe fn posix_fstatat(dirfd: i32, path: *const u8, st: *mut BesaltStat, at_flags: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_FSTATAT;
         msg.regs[0] = dirfd as u32 as u64;
         msg.regs[1] = at_flags as u32 as u64;
@@ -56,8 +56,8 @@ pub unsafe fn posix_fstatat(dirfd: i32, path: *const u8, st: *mut SaltyStat, at_
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
 
         if !st.is_null() {
@@ -78,8 +78,8 @@ pub unsafe fn posix_fstatat(dirfd: i32, path: *const u8, st: *mut SaltyStat, at_
 /// IPC: reg[0]=dirfd, reg[1]=at_flags, reg[2..]=path(len+data)
 pub unsafe fn posix_unlinkat(dirfd: i32, path: *const u8, at_flags: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_UNLINKAT;
         msg.regs[0] = dirfd as u32 as u64;
         msg.regs[1] = at_flags as u32 as u64;
@@ -95,8 +95,8 @@ pub unsafe fn posix_unlinkat(dirfd: i32, path: *const u8, at_flags: i32) -> i32 
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -111,8 +111,8 @@ pub unsafe fn posix_renameat(
     new_path: *const u8,
 ) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_RENAMEAT;
 
         let mut old_len: u8 = 0;
@@ -156,8 +156,8 @@ pub unsafe fn posix_renameat(
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -168,8 +168,8 @@ pub unsafe fn posix_renameat(
 pub unsafe fn posix_mkdirat(dirfd: i32, path: *const u8, mode: i32) -> i32 {
     unsafe {
         let mode = (mode as u32) & !super::misc::get_umask();
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_MKDIRAT;
         msg.regs[0] = dirfd as u32 as u64;
         msg.regs[1] = mode as u64;
@@ -185,8 +185,8 @@ pub unsafe fn posix_mkdirat(dirfd: i32, path: *const u8, mode: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -196,8 +196,8 @@ pub unsafe fn posix_mkdirat(dirfd: i32, path: *const u8, mode: i32) -> i32 {
 /// IPC: reg[0]=dirfd, reg[1]=mode, reg[2]=at_flags, reg[3..]=path(len+data)
 pub unsafe fn posix_faccessat(dirfd: i32, path: *const u8, mode: i32, at_flags: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_FACCESSAT;
         msg.regs[0] = dirfd as u32 as u64;
         msg.regs[1] = mode as u64;
@@ -214,8 +214,8 @@ pub unsafe fn posix_faccessat(dirfd: i32, path: *const u8, mode: i32, at_flags: 
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -225,8 +225,8 @@ pub unsafe fn posix_faccessat(dirfd: i32, path: *const u8, mode: i32, at_flags: 
 /// IPC: reg[0]=dirfd, reg[1]=mode, reg[2]=at_flags, reg[3..]=path(len+data)
 pub unsafe fn posix_fchmodat(dirfd: i32, path: *const u8, mode: u32, at_flags: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_FCHMODAT;
         msg.regs[0] = dirfd as u32 as u64;
         msg.regs[1] = mode as u64;
@@ -243,8 +243,8 @@ pub unsafe fn posix_fchmodat(dirfd: i32, path: *const u8, mode: u32, at_flags: i
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -260,8 +260,8 @@ pub unsafe fn posix_fchownat(
     at_flags: i32,
 ) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_FCHOWNAT;
         msg.regs[0] = dirfd as u32 as u64;
         msg.regs[1] = uid as u64;
@@ -279,8 +279,8 @@ pub unsafe fn posix_fchownat(
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -298,8 +298,8 @@ pub unsafe fn posix_utimensat(
     at_flags: i32,
 ) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_UTIMENSAT;
         msg.regs[0] = dirfd as u32 as u64;
         msg.regs[1] = at_flags as u32 as u64;
@@ -319,8 +319,8 @@ pub unsafe fn posix_utimensat(
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -331,8 +331,8 @@ pub unsafe fn posix_utimensat(
 /// Returns 0 on success, -1 on error.
 pub unsafe fn posix_symlinkat(target: *const u8, newdirfd: i32, linkpath: *const u8) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_SYMLINKAT;
 
         // newdirfd in regs[0]
@@ -375,8 +375,8 @@ pub unsafe fn posix_symlinkat(target: *const u8, newdirfd: i32, linkpath: *const
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -388,8 +388,8 @@ pub unsafe fn posix_symlinkat(target: *const u8, newdirfd: i32, linkpath: *const
 /// Returns the number of bytes placed in `buf`, or -1 on error.
 pub unsafe fn posix_readlinkat(dirfd: i32, path: *const u8, buf: *mut u8, bufsiz: usize) -> i64 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_READLINKAT;
         msg.regs[0] = dirfd as u32 as u64;
         let path_len = pack_path(&raw mut msg, 1, path, 128);
@@ -404,8 +404,8 @@ pub unsafe fn posix_readlinkat(dirfd: i32, path: *const u8, buf: *mut u8, bufsiz
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label) as i64;
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label) as i64;
         }
 
         let target_len = reply.regs[0] as usize;
@@ -429,8 +429,8 @@ pub unsafe fn posix_linkat(
     flags: i32,
 ) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_LINKAT;
 
         // Measure old path length
@@ -481,8 +481,8 @@ pub unsafe fn posix_linkat(
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }

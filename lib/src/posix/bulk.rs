@@ -43,20 +43,20 @@ unsafe fn ensure_bulk_shm() -> bool {
         let shm_id = super::proc::posix_getpid() as u64 | 0x42_0000_0000;
 
         // 1. Create SHM via mmsrv
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = MM_SHM_CREATE;
         msg.regs[0] = shm_id;
         msg.regs[1] = BULK_SHM_PAGES;
         msg.length = 2;
         ipc::call_ctx(ctx, mmsrv_ep, &raw const msg, &raw mut reply);
-        if reply.label != SALTY_OK && reply.label != SALTY_ALREADY_EXISTS {
+        if reply.label != BESALT_OK && reply.label != BESALT_ALREADY_EXISTS {
             return false;
         }
 
         // 2. Map into our address space
-        msg = SaltyMsg::zeroed();
-        reply = SaltyMsg::zeroed();
+        msg = BesaltMsg::zeroed();
+        reply = BesaltMsg::zeroed();
         msg.label = MM_SHM_MAP;
         msg.regs[0] = shm_id;
         msg.regs[1] = 0; // self
@@ -64,20 +64,20 @@ unsafe fn ensure_bulk_shm() -> bool {
         msg.regs[3] = 0x3; // RW
         msg.length = 4;
         ipc::call_ctx(ctx, mmsrv_ep, &raw const msg, &raw mut reply);
-        if reply.label != SALTY_OK {
+        if reply.label != BESALT_OK {
             return false;
         }
         *(&raw mut BULK_SHM_ADDR) = reply.regs[0];
 
         // 3. Tell VFS to map our SHM
-        msg = SaltyMsg::zeroed();
-        reply = SaltyMsg::zeroed();
+        msg = BesaltMsg::zeroed();
+        reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_BULK_SETUP;
         msg.regs[0] = shm_id;
         msg.regs[1] = BULK_SHM_PAGES;
         msg.length = 2;
         ipc::call_ctx(ctx, vfs_ep, &raw const msg, &raw mut reply);
-        if reply.label != SALTY_OK {
+        if reply.label != BESALT_OK {
             // Non-fatal: fall back to legacy reads
             return false;
         }
@@ -105,8 +105,8 @@ pub(crate) unsafe fn bulk_read(fd: i32, buf: *mut u8, count: u64) -> Option<usiz
 
         while total < count {
             let chunk = (count - total).min(shm_size);
-            let mut msg = SaltyMsg::zeroed();
-            let mut reply = SaltyMsg::zeroed();
+            let mut msg = BesaltMsg::zeroed();
+            let mut reply = BesaltMsg::zeroed();
             msg.label = POSIX_VFS_BULK_READ;
             msg.regs[0] = fd as u64;
             msg.regs[1] = chunk;
@@ -114,7 +114,7 @@ pub(crate) unsafe fn bulk_read(fd: i32, buf: *mut u8, count: u64) -> Option<usiz
             msg.length = 3;
 
             let err = ipc::call_ctx(ctx, vfs_ep, &raw const msg, &raw mut reply);
-            if err != 0 || reply.label != SALTY_OK {
+            if err != 0 || reply.label != BESALT_OK {
                 if total > 0 {
                     return Some(total as usize);
                 }

@@ -43,10 +43,10 @@ pub struct Stat {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: translate SaltyStat -> Stat
+// Helper: translate BesaltStat -> Stat
 // ---------------------------------------------------------------------------
 
-unsafe fn translate_stat(salty_stat: &salty::types::SaltyStat, out: *mut Stat) {
+unsafe fn translate_stat(salty_stat: &salty::types::BesaltStat, out: *mut Stat) {
     unsafe {
         core::ptr::write_bytes(out, 0, 1);
 
@@ -408,7 +408,7 @@ pub unsafe extern "C" fn stat(path: *const u8, buf: *mut Stat) -> i32 {
         return -1;
     }
     unsafe {
-        let mut salty_st = salty::types::SaltyStat::zeroed();
+        let mut salty_st = salty::types::BesaltStat::zeroed();
         let ret = salty::posix::posix_stat(path, &raw mut salty_st);
         if ret < 0 {
             errno::set_errno(-ret);
@@ -432,7 +432,7 @@ pub unsafe extern "C" fn fstat(fd: i32, buf: *mut Stat) -> i32 {
         return -1;
     }
     unsafe {
-        let mut salty_st = salty::types::SaltyStat::zeroed();
+        let mut salty_st = salty::types::BesaltStat::zeroed();
         let ret = salty::posix::posix_fstat(fd, &raw mut salty_st);
         if ret < 0 {
             errno::set_errno(-ret);
@@ -672,6 +672,18 @@ pub unsafe extern "C" fn mmap(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn mprotect(addr: *mut u8, len: usize, prot: i32) -> i32 {
+    unsafe {
+        let ret = salty::posix_mm::posix_mprotect(addr, len as u64, prot);
+        if ret < 0 {
+            errno::set_errno(-ret);
+            return -1;
+        }
+        ret
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn madvise(_addr: *mut u8, _length: usize, _advice: i32) -> i32 {
     0
 }
@@ -823,7 +835,7 @@ pub unsafe extern "C" fn fstatat(dirfd: i32, path: *const u8, buf: *mut Stat, fl
         return -1;
     }
     unsafe {
-        let mut salty_st = salty::types::SaltyStat::zeroed();
+        let mut salty_st = salty::types::BesaltStat::zeroed();
         let ret = salty::posix::posix_fstatat(dirfd, path, &raw mut salty_st, flags);
         if ret < 0 {
             errno::set_errno(-ret);

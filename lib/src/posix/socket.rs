@@ -11,8 +11,8 @@ use super::{pack_path, CAP_VFS_EP};
 /// Returns the socket fd on success, -1 on error.
 pub unsafe fn posix_socket(domain: i32, sock_type: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_SOCKET;
         msg.length = 2;
         msg.regs[0] = domain as u64;
@@ -27,8 +27,8 @@ pub unsafe fn posix_socket(domain: i32, sock_type: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -48,8 +48,8 @@ pub unsafe fn posix_bind(fd: i32, addr: *const u8, addr_len: u32) -> i32 {
             return -22; // EINVAL
         }
         let family = *(addr as *const u16);
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_BIND;
         msg.regs[0] = fd as u64;
 
@@ -79,8 +79,8 @@ pub unsafe fn posix_bind(fd: i32, addr: *const u8, addr_len: u32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -90,8 +90,8 @@ pub unsafe fn posix_bind(fd: i32, addr: *const u8, addr_len: u32) -> i32 {
 /// Returns 0 on success, negative errno on error.
 pub unsafe fn posix_listen(fd: i32, backlog: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_LISTEN;
         msg.length = 2;
         msg.regs[0] = fd as u64;
@@ -106,8 +106,8 @@ pub unsafe fn posix_listen(fd: i32, backlog: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -117,8 +117,8 @@ pub unsafe fn posix_listen(fd: i32, backlog: i32) -> i32 {
 /// Returns the new connected socket fd, or negative errno on error.
 pub unsafe fn posix_accept(fd: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_ACCEPT;
         msg.length = 1;
         msg.regs[0] = fd as u64;
@@ -132,8 +132,8 @@ pub unsafe fn posix_accept(fd: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -153,8 +153,8 @@ pub unsafe fn posix_connect(fd: i32, addr: *const u8, addr_len: u32) -> i32 {
             return -22; // EINVAL
         }
         let family = *(addr as *const u16);
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_CONNECT;
         msg.regs[0] = fd as u64;
 
@@ -183,8 +183,8 @@ pub unsafe fn posix_connect(fd: i32, addr: *const u8, addr_len: u32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -194,8 +194,8 @@ pub unsafe fn posix_connect(fd: i32, addr: *const u8, addr_len: u32) -> i32 {
 /// Returns 0 on success, negative errno on error.
 pub unsafe fn posix_shutdown(fd: i32, how: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_SHUTDOWN;
         msg.length = 2;
         msg.regs[0] = fd as u64;
@@ -210,8 +210,8 @@ pub unsafe fn posix_shutdown(fd: i32, how: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -221,8 +221,8 @@ pub unsafe fn posix_shutdown(fd: i32, how: i32) -> i32 {
 /// On success, writes `fds[0]` and `fds[1]` and returns 0.
 pub unsafe fn posix_socketpair(fds: *mut i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_SOCKPAIR;
         msg.length = 0;
 
@@ -235,8 +235,8 @@ pub unsafe fn posix_socketpair(fds: *mut i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         if !fds.is_null() {
             *fds = reply.regs[0] as i32;
@@ -253,8 +253,8 @@ pub unsafe fn posix_socketpair(fds: *mut i32) -> i32 {
 /// (max 4 per call). Returns bytes sent on success, negative errno on error.
 pub unsafe fn posix_sendmsg(fd: i32, data: *const u8, data_len: u64, fds_to_send: *const i32, fd_count: u32) -> i64 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_SENDMSG;
         msg.regs[0] = fd as u64;
         msg.regs[1] = data_len;
@@ -289,8 +289,8 @@ pub unsafe fn posix_sendmsg(fd: i32, data: *const u8, data_len: u64, fds_to_send
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label) as i64;
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label) as i64;
         }
         reply.regs[0] as i64
     }
@@ -303,8 +303,8 @@ pub unsafe fn posix_sendmsg(fd: i32, data: *const u8, data_len: u64, fds_to_send
 /// actual number received. Returns bytes received, negative errno on error.
 pub unsafe fn posix_recvmsg(fd: i32, data: *mut u8, data_len: u64, fds_out: *mut i32, fd_count: *mut u32) -> i64 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_RECVMSG;
         msg.length = 2;
         msg.regs[0] = fd as u64;
@@ -319,8 +319,8 @@ pub unsafe fn posix_recvmsg(fd: i32, data: *mut u8, data_len: u64, fds_out: *mut
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label) as i64;
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label) as i64;
         }
 
         let actual_data = reply.regs[0];
@@ -363,8 +363,8 @@ pub unsafe fn posix_sendto(
     addr_len: u32,
 ) -> i64 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_SENDMSG;
         msg.regs[0] = fd as u64;
 
@@ -395,8 +395,8 @@ pub unsafe fn posix_sendto(
                 if err != 0 {
                     return -5;
                 }
-                if reply.label != SALTY_OK {
-                    return super::salty_err_to_posix(reply.label) as i64;
+                if reply.label != BESALT_OK {
+                    return super::besalt_err_to_posix(reply.label) as i64;
                 }
                 return reply.regs[0] as i64;
             }
@@ -418,8 +418,8 @@ pub unsafe fn posix_sendto(
         if err != 0 {
             return -5;
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label) as i64;
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label) as i64;
         }
         reply.regs[0] as i64
     }
@@ -438,8 +438,8 @@ pub unsafe fn posix_recvfrom(
     addr_len: *mut u32,
 ) -> i64 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_RECVMSG;
         msg.length = 3;
         msg.regs[0] = fd as u64;
@@ -456,8 +456,8 @@ pub unsafe fn posix_recvfrom(
         if err != 0 {
             return -5;
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label) as i64;
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label) as i64;
         }
 
         let actual_data = reply.regs[0] as usize;

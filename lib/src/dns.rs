@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-//! DNS client API for SaltyOS.
+//! DNS client API for BesaltOS.
 //!
 //! Provides hostname resolution by communicating with the dnssrv service.
 //! The dnssrv endpoint must be available at the cap slot specified by
@@ -31,13 +31,13 @@ pub unsafe fn dns_resolve_with_ep(hostname: &[u8], dnssrv_ep: u64) -> u32 {
             return 0;
         }
 
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
 
         msg.label = DNS_RESOLVE;
         msg.regs[0] = hostname.len() as u64;
 
-        // SAFETY: Pack hostname bytes into regs[1..]. The SaltyMsg regs array
+        // SAFETY: Pack hostname bytes into regs[1..]. The BesaltMsg regs array
         // has 20 entries (160 bytes), and hostname is at most 120 bytes, so
         // this copy stays within bounds.
         let dst = &raw mut msg.regs[1] as *mut u8;
@@ -50,7 +50,7 @@ pub unsafe fn dns_resolve_with_ep(hostname: &[u8], dnssrv_ep: u64) -> u32 {
             &raw const msg,
             &raw mut reply,
         );
-        if err != 0 || reply.label != SALTY_OK {
+        if err != 0 || reply.label != BESALT_OK {
             return 0;
         }
 
@@ -149,8 +149,8 @@ pub unsafe fn posix_gethostbyname(name: *const u8) -> u32 {
 /// `hostname_out` must point to a writable buffer of at least `hostname_max` bytes.
 pub unsafe fn dns_reverse_lookup(ip: u32, hostname_out: *mut u8, hostname_max: usize) -> usize {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
 
         msg.label = DNS_REVERSE_LOOKUP;
         msg.regs[0] = ip as u64;
@@ -162,7 +162,7 @@ pub unsafe fn dns_reverse_lookup(ip: u32, hostname_out: *mut u8, hostname_max: u
             &raw const msg,
             &raw mut reply,
         );
-        if err != 0 || reply.label != SALTY_OK {
+        if err != 0 || reply.label != BESALT_OK {
             return 0;
         }
 
@@ -188,8 +188,8 @@ pub unsafe fn dns_reverse_lookup(ip: u32, hostname_out: *mut u8, hostname_max: u
 /// is available at capability slot 64.
 pub unsafe fn dns_cache_flush() {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
 
         msg.label = DNS_CACHE_FLUSH;
         msg.length = 0;

@@ -96,7 +96,7 @@ impl Mutex {
             }
 
             let err = futex_wait_timeout(self.futex_ptr(), 2, remaining_ns);
-            if err == crate::consts::SALTY_CANCELLED {
+            if err == crate::consts::BESALT_CANCELLED {
                 // Timeout — try one last time before giving up
                 if self.state.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
                     return true;
@@ -354,7 +354,7 @@ impl TypedMutex {
             }
 
             let err = futex_wait_timeout(self.futex_ptr(), 2, remaining_ns);
-            if err == crate::consts::SALTY_CANCELLED {
+            if err == crate::consts::BESALT_CANCELLED {
                 // Timeout — last-chance try
                 if self.state.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
                     return true;
@@ -466,7 +466,7 @@ impl Condvar {
         mutex.lock();
         // Cancellation point: check after re-acquiring mutex
         check_cancellation();
-        if err == crate::consts::SALTY_CANCELLED { 110 } else { 0 }
+        if err == crate::consts::BESALT_CANCELLED { 110 } else { 0 }
     }
 
     /// Wait on the condition variable with a typed mutex (RECURSIVE/ERRORCHECK).
@@ -498,7 +498,7 @@ impl Condvar {
         let err = futex_wait_timeout(self.futex_ptr(), current_seq, timeout_ns);
         mutex.condvar_relock(saved);
         check_cancellation();
-        if err == crate::consts::SALTY_CANCELLED { 110 } else { 0 }
+        if err == crate::consts::BESALT_CANCELLED { 110 } else { 0 }
     }
 
     /// Wake one waiting thread.
@@ -642,7 +642,7 @@ impl RWLock {
             }
             let wake_val = self.writer_wake.load(Ordering::Relaxed);
             let err = futex_wait_timeout(self.writer_futex_ptr(), wake_val, remaining);
-            if err == crate::consts::SALTY_CANCELLED {
+            if err == crate::consts::BESALT_CANCELLED {
                 // Timeout — one last try
                 let s2 = self.state.load(Ordering::Relaxed);
                 if s2 & WRITER_BIT == 0 {
@@ -675,7 +675,7 @@ impl RWLock {
                 }
                 let wake_val = self.writer_wake.load(Ordering::Relaxed);
                 let err = futex_wait_timeout(self.writer_futex_ptr(), wake_val, remaining);
-                if err == crate::consts::SALTY_CANCELLED {
+                if err == crate::consts::BESALT_CANCELLED {
                     // Timeout — one last try
                     if self.state.compare_exchange(
                         0, WRITER_BIT, Ordering::Acquire, Ordering::Relaxed,
@@ -842,7 +842,7 @@ impl Semaphore {
                 return 110; // ETIMEDOUT
             }
             let err = futex_wait_timeout(self.futex_ptr(), 0, remaining);
-            if err == crate::consts::SALTY_CANCELLED {
+            if err == crate::consts::BESALT_CANCELLED {
                 // Last-chance try
                 let c2 = self.count.load(Ordering::Relaxed);
                 if c2 > 0 {

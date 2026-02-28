@@ -16,7 +16,7 @@ pub unsafe fn posix_exit(status: i32) -> ! {
         // Final userspace-side cleanup of exited pthread slots before process teardown.
         crate::pthread::process_exit_reap();
 
-        let mut msg = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
         msg.label = POSIX_PM_EXIT;
         msg.length = 1;
         msg.regs[0] = status as u64;
@@ -24,7 +24,7 @@ pub unsafe fn posix_exit(status: i32) -> ! {
         // Call blocks waiting for reply; procmgr never replies for PM_EXIT,
         // so the child stays in ReplyWait until TCB_SUSPEND moves it to Inactive.
         // This avoids the yield-loop that starves SCHED_IPC_LOCK on SMP.
-        let mut reply = SaltyMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         crate::ipc::call_ctx(
             crate::tls::current_ipc_ctx(),
             CAP_PROCMGR_EP,
@@ -41,8 +41,8 @@ pub unsafe fn posix_exit(status: i32) -> ! {
 /// Return the process ID of the calling process.
 pub unsafe fn posix_getpid() -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_GETPID;
         msg.length = 0;
 
@@ -55,8 +55,8 @@ pub unsafe fn posix_getpid() -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -65,8 +65,8 @@ pub unsafe fn posix_getpid() -> i32 {
 /// Return the parent process ID of the calling process.
 pub unsafe fn posix_getppid() -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_GETPPID;
         msg.length = 0;
 
@@ -79,8 +79,8 @@ pub unsafe fn posix_getppid() -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -93,8 +93,8 @@ pub unsafe fn posix_getppid() -> i32 {
 /// Returns -1 on error.
 pub unsafe fn posix_waitpid3(pid: i32, status: *mut i32, options: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_WAIT;
         msg.length = 2;
         msg.regs[0] = pid as u32 as u64;
@@ -109,8 +109,8 @@ pub unsafe fn posix_waitpid3(pid: i32, status: *mut i32, options: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
 
         if !status.is_null() {
@@ -137,8 +137,8 @@ pub unsafe fn posix_execve(
     envp: *const *const u8,
 ) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_EXEC;
 
         let mut path_len: u8 = 0;
@@ -243,8 +243,8 @@ pub unsafe fn posix_execve(
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -253,8 +253,8 @@ pub unsafe fn posix_execve(
 /// Send signal `sig` to process `pid`. Returns 0 on success, -1 on error.
 pub unsafe fn posix_kill(pid: i32, sig: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_KILL;
         msg.length = 2;
         msg.regs[0] = pid as u32 as u64;
@@ -269,8 +269,8 @@ pub unsafe fn posix_kill(pid: i32, sig: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -287,8 +287,8 @@ unsafe extern "C" {
 /// Returns 0 on success, -1 on error.
 pub unsafe fn posix_setpgid(pid: i32, pgid: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_SETPGID;
         msg.length = 2;
         msg.regs[0] = pid as u32 as u64;
@@ -303,8 +303,8 @@ pub unsafe fn posix_setpgid(pid: i32, pgid: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -313,8 +313,8 @@ pub unsafe fn posix_setpgid(pid: i32, pgid: i32) -> i32 {
 /// Get the process group ID of process `pid`. Returns pgid or -1 on error.
 pub unsafe fn posix_getpgid(pid: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_GETPGID;
         msg.length = 1;
         msg.regs[0] = pid as u32 as u64;
@@ -328,8 +328,8 @@ pub unsafe fn posix_getpgid(pid: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -339,8 +339,8 @@ pub unsafe fn posix_getpgid(pid: i32) -> i32 {
 /// Returns the new session ID, or -1 on error.
 pub unsafe fn posix_setsid() -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_SETSID;
         msg.length = 0;
 
@@ -353,8 +353,8 @@ pub unsafe fn posix_setsid() -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -364,8 +364,8 @@ pub unsafe fn posix_setsid() -> i32 {
 /// Returns sid on success, -1 on error.
 pub unsafe fn posix_getsid(pid: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_GETSID;
         msg.length = 1;
         msg.regs[0] = pid as u32 as u64;
@@ -379,8 +379,8 @@ pub unsafe fn posix_getsid(pid: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -389,8 +389,8 @@ pub unsafe fn posix_getsid(pid: i32) -> i32 {
 /// Return the real user ID of the calling process.
 pub unsafe fn posix_getuid() -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_GETUID;
         msg.length = 0;
 
@@ -403,8 +403,8 @@ pub unsafe fn posix_getuid() -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -413,8 +413,8 @@ pub unsafe fn posix_getuid() -> i32 {
 /// Return the effective user ID of the calling process.
 pub unsafe fn posix_geteuid() -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_GETEUID;
         msg.length = 0;
 
@@ -427,8 +427,8 @@ pub unsafe fn posix_geteuid() -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -437,8 +437,8 @@ pub unsafe fn posix_geteuid() -> i32 {
 /// Return the real group ID of the calling process.
 pub unsafe fn posix_getgid() -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_GETGID;
         msg.length = 0;
 
@@ -451,8 +451,8 @@ pub unsafe fn posix_getgid() -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -461,8 +461,8 @@ pub unsafe fn posix_getgid() -> i32 {
 /// Return the effective group ID of the calling process.
 pub unsafe fn posix_getegid() -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_GETEGID;
         msg.length = 0;
 
@@ -475,8 +475,8 @@ pub unsafe fn posix_getegid() -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -485,8 +485,8 @@ pub unsafe fn posix_getegid() -> i32 {
 /// Get supplementary group IDs. Returns the number of groups, or -1 on error.
 pub unsafe fn posix_getgroups(size: i32, _list: *mut i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_GETGROUPS;
         msg.length = 1;
         msg.regs[0] = size as u64;
@@ -500,8 +500,8 @@ pub unsafe fn posix_getgroups(size: i32, _list: *mut i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }

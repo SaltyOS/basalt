@@ -7,7 +7,7 @@
 //! Initialization sequence:
 //! 1. Parse the initial stack layout: `argc`, `argv[]`, `envp[]`, `auxv[]`
 //! 2. Initialize `environ` from `envp`
-//! 3. Parse SaltyOS-specific auxv tags (`AT_SALTY_*`) to set up IPC context
+//! 3. Parse SaltyOS-specific auxv tags (`AT_BESALT_*`) to set up IPC context
 //! 4. Call `tcb_set_ipc_buffer` to configure the per-thread IPC buffer
 //! 5. Initialize `ipc_context` for libsalty IPC wrappers
 //! 6. Initialize the per-process slot allocator (preferring RTLD-exported pool)
@@ -16,8 +16,8 @@
 //! 9. Initialize FreeBSD rune locale tables for `ctype.h` compatibility
 //!
 //! Custom auxv tags used by SaltyOS:
-//! - `0x1007` (`AT_SALTY_SLOT_BASE`): slot allocator pool base
-//! - `0x1008` (`AT_SALTY_SLOT_COUNT`): slot allocator pool size
+//! - `0x1007` (`AT_BESALT_SLOT_BASE`): slot allocator pool base
+//! - `0x1008` (`AT_BESALT_SLOT_COUNT`): slot allocator pool size
 
 use crate::env;
 
@@ -149,7 +149,7 @@ unsafe fn init_ipc_from_auxv(stack_ptr: *const u64) {
         let ipc_buf_vaddr: u64 = 0x0000_0000_0020_0000;
         salty::invoke::tcb_set_ipc_buffer(CAP_SELF_TCB, ipc_buf_vaddr);
         salty::ipc::ipc_context_init(
-            &raw mut salty::__salty_ipc_ctx,
+            &raw mut salty::__besalt_ipc_ctx,
             ipc_buf_vaddr as *mut salty::types::IpcBuffer,
         );
     }
@@ -157,7 +157,7 @@ unsafe fn init_ipc_from_auxv(stack_ptr: *const u64) {
 
 /// Initialize the per-process slot allocator and POSIX memory manager from auxv.
 ///
-/// Parses SaltyOS-specific auxiliary vector entries (`AT_SALTY_*`) to discover
+/// Parses SaltyOS-specific auxiliary vector entries (`AT_BESALT_*`) to discover
 /// the slot allocator pool and the mmsrv endpoint capability. The RTLD may
 /// have already consumed some slots, so its exported values take precedence
 /// over raw auxv. The mmsrv endpoint (CAP_MMSRV_EP = slot 7) is provided by
@@ -184,8 +184,8 @@ unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
                 break; // AT_NULL
             }
             match tag {
-                0x1007 => slot_base = val,   // AT_SALTY_SLOT_BASE
-                0x1008 => slot_count = val,  // AT_SALTY_SLOT_COUNT
+                0x1007 => slot_base = val,   // AT_BESALT_SLOT_BASE
+                0x1008 => slot_count = val,  // AT_BESALT_SLOT_COUNT
                 _ => {}
             }
             p = p.add(2);
@@ -193,14 +193,14 @@ unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
 
         // Prefer RTLD-exported slot pool info because RTLD advances it past
         // the slots consumed while loading shared libraries.
-        let rtld_base = *(&raw const salty::__salty_slot_base);
-        let rtld_count = *(&raw const salty::__salty_slot_count);
+        let rtld_base = *(&raw const salty::__besalt_slot_base);
+        let rtld_count = *(&raw const salty::__besalt_slot_count);
         if rtld_base != 0 && rtld_count != 0 {
             slot_base = rtld_base;
             slot_count = rtld_count;
         }
 
-        let cspace_ntfn = *(&raw const salty::__salty_cspace_ntfn);
+        let cspace_ntfn = *(&raw const salty::__besalt_cspace_ntfn);
 
         // Initialize per-process slot allocator
         if slot_base != 0 {

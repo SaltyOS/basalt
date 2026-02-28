@@ -1,7 +1,7 @@
 //! Raw system call interface
 //! SPDX-License-Identifier: GPL-2.0-only
 //!
-//! Single inline-assembly wrapper for all SaltyOS kernel syscalls.
+//! Single inline-assembly wrapper for all BesaltOS kernel syscalls.
 //!
 //! # Register ABI
 //!
@@ -20,11 +20,11 @@
 //! `options(nostack)` is used because the `syscall` instruction does not
 //! touch the user stack -- the kernel switches to its own per-thread stack.
 
-use crate::types::SaltyResult;
+use crate::types::BesaltResult;
 
 /// Issue a raw syscall with up to 6 arguments.
 ///
-/// Returns a [`SaltyResult`] with `error` (0 = success) and `value`
+/// Returns a [`BesaltResult`] with `error` (0 = success) and `value`
 /// (syscall-specific return payload).
 #[inline(always)]
 pub fn syscall(
@@ -35,7 +35,7 @@ pub fn syscall(
     a3: u64,
     a4: u64,
     a5: u64,
-) -> SaltyResult {
+) -> BesaltResult {
     let error: u64;
     let value: u64;
     unsafe {
@@ -53,11 +53,11 @@ pub fn syscall(
             options(nostack),
         );
     }
-    SaltyResult { error, value }
+    BesaltResult { error, value }
 }
 
 /// Futex wait: block if `*addr == expected`, return 0 on wake.
-/// Returns SALTY_WOULD_BLOCK (9) if value changed.
+/// Returns BESALT_WOULD_BLOCK (9) if value changed.
 #[inline]
 pub fn futex_wait(addr: *const u32, expected: u32) -> u64 {
     syscall(
@@ -73,8 +73,8 @@ pub fn futex_wait(addr: *const u32, expected: u32) -> u64 {
 }
 
 /// Futex wait with timeout: block if `*addr == expected`, wake after timeout_ns.
-/// Returns 0 on successful wake, SALTY_WOULD_BLOCK (9) if value changed,
-/// SALTY_CANCELLED (12) on timeout.
+/// Returns 0 on successful wake, BESALT_WOULD_BLOCK (9) if value changed,
+/// BESALT_CANCELLED (12) on timeout.
 #[inline]
 pub fn futex_wait_timeout(addr: *const u32, expected: u32, timeout_ns: u64) -> u64 {
     syscall(
@@ -130,7 +130,7 @@ pub fn sys_shutdown() -> ! {
 
 /// Send message to endpoint with timeout.
 ///
-/// Returns 0 on success, `SALTY_CANCELLED` (12) on timeout.
+/// Returns 0 on success, `BESALT_CANCELLED` (12) on timeout.
 #[inline]
 pub fn sys_send_timed(cap: u64, msg_info: u64, mr0: u64, timeout_ns: u64) -> u64 {
     syscall(
@@ -147,11 +147,11 @@ pub fn sys_send_timed(cap: u64, msg_info: u64, mr0: u64, timeout_ns: u64) -> u64
 
 /// Receive message from endpoint with timeout.
 ///
-/// Returns `SaltyResult` where:
+/// Returns `BesaltResult` where:
 /// - `error == 0, value == badge` on success (message in IPC buffer)
-/// - `error == SALTY_CANCELLED` on timeout
+/// - `error == BESALT_CANCELLED` on timeout
 #[inline]
-pub fn sys_recv_timed(cap: u64, timeout_ns: u64) -> SaltyResult {
+pub fn sys_recv_timed(cap: u64, timeout_ns: u64) -> BesaltResult {
     syscall(
         crate::consts::SYS_RECV_TIMED,
         cap,

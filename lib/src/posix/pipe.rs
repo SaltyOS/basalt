@@ -15,8 +15,8 @@ pub unsafe fn posix_pipe(fds: *mut i32) -> i32 {
 /// Returns 0 on success, -1 on error.
 pub unsafe fn posix_pipe2(fds: *mut i32, flags: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_PIPE;
         msg.length = 1;
         msg.regs[0] = flags as u64;
@@ -30,8 +30,8 @@ pub unsafe fn posix_pipe2(fds: *mut i32, flags: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         *fds = reply.regs[0] as i32;       // read fd
         *fds.add(1) = reply.regs[1] as i32; // write fd
@@ -42,8 +42,8 @@ pub unsafe fn posix_pipe2(fds: *mut i32, flags: i32) -> i32 {
 /// Duplicate file descriptor `oldfd`. Returns the new fd, or -1 on error.
 pub unsafe fn posix_dup(oldfd: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_DUP;
         msg.length = 1;
         msg.regs[0] = oldfd as u64;
@@ -57,8 +57,8 @@ pub unsafe fn posix_dup(oldfd: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -68,8 +68,8 @@ pub unsafe fn posix_dup(oldfd: i32) -> i32 {
 /// Returns `newfd` on success, -1 on error.
 pub unsafe fn posix_dup2(oldfd: i32, newfd: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_DUP2;
         msg.length = 2;
         msg.regs[0] = oldfd as u64;
@@ -84,8 +84,8 @@ pub unsafe fn posix_dup2(oldfd: i32, newfd: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -95,8 +95,8 @@ pub unsafe fn posix_dup2(oldfd: i32, newfd: i32) -> i32 {
 /// Returns `newfd` on success, -1 on error.
 pub unsafe fn posix_dup3(oldfd: i32, newfd: i32, flags: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_DUP3;
         msg.length = 3;
         msg.regs[0] = oldfd as u64;
@@ -112,8 +112,8 @@ pub unsafe fn posix_dup3(oldfd: i32, newfd: i32, flags: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -123,8 +123,8 @@ pub unsafe fn posix_dup3(oldfd: i32, newfd: i32, flags: i32) -> i32 {
 pub unsafe fn posix_mkfifo(path: *const u8, mode: u32) -> i32 {
     unsafe {
         let mode = mode & !super::misc::get_umask();
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_MKFIFO;
         msg.regs[0] = mode as u64;
         let path_len = pack_path(&raw mut msg, 1, path, 128);
@@ -139,8 +139,8 @@ pub unsafe fn posix_mkfifo(path: *const u8, mode: u32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }

@@ -112,14 +112,14 @@ pub fn current_tls() -> Option<*mut ThreadLocalBlock> {
 
 /// Get a pointer to the current thread's IPC context from TLS.
 ///
-/// Falls back to the global `__salty_ipc_ctx` if TLS is not initialized.
+/// Falls back to the global `__besalt_ipc_ctx` if TLS is not initialized.
 #[inline]
 pub fn current_ipc_ctx() -> *mut IpcContext {
     if let Some(tls) = current_tls() {
         unsafe { &raw mut (*tls).ipc_ctx }
     } else {
         // Fallback for main thread before TLS is initialized
-        &raw mut crate::__salty_ipc_ctx
+        &raw mut crate::__besalt_ipc_ctx
     }
 }
 
@@ -161,8 +161,8 @@ pub unsafe fn init_main_thread_tls() {
         (*tls).self_ptr = tls;
 
         // Copy global IPC context into TLS
-        (*tls).ipc_ctx.ipc_buffer = crate::__salty_ipc_ctx.ipc_buffer;
-        (*tls).ipc_ctx.send_cap_count = crate::__salty_ipc_ctx.send_cap_count;
+        (*tls).ipc_ctx.ipc_buffer = crate::__besalt_ipc_ctx.ipc_buffer;
+        (*tls).ipc_ctx.send_cap_count = crate::__besalt_ipc_ctx.send_cap_count;
 
         // Main thread is thread 0
         (*tls).thread_id = 0;

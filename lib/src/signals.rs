@@ -64,8 +64,8 @@ pub unsafe fn posix_signal(sig: i32, handler: usize) -> usize {
             SIG_DISP_CATCH
         };
 
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_SIGACTION;
         msg.length = 2;
         msg.regs[0] = sig as u64;
@@ -77,7 +77,7 @@ pub unsafe fn posix_signal(sig: i32, handler: usize) -> usize {
             &raw const msg,
             &raw mut reply,
         );
-        if err != 0 || reply.label != SALTY_OK {
+        if err != 0 || reply.label != BESALT_OK {
             // Revert on failure
             crate::__sig_handlers[sig as usize].store(old, Ordering::SeqCst);
             return usize::MAX; // SIG_ERR
@@ -96,7 +96,7 @@ pub unsafe fn posix_signal(sig: i32, handler: usize) -> usize {
 /// - Otherwise: saves/restores the blocked mask, handles SA_RESETHAND,
 ///   and calls the user handler function.
 ///
-/// Note: SA_RESTART has no effect in SaltyOS. Signals are delivered
+/// Note: SA_RESTART has no effect in BesaltOS. Signals are delivered
 /// cooperatively — system calls (IPC) are never interrupted, so there
 /// is no syscall to restart. SA_RESTART is stored but intentionally
 /// not checked here.
@@ -107,7 +107,7 @@ pub unsafe fn posix_sigcheck() -> i32 {
         sig_init();
 
         let mut bits: u64 = 0;
-        let err = crate::salty_poll(CAP_SIGNAL_NTFN, &raw mut bits);
+        let err = crate::besalt_poll(CAP_SIGNAL_NTFN, &raw mut bits);
         if err != 0 || bits == 0 {
             return 0;
         }
@@ -145,8 +145,8 @@ pub unsafe fn posix_sigcheck() -> i32 {
                 if sa_flags & SA_RESETHAND != 0 {
                     crate::__sig_handlers[sig as usize].store(SIG_DFL, Ordering::SeqCst);
                     // Notify procmgr of disposition change
-                    let mut msg = SaltyMsg::zeroed();
-                    let mut reply = SaltyMsg::zeroed();
+                    let mut msg = BesaltMsg::zeroed();
+                    let mut reply = BesaltMsg::zeroed();
                     msg.label = POSIX_PM_SIGACTION;
                     msg.length = 2;
                     msg.regs[0] = sig as u64;

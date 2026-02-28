@@ -111,9 +111,9 @@ msg.label = POSIX_VFS_OPEN;        // operation label
 msg.regs[0] = flags as u64;        // pack arguments into regs
 // ... pack path into remaining regs ...
 
-ipc::call_ctx(&raw mut __salty_ipc_ctx, CAP_VFS_EP, &msg, &mut reply);
+ipc::call_ctx(&raw mut __besalt_ipc_ctx, CAP_VFS_EP, &msg, &mut reply);
 
-if reply.label == SALTY_OK {
+if reply.label == BESALT_OK {
     let fd = reply.regs[0] as i32;  // decode result
 }
 ```

@@ -3,7 +3,7 @@
 //!
 //! Every POSIX operation is implemented as an IPC `Call` to either the VFS
 //! server (`CAP_VFS_EP`) or the process manager (`CAP_PROCMGR_EP`). The
-//! client packs arguments into a `SaltyMsg`, sends it, and unpacks the
+//! client packs arguments into a `BesaltMsg`, sends it, and unpacks the
 //! reply. No kernel objects are created -- all state lives in the servers.
 //!
 //! # Data transfer chunking
@@ -45,25 +45,25 @@ const CAP_VFS_EP: u64 = 4;
 /// Convert a server error label to a negative POSIX errno code.
 ///
 /// Servers return specific error codes in `reply.label`. This translates them
-/// to negative errno values so saltyc can extract the correct errno.
-pub(crate) fn salty_err_to_posix(label: u64) -> i32 {
+/// to negative errno values so besaltc can extract the correct errno.
+pub(crate) fn besalt_err_to_posix(label: u64) -> i32 {
     match label {
-        SALTY_OK => 0,
-        SALTY_NOT_FOUND => -2,                // ENOENT
-        SALTY_ALREADY_EXISTS => -17,           // EEXIST
-        SALTY_INVALID_ARGUMENT => -22,         // EINVAL
-        SALTY_OUT_OF_MEMORY => -12,            // ENOMEM
-        SALTY_BUSY => -16,                     // EBUSY
-        SALTY_WOULD_BLOCK => -11,              // EAGAIN
-        SALTY_BAD_ADDRESS => -14,              // EFAULT
-        SALTY_INSUFFICIENT_RIGHTS => -13,      // EACCES
-        SALTY_INVALID_CAPABILITY => -9,        // EBADF
-        SALTY_DEADLOCK => -35,                 // EDEADLK
-        SALTY_INVALID_OPERATION => -1,         // EPERM
-        SALTY_OUT_OF_RANGE => -34,             // ERANGE
-        SALTY_CANCELLED => -125,               // ECANCELED
-        SALTY_CONN_REFUSED => -111,            // ECONNREFUSED
-        SALTY_TIMED_OUT => -110,               // ETIMEDOUT
+        BESALT_OK => 0,
+        BESALT_NOT_FOUND => -2,                // ENOENT
+        BESALT_ALREADY_EXISTS => -17,           // EEXIST
+        BESALT_INVALID_ARGUMENT => -22,         // EINVAL
+        BESALT_OUT_OF_MEMORY => -12,            // ENOMEM
+        BESALT_BUSY => -16,                     // EBUSY
+        BESALT_WOULD_BLOCK => -11,              // EAGAIN
+        BESALT_BAD_ADDRESS => -14,              // EFAULT
+        BESALT_INSUFFICIENT_RIGHTS => -13,      // EACCES
+        BESALT_INVALID_CAPABILITY => -9,        // EBADF
+        BESALT_DEADLOCK => -35,                 // EDEADLK
+        BESALT_INVALID_OPERATION => -1,         // EPERM
+        BESALT_OUT_OF_RANGE => -34,             // ERANGE
+        BESALT_CANCELLED => -125,               // ECANCELED
+        BESALT_CONN_REFUSED => -111,            // ECONNREFUSED
+        BESALT_TIMED_OUT => -110,               // ETIMEDOUT
         _ => -5,                               // EIO (generic)
     }
 }
@@ -72,7 +72,7 @@ pub(crate) fn salty_err_to_posix(label: u64) -> i32 {
 ///
 /// Writes the path length into `regs[offset]` and the path bytes (up to 64)
 /// into `regs[offset+1..]`. Returns the path length.
-pub(crate) unsafe fn pack_path(msg: *mut SaltyMsg, offset: usize, path: *const u8, max_len: usize) -> u8 {
+pub(crate) unsafe fn pack_path(msg: *mut BesaltMsg, offset: usize, path: *const u8, max_len: usize) -> u8 {
     unsafe {
         let avail = (20usize.saturating_sub(offset + 1)) * 8;
         let cap = if max_len < 128 { max_len } else { 128 };

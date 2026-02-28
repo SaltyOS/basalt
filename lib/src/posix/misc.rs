@@ -17,8 +17,8 @@ struct IoctlWinsize {
 /// Returns the result value on success, -1 on error.
 pub unsafe fn posix_fcntl(fd: i32, cmd: i32, arg: i64) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_FCNTL;
         msg.length = 3;
         msg.regs[0] = fd as u64;
@@ -34,8 +34,8 @@ pub unsafe fn posix_fcntl(fd: i32, cmd: i32, arg: i64) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -44,8 +44,8 @@ pub unsafe fn posix_fcntl(fd: i32, cmd: i32, arg: i64) -> i32 {
 /// Test whether `fd` refers to a terminal. Returns 1 if yes, 0 if not.
 pub unsafe fn posix_isatty(fd: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_ISATTY;
         msg.length = 1;
         msg.regs[0] = fd as u64;
@@ -56,7 +56,7 @@ pub unsafe fn posix_isatty(fd: i32) -> i32 {
             &raw const msg,
             &raw mut reply,
         );
-        if err != 0 || reply.label != SALTY_OK {
+        if err != 0 || reply.label != BESALT_OK {
             return 0;
         }
         reply.regs[0] as i32
@@ -66,8 +66,8 @@ pub unsafe fn posix_isatty(fd: i32) -> i32 {
 /// Generic device I/O control. Returns the result value, or -1 on error.
 pub unsafe fn posix_ioctl(fd: i32, request: u64, arg: u64) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_IOCTL;
         msg.length = 3;
         msg.regs[0] = fd as u64;
@@ -83,8 +83,8 @@ pub unsafe fn posix_ioctl(fd: i32, request: u64, arg: u64) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
 
         match request {
@@ -118,8 +118,8 @@ pub unsafe fn posix_ioctl(fd: i32, request: u64, arg: u64) -> i32 {
 /// Returns 0 on success, -1 on error.
 pub unsafe fn posix_chdir(path: *const u8) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_CHDIR;
         let path_len = pack_path(&raw mut msg, 0, path, 128);
         msg.length = 1 + ((path_len as u64 + 7) / 8);
@@ -133,8 +133,8 @@ pub unsafe fn posix_chdir(path: *const u8) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -148,8 +148,8 @@ pub unsafe fn posix_getcwd(buf: *mut u8, size: u64) -> i32 {
             return -1;
         }
 
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_GETCWD;
         msg.length = 1;
         msg.regs[0] = size;
@@ -163,8 +163,8 @@ pub unsafe fn posix_getcwd(buf: *mut u8, size: u64) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
 
         let path_len = reply.regs[0] as usize;
@@ -190,8 +190,8 @@ pub unsafe fn posix_getcwd(buf: *mut u8, size: u64) -> i32 {
 /// Returns 0 on success, -1 on error.
 pub unsafe fn posix_tcgetattr(fd: i32, termios_p: *mut crate::types::Termios) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_TCGETATTR;
         msg.length = 1;
         msg.regs[0] = fd as u64;
@@ -205,8 +205,8 @@ pub unsafe fn posix_tcgetattr(fd: i32, termios_p: *mut crate::types::Termios) ->
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
 
         // Unpack: regs[0]=c_iflag, regs[1]=c_oflag, regs[2]=c_cflag, regs[3]=c_lflag
@@ -236,8 +236,8 @@ pub unsafe fn posix_tcsetattr(
     termios_p: *const crate::types::Termios,
 ) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_TCSETATTR;
         msg.length = 11;
         msg.regs[0] = fd as u64;
@@ -263,8 +263,8 @@ pub unsafe fn posix_tcsetattr(
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -282,8 +282,8 @@ pub unsafe fn posix_shm_open(name: *const u8, flags: i32) -> i32 {
         } else {
             name
         };
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_SHM_OPEN;
         msg.regs[0] = flags as u64;
         let name_len = pack_path(&raw mut msg, 1, bare, 128);
@@ -298,8 +298,8 @@ pub unsafe fn posix_shm_open(name: *const u8, flags: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -315,8 +315,8 @@ pub unsafe fn posix_shm_unlink(name: *const u8) -> i32 {
         } else {
             name
         };
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_SHM_UNLINK;
         let name_len = pack_path(&raw mut msg, 0, bare, 128);
         msg.length = 1 + ((name_len as u64 + 7) / 8);
@@ -330,8 +330,8 @@ pub unsafe fn posix_shm_unlink(name: *const u8) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -342,8 +342,8 @@ pub unsafe fn posix_shm_unlink(name: *const u8) -> i32 {
 /// Sends POSIX_VFS_IOCTL with an fb-specific command and unpacks up to 5 result registers.
 pub unsafe fn posix_fb_ioctl(fd: i32, cmd: u64, result: *mut [u64; 5]) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_IOCTL;
         msg.length = 3;
         msg.regs[0] = fd as u64;
@@ -359,8 +359,8 @@ pub unsafe fn posix_fb_ioctl(fd: i32, cmd: u64, result: *mut [u64; 5]) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         if !result.is_null() {
             for i in 0..5 {
@@ -387,8 +387,8 @@ pub(crate) unsafe fn get_umask() -> u32 {
 /// without an extra IPC round-trip.
 pub unsafe fn posix_umask(mask: u32) -> u32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_UMASK;
         msg.length = 1;
         msg.regs[0] = mask as u64;
@@ -400,7 +400,7 @@ pub unsafe fn posix_umask(mask: u32) -> u32 {
             &raw const msg,
             &raw mut reply,
         );
-        let old = if err != 0 || reply.label != SALTY_OK {
+        let old = if err != 0 || reply.label != BESALT_OK {
             let prev = core::ptr::read_volatile(&raw const UMASK_CACHE);
             core::ptr::write_volatile(&raw mut UMASK_CACHE, mask & 0o777);
             prev
@@ -416,8 +416,8 @@ pub unsafe fn posix_umask(mask: u32) -> u32 {
 /// IPC: reg[0]=fd, reg[1]=mode
 pub unsafe fn posix_fchmod(fd: i32, mode: u32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_FCHMOD;
         msg.length = 2;
         msg.regs[0] = fd as u64;
@@ -432,8 +432,8 @@ pub unsafe fn posix_fchmod(fd: i32, mode: u32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -443,8 +443,8 @@ pub unsafe fn posix_fchmod(fd: i32, mode: u32) -> i32 {
 /// IPC: reg[0]=fd, reg[1]=uid, reg[2]=gid
 pub unsafe fn posix_fchown(fd: i32, uid: u32, gid: u32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_FCHOWN;
         msg.length = 3;
         msg.regs[0] = fd as u64;
@@ -460,8 +460,8 @@ pub unsafe fn posix_fchown(fd: i32, uid: u32, gid: u32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }

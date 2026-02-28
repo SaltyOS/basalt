@@ -13,8 +13,8 @@ use super::CAP_VFS_EP;
 /// or -1 on error.
 pub unsafe fn posix_poll(fds: *mut PollFd, nfds: u32, timeout: i32) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_POLL;
 
         let actual_nfds = if nfds > 8 { 8 } else { nfds };
@@ -37,8 +37,8 @@ pub unsafe fn posix_poll(fds: *mut PollFd, nfds: u32, timeout: i32) -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
 
         let ready_count = reply.regs[0] as i32;
@@ -116,8 +116,8 @@ pub unsafe fn posix_select(nfds: i32, readfds: *mut u64, writefds: *mut u64, tim
 /// Create an epoll instance. Returns the epoll fd, or -1 on error.
 pub unsafe fn posix_epoll_create() -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_EPOLL_CREATE;
         msg.length = 0;
 
@@ -130,8 +130,8 @@ pub unsafe fn posix_epoll_create() -> i32 {
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
     }
@@ -141,8 +141,8 @@ pub unsafe fn posix_epoll_create() -> i32 {
 /// `op` is EPOLL_CTL_ADD/MOD/DEL. Returns 0 on success, -1 on error.
 pub unsafe fn posix_epoll_ctl(epfd: i32, op: i32, fd: i32, events: u32, data: u64) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_EPOLL_CTL;
         msg.length = 5;
         msg.regs[0] = epfd as u64;
@@ -160,8 +160,8 @@ pub unsafe fn posix_epoll_ctl(epfd: i32, op: i32, fd: i32, events: u32, data: u6
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
         0
     }
@@ -178,8 +178,8 @@ pub unsafe fn posix_epoll_wait(
     timeout: i32,
 ) -> i32 {
     unsafe {
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_EPOLL_WAIT;
         msg.length = 3;
         msg.regs[0] = epfd as u64;
@@ -195,8 +195,8 @@ pub unsafe fn posix_epoll_wait(
         if err != 0 {
             return -5; // EIO
         }
-        if reply.label != SALTY_OK {
-            return super::salty_err_to_posix(reply.label);
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
         }
 
         let count = reply.regs[0] as i32;

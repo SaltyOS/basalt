@@ -1,7 +1,7 @@
-//! Core types for SaltyOS userland
+//! Core types for BesaltOS userland
 //! SPDX-License-Identifier: GPL-2.0-only
 //!
-//! All types are `#[repr(C)]` for C ABI compatibility with `rtld` and `saltyc`.
+//! All types are `#[repr(C)]` for C ABI compatibility with `rtld` and `besaltc`.
 //! Structures here are shared across the Rust/C boundary and must remain
 //! layout-stable.
 
@@ -10,11 +10,11 @@
 pub type Cap = u64;
 
 /// Result of a raw syscall: `error` is 0 on success, otherwise an error code
-/// from `consts::SALTY_*`. `value` carries the return payload (e.g. badge,
+/// from `consts::BESALT_*`. `value` carries the return payload (e.g. badge,
 /// notification bits, clock value).
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct SaltyResult {
+pub struct BesaltResult {
     pub error: u64,
     pub value: u64,
 }
@@ -27,16 +27,16 @@ pub struct SaltyResult {
 /// IPC buffer page.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct SaltyMsg {
+pub struct BesaltMsg {
     pub label: u64,
     pub length: u64,
     pub regs: [u64; 20],
 }
 
-impl SaltyMsg {
+impl BesaltMsg {
     /// Return a zero-initialized message (label=0, length=0, all regs=0).
     pub const fn zeroed() -> Self {
-        SaltyMsg {
+        BesaltMsg {
             label: 0,
             length: 0,
             regs: [0; 20],
@@ -50,7 +50,7 @@ impl SaltyMsg {
 /// this page during IPC to transfer overflow message registers (MR4+),
 /// capability transfer slots, and receive-slot configuration.
 ///
-/// - `msg[0..5]`: mirrors SaltyMsg header (label, length, regs[0..3])
+/// - `msg[0..5]`: mirrors BesaltMsg header (label, length, regs[0..3])
 /// - `msg[6..21]`: overflow message registers (regs[4..19])
 /// - `badge`: sender badge written by kernel on receive
 /// - `caps[0..3]`: CNode slots of capabilities to transfer on send
@@ -247,7 +247,7 @@ impl CpioEntryExt {
 /// Fields are packed into IPC message registers by the VFS server.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct SaltyStat {
+pub struct BesaltStat {
     pub st_ino: u64,
     pub st_mode: u64,
     pub st_nlink: u64,
@@ -258,9 +258,9 @@ pub struct SaltyStat {
     pub st_type: u64,
 }
 
-impl SaltyStat {
+impl BesaltStat {
     pub const fn zeroed() -> Self {
-        SaltyStat {
+        BesaltStat {
             st_ino: 0,
             st_mode: 0,
             st_nlink: 0,
@@ -276,16 +276,16 @@ impl SaltyStat {
 /// POSIX-compatible directory entry returned by `posix_readdir`.
 /// `d_name` is null-terminated, max 127 chars + NUL.
 #[repr(C)]
-pub struct SaltyDirent {
+pub struct BesaltDirent {
     pub d_ino: u64,
     pub d_type: u8,
     pub d_namlen: u8,
     pub d_name: [u8; 128],
 }
 
-impl SaltyDirent {
+impl BesaltDirent {
     pub const fn zeroed() -> Self {
-        SaltyDirent {
+        BesaltDirent {
             d_ino: 0,
             d_type: 0,
             d_namlen: 0,
@@ -419,7 +419,7 @@ impl Timeval {
     }
 }
 
-/// POSIX termios structure for terminal I/O control. Layout matches `saltyc`.
+/// POSIX termios structure for terminal I/O control. Layout matches `besaltc`.
 /// Packed into IPC messages for `tcgetattr`/`tcsetattr` VFS calls.
 #[repr(C)]
 #[derive(Clone, Copy)]

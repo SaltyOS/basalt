@@ -15,9 +15,9 @@ use crate::syscall::syscall;
 use crate::types::*;
 
 /// Raw capability invocation: `SYS_INVOKE(cap, label, arg0..arg3)`.
-/// Returns the full `SaltyResult` (error + value).
+/// Returns the full `BesaltResult` (error + value).
 #[inline(always)]
-pub fn invoke(cap: Cap, label: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64) -> SaltyResult {
+pub fn invoke(cap: Cap, label: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64) -> BesaltResult {
     syscall(SYS_INVOKE, cap, label, arg0, arg1, arg2, arg3)
 }
 
@@ -91,7 +91,7 @@ pub fn tcb_suspend(tcb: Cap) -> i32 {
 pub fn tcb_suspend_retry(tcb: Cap, max_retries: u32) -> i32 {
     for _ in 0..max_retries {
         let err = tcb_suspend(tcb);
-        if err != crate::consts::SALTY_BUSY as i32 {
+        if err != crate::consts::BESALT_BUSY as i32 {
             return err;
         }
         crate::syscall::syscall(crate::consts::SYS_YIELD, 0, 0, 0, 0, 0, 0);
@@ -283,8 +283,8 @@ pub fn vspace_map_demand(vspace: Cap, vaddr: u64, flags: u64) -> i32 {
 /// Called by mmsrv when a VMFault indicates a COW page (write to present page).
 /// The kernel copies the old page contents to `new_frame` and updates the PTE.
 ///
-/// Returns SALTY_OK on success, SALTY_ALREADY_EXISTS if already resolved (race),
-/// SALTY_NOT_FOUND if page not present, SALTY_OUT_OF_MEMORY on failure.
+/// Returns BESALT_OK on success, BESALT_ALREADY_EXISTS if already resolved (race),
+/// BESALT_NOT_FOUND if page not present, BESALT_OUT_OF_MEMORY on failure.
 pub fn vspace_cow_resolve(vspace: Cap, vaddr: u64, new_frame: Cap, flags: u64) -> i32 {
     invoke(vspace, VSPACE_COW_RESOLVE, vaddr, new_frame, flags, 0).error as i32
 }
@@ -396,7 +396,7 @@ pub fn cnode_set_guard(cnode: Cap, guard: u64, guard_bits: u64) -> i32 {
 }
 
 /// Query CNode metadata (size_bits, num_slots, etc.) via IPC buffer.
-pub fn cnode_get_info(cnode: Cap) -> SaltyResult {
+pub fn cnode_get_info(cnode: Cap) -> BesaltResult {
     invoke(cnode, CNODE_GET_INFO, 0, 0, 0, 0)
 }
 

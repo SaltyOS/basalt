@@ -1,7 +1,7 @@
 //! POSIX threads (pthreads) implementation
 //!
 //! Provides pthread_create, pthread_join, pthread_exit, pthread_self,
-//! pthread_detach, and pthread_cancel on top of SaltyOS kernel primitives
+//! pthread_detach, and pthread_cancel on top of BesaltOS kernel primitives
 //! (TCB, SchedContext, futex, TLS).
 //!
 //! ## Handle lifetime safety
@@ -339,8 +339,8 @@ pub unsafe fn pthread_create(
             0,
         );
 
-        let mut msg = SaltyMsg::zeroed();
-        let mut reply = SaltyMsg::zeroed();
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
         msg.label = MM_ALLOC_THREAD_OBJECTS;
         msg.length = 0;
 
@@ -350,7 +350,7 @@ pub unsafe fn pthread_create(
             &raw const msg,
             &raw mut reply,
         );
-        if err != 0 || reply.label != SALTY_OK {
+        if err != 0 || reply.label != BESALT_OK {
             let mut lb = serial::LineBuf::new();
             lb.str(b"[PTHREAD] MM_ALLOC_THREAD_OBJECTS failed err=");
             lb.hex(err as u64);

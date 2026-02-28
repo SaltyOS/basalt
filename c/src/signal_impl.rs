@@ -184,9 +184,9 @@ pub unsafe extern "C" fn sigsuspend(mask: *const Sigset) -> i32 {
         // salty_wait atomically swaps notification bits to 0 (consuming them).
         // We must repost the consumed bits so posix_sigcheck can find them.
         let cap_signal_ntfn: u64 = 6;
-        let pending_bits = salty::salty_wait(cap_signal_ntfn);
+        let pending_bits = salty::besalt_wait(cap_signal_ntfn);
         if pending_bits != 0 {
-            salty::salty_signal(cap_signal_ntfn, pending_bits);
+            salty::besalt_signal(cap_signal_ntfn, pending_bits);
         }
 
         // Dispatch pending signals
@@ -211,11 +211,11 @@ pub unsafe extern "C" fn sigpending(set: *mut Sigset) -> i32 {
         // Non-blocking poll for notification bits
         let cap_signal_ntfn: u64 = 6;
         let mut bits: u64 = 0;
-        let err = salty::salty_poll(cap_signal_ntfn, &raw mut bits);
+        let err = salty::besalt_poll(cap_signal_ntfn, &raw mut bits);
 
         if err == 0 && bits != 0 {
             // Re-signal ALL consumed bits back (poll is destructive)
-            salty::salty_signal(cap_signal_ntfn, bits);
+            salty::besalt_signal(cap_signal_ntfn, bits);
 
             // Pending = signaled AND blocked
             let blocked = *(&raw const salty::__sig_blocked_mask);
@@ -282,6 +282,12 @@ pub extern "C" fn sigismember(set: *const Sigset, sig: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn siginterrupt(_sig: i32, _flag: i32) -> i32 {
     0
+}
+
+/// pthread_sigmask is identical to sigprocmask for single-process signal masks.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_sigmask(how: i32, set: *const Sigset, oldset: *mut Sigset) -> i32 {
+    unsafe { sigprocmask(how, set, oldset) }
 }
 
 // ---------------------------------------------------------------------------

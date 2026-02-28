@@ -1,13 +1,13 @@
-//! SaltyOS system constants
-//! SPDX-License-Identifier: GPL-2.0-only
-//!
-//! Userland source of truth for syscall numbers, capability invoke labels,
-//! error codes, well-known cap slots, VSpace flags, object types, POSIX
-//! protocol labels, ELF constants, and address layout.
-//!
-//! **These values must be kept in sync with the kernel.** The kernel defines
-//! its own copies in `kernel/src/syscall/mod.rs` and `kernel/src/cap/`.
-//! Any mismatch will cause silent protocol errors.
+// BesaltOS system constants
+// SPDX-License-Identifier: GPL-2.0-only
+//
+// Userland source of truth for syscall numbers, capability invoke labels,
+// error codes, well-known cap slots, VSpace flags, object types, POSIX
+// protocol labels, ELF constants, and address layout.
+//
+// **These values must be kept in sync with the kernel.** The kernel defines
+// its own copies in `kernel/src/syscall/mod.rs` and `kernel/src/cap/`.
+// Any mismatch will cause silent protocol errors.
 
 /// System call numbers. Each corresponds to a variant of the kernel's
 /// `Syscall` enum in `kernel/src/syscall/mod.rs`.
@@ -198,23 +198,23 @@ pub const BOOTINFO_MAGIC: u64 = 0x534C5459_424F4F54; // "SLTYBOOT"
 /// Capability rights bitmask (all rights granted).
 pub const CAP_RIGHTS_ALL: u64 = 0xFFFF_FFFF;
 
-/// Error codes returned in `SaltyResult.error`. Must match kernel `SyscallError` variants.
-pub const SALTY_OK: u64 = 0;
-pub const SALTY_INVALID_CAPABILITY: u64 = 1;
-pub const SALTY_INVALID_OPERATION: u64 = 2;
-pub const SALTY_INSUFFICIENT_RIGHTS: u64 = 3;
-pub const SALTY_INVALID_ARGUMENT: u64 = 4;
-pub const SALTY_OUT_OF_MEMORY: u64 = 5;
-pub const SALTY_NOT_FOUND: u64 = 6;
-pub const SALTY_BUSY: u64 = 7;
-pub const SALTY_ALREADY_EXISTS: u64 = 8;
-pub const SALTY_WOULD_BLOCK: u64 = 9;
-pub const SALTY_BAD_ADDRESS: u64 = 10;
-pub const SALTY_OUT_OF_RANGE: u64 = 11;
-pub const SALTY_CANCELLED: u64 = 12;
-pub const SALTY_RESTART: u64 = 13;
-pub const SALTY_DEADLOCK: u64 = 14;
-pub const SALTY_PENDING: u64 = 0x80;
+/// Error codes returned in `BesaltResult.error`. Must match kernel `SyscallError` variants.
+pub const BESALT_OK: u64 = 0;
+pub const BESALT_INVALID_CAPABILITY: u64 = 1;
+pub const BESALT_INVALID_OPERATION: u64 = 2;
+pub const BESALT_INSUFFICIENT_RIGHTS: u64 = 3;
+pub const BESALT_INVALID_ARGUMENT: u64 = 4;
+pub const BESALT_OUT_OF_MEMORY: u64 = 5;
+pub const BESALT_NOT_FOUND: u64 = 6;
+pub const BESALT_BUSY: u64 = 7;
+pub const BESALT_ALREADY_EXISTS: u64 = 8;
+pub const BESALT_WOULD_BLOCK: u64 = 9;
+pub const BESALT_BAD_ADDRESS: u64 = 10;
+pub const BESALT_OUT_OF_RANGE: u64 = 11;
+pub const BESALT_CANCELLED: u64 = 12;
+pub const BESALT_RESTART: u64 = 13;
+pub const BESALT_DEADLOCK: u64 = 14;
+pub const BESALT_PENDING: u64 = 0x80;
 
 /// VSpace page mapping flags (passed to `vspace_map`).
 pub const VSPACE_FLAG_WRITABLE: u64 = 1 << 0;
@@ -536,9 +536,9 @@ pub const MAP_ANONYMOUS: i32 = 0x20;
 pub const MAP_LAZY: i32 = 0x40;
 
 // Userland slot allocator auxv types
-pub const AT_SALTY_SLOT_BASE: u64 = 0x1007;
-pub const AT_SALTY_SLOT_COUNT: u64 = 0x1008;
-pub const AT_SALTY_CSPACE_NTFN: u64 = 0x100A;
+pub const AT_BESALT_SLOT_BASE: u64 = 0x1007;
+pub const AT_BESALT_SLOT_COUNT: u64 = 0x1008;
+pub const AT_BESALT_CSPACE_NTFN: u64 = 0x100A;
 
 /// ELF format constants (class, data encoding, types, segment types, relocation types).
 pub const ELF_PAGE_SIZE: u64 = 4096;
@@ -620,10 +620,10 @@ pub const DRIVER_REGISTER: u64 = 0xC0;
 pub const DRIVER_GET_INFO: u64 = 0xC1;
 
 /// Extended error codes for network operations.
-pub const SALTY_CONN_REFUSED: u64 = 21;
-pub const SALTY_TIMED_OUT: u64 = 22;
-pub const SALTY_DNS_NXDOMAIN: u64 = 23;
-pub const SALTY_DNS_SERVER_FAIL: u64 = 24;
+pub const BESALT_CONN_REFUSED: u64 = 21;
+pub const BESALT_TIMED_OUT: u64 = 22;
+pub const BESALT_DNS_NXDOMAIN: u64 = 23;
+pub const BESALT_DNS_SERVER_FAIL: u64 = 24;
 
 /// Async operation type codes (used in NET_COMPLETE callbacks).
 pub const INET_OP_CONNECT: u8 = 1;
