@@ -3,6 +3,7 @@
 #define __SYS_SOCKET_H__
 
 #include <sys/types.h>
+#include <sys/cdefs.h>
 
 #define AF_UNSPEC 0
 #define AF_UNIX   1
@@ -40,6 +41,8 @@ struct sockaddr_un {
 };
 #endif
 
+__BEGIN_DECLS
+
 extern int socket(int domain, int type, int protocol);
 extern int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
 extern int listen(int sockfd, int backlog);
@@ -55,5 +58,7 @@ extern int setsockopt(int sockfd, int level, int optname,
                       const void *optval, socklen_t optlen);
 extern int getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 extern int getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+
+__END_DECLS
 
 #endif /* __SYS_SOCKET_H__ */

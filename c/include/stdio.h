@@ -5,8 +5,11 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <sys/types.h>
+#include <sys/cdefs.h>
 
 typedef struct FILE FILE;
+
+__BEGIN_DECLS
 
 extern FILE *stdin;
 extern FILE *stdout;
@@ -53,6 +56,8 @@ extern size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream);
 extern int   fseek(FILE *stream, long offset, int whence);
 extern long  ftell(FILE *stream);
 extern void  rewind(FILE *stream);
+extern int   fseeko(FILE *stream, off_t offset, int whence);
+extern off_t ftello(FILE *stream);
 
 extern int   feof(FILE *stream);
 extern int   ferror(FILE *stream);
@@ -76,7 +81,11 @@ extern int   vsprintf(char *str, const char *format, va_list ap);
 extern int   vsnprintf(char *str, size_t size, const char *format, va_list ap);
 extern int   vasprintf(char **strp, const char *format, va_list ap);
 
+extern int   scanf(const char *format, ...);
+extern int   fscanf(FILE *stream, const char *format, ...);
 extern int   sscanf(const char *str, const char *format, ...);
+extern int   vscanf(const char *format, va_list ap);
+extern int   vfscanf(FILE *stream, const char *format, va_list ap);
 extern int   vsscanf(const char *str, const char *format, va_list ap);
 
 extern void  perror(const char *s);
@@ -93,5 +102,7 @@ extern ssize_t getdelim(char **lineptr, size_t *n, int delim, FILE *stream);
 
 extern FILE *popen(const char *command, const char *type);
 extern int   pclose(FILE *stream);
+
+__END_DECLS
 
 #endif /* __STDIO_H__ */

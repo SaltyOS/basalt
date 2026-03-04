@@ -34,11 +34,21 @@ pub struct Lconv {
     pub n_sep_by_space: u8,
     pub p_sign_posn: u8,
     pub n_sign_posn: u8,
+    pub int_p_cs_precedes: u8,
+    pub int_p_sep_by_space: u8,
+    pub int_n_cs_precedes: u8,
+    pub int_n_sep_by_space: u8,
+    pub int_p_sign_posn: u8,
+    pub int_n_sign_posn: u8,
 }
 
 static DECIMAL_POINT: [u8; 2] = *b".\0";
 static EMPTY: [u8; 1] = *b"\0";
 static C_LOCALE: [u8; 2] = *b"C\0";
+
+/// Sentinel address returned as `locale_t` for the C locale.
+/// We are C-locale-only, so all locale_t values are this address.
+static LOCALE_SENTINEL: u8 = 0;
 
 static mut LCONV: Lconv = Lconv {
     decimal_point: core::ptr::null(),
@@ -59,7 +69,71 @@ static mut LCONV: Lconv = Lconv {
     n_sep_by_space: 127,
     p_sign_posn: 127,
     n_sign_posn: 127,
+    int_p_cs_precedes: 127,
+    int_p_sep_by_space: 127,
+    int_n_cs_precedes: 127,
+    int_n_sep_by_space: 127,
+    int_p_sign_posn: 127,
+    int_n_sign_posn: 127,
 };
+
+// ---------------------------------------------------------------------------
+// POSIX extended locale API (newlocale / freelocale / uselocale)
+// ---------------------------------------------------------------------------
+
+/// Compare a C string pointer against a known ASCII literal.
+/// # Safety
+/// `s` must be a valid, NUL-terminated C string.
+#[inline]
+unsafe fn c_str_eq(s: *const u8, expected: &[u8]) -> bool {
+    unsafe {
+        for (i, &b) in expected.iter().enumerate() {
+            if *s.add(i) != b {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// `newlocale` — create a locale object.
+///
+/// SaltyOS supports only the "C" / "POSIX" locale. Returns the static
+/// sentinel for those names; returns NULL for anything else.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn newlocale(
+    _mask: i32,
+    locale: *const u8,
+    _base: *mut u8,
+) -> *mut u8 {
+    unsafe {
+        let sentinel = &raw const LOCALE_SENTINEL as *mut u8;
+        if locale.is_null() {
+            return sentinel;
+        }
+        if c_str_eq(locale, b"C\0")
+            || c_str_eq(locale, b"POSIX\0")
+            || c_str_eq(locale, b"\0")
+        {
+            return sentinel;
+        }
+        core::ptr::null_mut()
+    }
+}
+
+/// `freelocale` — free a locale object.
+///
+/// No-op: LOCALE_SENTINEL is a static singleton and must not be freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn freelocale(_loc: *mut u8) {}
+
+/// `uselocale` — set/query the calling thread's locale.
+///
+/// SaltyOS is C-locale-only; always returns LOCALE_SENTINEL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn uselocale(_loc: *mut u8) -> *mut u8 {
+    &raw const LOCALE_SENTINEL as *mut u8
+}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setlocale(_category: i32, _locale: *const u8) -> *const u8 {

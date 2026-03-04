@@ -1,0 +1,70 @@
+// __config_site — SaltyOS libc++ compile-time configuration
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+// Hand-written from libcxx/include/__config_site.in with SaltyOS fixed
+// settings. Matches the CMake flags from toolchain-build-runtimes:
+//   LIBCXX_ENABLE_THREADS=ON, LIBCXX_ENABLE_MONOTONIC_CLOCK=ON
+//   LIBCXX_ENABLE_FILESYSTEM=ON, LIBCXX_ENABLE_LOCALIZATION=ON
+//   LIBCXX_ENABLE_WIDE_CHARACTERS=ON, LIBCXX_ENABLE_RANDOM_DEVICE=ON (getentropy backend)
+//   LIBCXX_ENABLE_UNICODE=OFF, LIBCXX_ENABLE_TIME_ZONE_DATABASE=OFF
+//   LIBCXX_HAS_TERMINAL_AVAILABLE=OFF
+//   LIBCXX_CXX_ABI=libcxxabi, LIBCXXABI_BAREMETAL=ON
+//   LIBCXXABI_SILENT_TERMINATE=ON, LIBCXXABI_ENABLE_EXCEPTIONS=OFF
+
+#ifndef _LIBCPP___CONFIG_SITE
+#define _LIBCPP___CONFIG_SITE
+
+// ABI versioning
+#define _LIBCPP_ABI_VERSION 1
+#define _LIBCPP_ABI_NAMESPACE __1
+#define _LIBCPP_ABI_FORCE_ITANIUM 1
+#define _LIBCPP_ABI_FORCE_MICROSOFT 0
+
+// Threading: POSIX threads, monotonic clock
+#define _LIBCPP_HAS_THREADS 1
+#define _LIBCPP_HAS_MONOTONIC_CLOCK 1
+#define _LIBCPP_HAS_TERMINAL 0
+#define _LIBCPP_HAS_MUSL_LIBC 0
+#define _LIBCPP_HAS_THREAD_API_PTHREAD 1
+#define _LIBCPP_HAS_THREAD_API_EXTERNAL 0
+#define _LIBCPP_HAS_THREAD_API_WIN32 0
+#define _LIBCPP_HAS_THREAD_API_C11 0
+
+// Disabled features (SaltyOS minimal configuration)
+#define _LIBCPP_HAS_FILESYSTEM 1
+#define _LIBCPP_HAS_RANDOM_DEVICE 1
+// random_device backend: use getentropy() from <sys/random.h>.
+// Pre-defined here so it takes priority over __config's platform detection
+// (#if/__elif chain always defines _LIBCPP_USING_DEV_RANDOM for unknown targets).
+#define _LIBCPP_USING_GETENTROPY
+// Locale backend: SaltyOS C-locale-only (Fuchsia-style uselocale guards)
+#define _LIBCPP_LOCALE_BACKEND_SALTYOS
+#define _LIBCPP_HAS_LOCALIZATION 1
+// ctype_base::mask: use libc++'s built-in power-of-two rune table
+// (same as Fuchsia/Bionic/WASI — no _CTYPE_* macros needed from C lib)
+#define _LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE
+#define _LIBCPP_HAS_UNICODE 0
+#define _LIBCPP_HAS_WIDE_CHARACTERS 1
+#define _LIBCPP_HAS_TIME_ZONE_DATABASE 0
+
+// Hardening: disabled for baremetal (no overhead, no assertion checks).
+// hardening.h defines _LIBCPP_HARDENING_MODE_NONE / _LIBCPP_ASSERTION_SEMANTIC_IGNORE
+// before evaluating these macros, so the named constants are safe to use here.
+#define _LIBCPP_HARDENING_MODE_DEFAULT _LIBCPP_HARDENING_MODE_NONE
+#define _LIBCPP_ASSERTION_SEMANTIC_DEFAULT _LIBCPP_ASSERTION_SEMANTIC_IGNORE
+
+// No ASan instrumentation
+#define _LIBCPP_INSTRUMENTED_WITH_ASAN 0
+
+// No vendor availability annotations
+#define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 0
+
+// C library: standard besaltc (not musl/newlib/llvm-libc)
+#define _LIBCPP_LIBC_PICOLIBC 0
+#define _LIBCPP_LIBC_NEWLIB 0
+#define _LIBCPP_LIBC_LLVM_LIBC 0
+
+// PSTL: serial backend (no threading overhead for parallel algorithms)
+#define _LIBCPP_PSTL_BACKEND_SERIAL 1
+
+#endif // _LIBCPP___CONFIG_SITE

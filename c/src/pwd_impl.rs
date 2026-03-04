@@ -167,6 +167,87 @@ pub unsafe extern "C" fn endpwent() {
     }
 }
 
+/// Copy root passwd data into caller-supplied buffer and populate `*pwd`.
+/// Returns 0 on success, ERANGE (34) if `buflen` is too small.
+/// Strings: "root\0"(5) + "x\0"(2) + "root\0"(5) + "/\0"(2) + "/bin/sh\0"(8) = 22 bytes.
+unsafe fn fill_root_passwd(
+    pwd: *mut Passwd,
+    buf: *mut u8,
+    buflen: usize,
+    result: *mut *mut Passwd,
+) -> i32 {
+    const ERANGE: i32 = 34;
+    const NEED: usize = 22;
+    unsafe {
+        if buflen < NEED {
+            *result = core::ptr::null_mut();
+            return ERANGE;
+        }
+        // Copy strings sequentially into buf.
+        let mut off = 0usize;
+        let name_ptr = buf.add(off);
+        core::ptr::copy_nonoverlapping(ROOT_NAME.as_ptr(), buf.add(off), ROOT_NAME.len());
+        off += ROOT_NAME.len();
+        let passwd_ptr = buf.add(off);
+        core::ptr::copy_nonoverlapping(ROOT_PASSWD.as_ptr(), buf.add(off), ROOT_PASSWD.len());
+        off += ROOT_PASSWD.len();
+        let gecos_ptr = buf.add(off);
+        core::ptr::copy_nonoverlapping(ROOT_GECOS.as_ptr(), buf.add(off), ROOT_GECOS.len());
+        off += ROOT_GECOS.len();
+        let dir_ptr = buf.add(off);
+        core::ptr::copy_nonoverlapping(ROOT_DIR.as_ptr(), buf.add(off), ROOT_DIR.len());
+        off += ROOT_DIR.len();
+        let shell_ptr = buf.add(off);
+        core::ptr::copy_nonoverlapping(ROOT_SHELL.as_ptr(), buf.add(off), ROOT_SHELL.len());
+        let _ = off; // silence unused warning
+        (*pwd).pw_name   = name_ptr;
+        (*pwd).pw_passwd = passwd_ptr;
+        (*pwd).pw_uid    = 0;
+        (*pwd).pw_gid    = 0;
+        (*pwd).pw_gecos  = gecos_ptr;
+        (*pwd).pw_dir    = dir_ptr;
+        (*pwd).pw_shell  = shell_ptr;
+        *result = pwd;
+        0
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getpwnam_r(
+    name: *const u8,
+    pwd: *mut Passwd,
+    buf: *mut u8,
+    buflen: usize,
+    result: *mut *mut Passwd,
+) -> i32 {
+    unsafe {
+        if !name.is_null() && streq(name, &ROOT_NAME) {
+            fill_root_passwd(pwd, buf, buflen, result)
+        } else {
+            *result = core::ptr::null_mut();
+            0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getpwuid_r(
+    uid: u32,
+    pwd: *mut Passwd,
+    buf: *mut u8,
+    buflen: usize,
+    result: *mut *mut Passwd,
+) -> i32 {
+    unsafe {
+        if uid == 0 {
+            fill_root_passwd(pwd, buf, buflen, result)
+        } else {
+            *result = core::ptr::null_mut();
+            0
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Group functions
 // ---------------------------------------------------------------------------
@@ -223,5 +304,77 @@ pub unsafe extern "C" fn setgrent() {
 pub unsafe extern "C" fn endgrent() {
     unsafe {
         *(&raw mut GROUP_ITER) = 0;
+    }
+}
+
+/// Copy root group data into caller-supplied buffer and populate `*grp`.
+/// Returns 0 on success, ERANGE (34) if `buflen` is too small.
+/// Strings: "root\0"(5) + "\0"(1) = 6 bytes, plus null-terminated member array (8 bytes) = 14 bytes.
+unsafe fn fill_root_group(
+    grp: *mut Group,
+    buf: *mut u8,
+    buflen: usize,
+    result: *mut *mut Group,
+) -> i32 {
+    const ERANGE: i32 = 34;
+    // 5 bytes (gr_name) + 1 byte (gr_passwd="\0") + 8 bytes (null *const u8 member sentinel)
+    const NEED: usize = 14;
+    unsafe {
+        if buflen < NEED {
+            *result = core::ptr::null_mut();
+            return ERANGE;
+        }
+        let mut off = 0usize;
+        let name_ptr = buf.add(off);
+        core::ptr::copy_nonoverlapping(GROUP_NAME.as_ptr(), buf.add(off), GROUP_NAME.len());
+        off += GROUP_NAME.len();
+        let passwd_ptr = buf.add(off);
+        core::ptr::copy_nonoverlapping(EMPTY_STR.as_ptr(), buf.add(off), EMPTY_STR.len());
+        off += EMPTY_STR.len();
+        // Write a null *const u8 sentinel (null-terminated member list) into buf.
+        let mem_ptr = buf.add(off) as *mut *const u8;
+        *mem_ptr = core::ptr::null();
+        (*grp).gr_name   = name_ptr;
+        (*grp).gr_passwd = passwd_ptr;
+        (*grp).gr_gid    = 0;
+        (*grp).gr_mem    = mem_ptr;
+        *result = grp;
+        0
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getgrnam_r(
+    name: *const u8,
+    grp: *mut Group,
+    buf: *mut u8,
+    buflen: usize,
+    result: *mut *mut Group,
+) -> i32 {
+    unsafe {
+        if !name.is_null() && streq(name, &GROUP_NAME) {
+            fill_root_group(grp, buf, buflen, result)
+        } else {
+            *result = core::ptr::null_mut();
+            0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getgrgid_r(
+    gid: u32,
+    grp: *mut Group,
+    buf: *mut u8,
+    buflen: usize,
+    result: *mut *mut Group,
+) -> i32 {
+    unsafe {
+        if gid == 0 {
+            fill_root_group(grp, buf, buflen, result)
+        } else {
+            *result = core::ptr::null_mut();
+            0
+        }
     }
 }

@@ -294,6 +294,65 @@ pub extern "C" fn reallocf(ptr: *mut u8, size: usize) -> *mut u8 {
     result
 }
 
+// ---------------------------------------------------------------------------
+// elf_aux_info — FreeBSD auxiliary vector lookup
+// ---------------------------------------------------------------------------
+
+/// Walk the saved auxv (tag, value) pairs and copy the value for `aux` into
+/// `buf`. For AT_EXECPATH (15), the value is treated as a C string pointer
+/// and the string is copied. For all other tags the raw u64 value is copied.
+/// Returns 0 on success, ENOENT if the tag is not present, EINVAL on bad args.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn elf_aux_info(aux: i32, buf: *mut core::ffi::c_void, buflen: i32) -> i32 {
+    if buf.is_null() || buflen <= 0 {
+        return errno::EINVAL;
+    }
+    unsafe {
+        let auxv = core::ptr::addr_of!(crate::crt::SAVED_AUXV).read();
+        if auxv.is_null() {
+            return errno::ENOENT;
+        }
+        let mut p = auxv;
+        loop {
+            let tag = *p;
+            let val = *p.add(1);
+            if tag == 0 {
+                break; // AT_NULL
+            }
+            if tag == aux as u64 {
+                // AT_EXECPATH (15): value is a pointer to a C string
+                if aux == 15 {
+                    let src = val as *const u8;
+                    if src.is_null() {
+                        return errno::ENOENT;
+                    }
+                    let mut len = 0usize;
+                    while *src.add(len) != 0 {
+                        len += 1;
+                    }
+                    if len + 1 > buflen as usize {
+                        return errno::EINVAL;
+                    }
+                    core::ptr::copy_nonoverlapping(src, buf as *mut u8, len + 1);
+                    return 0;
+                }
+                // Integer-type: copy raw u64 value
+                if (buflen as usize) < core::mem::size_of::<u64>() {
+                    return errno::EINVAL;
+                }
+                core::ptr::copy_nonoverlapping(
+                    &val as *const u64 as *const u8,
+                    buf as *mut u8,
+                    core::mem::size_of::<u64>(),
+                );
+                return 0;
+            }
+            p = p.add(2);
+        }
+    }
+    errno::ENOENT
+}
+
 /// rpmatch — BSD yes/no response matching.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rpmatch(response: *const u8) -> i32 {

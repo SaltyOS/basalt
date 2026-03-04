@@ -715,6 +715,54 @@ pub unsafe extern "C" fn vsscanf(s: *const u8, fmt: *const u8, mut ap: VaList<'_
     unsafe { sscanf_impl(s, fmt, &mut ap) }
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vfscanf(f: *mut FILE, fmt: *const u8, mut ap: VaList<'_>) -> i32 {
+    if f.is_null() {
+        return EOF;
+    }
+    ensure_stdio_init();
+    let mut buf = [0u8; BUF_SIZE];
+    unsafe {
+        if fgets(buf.as_mut_ptr(), BUF_SIZE as i32, f).is_null() {
+            return EOF;
+        }
+        sscanf_impl(buf.as_ptr(), fmt, &mut ap)
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fscanf(f: *mut FILE, fmt: *const u8, mut args: ...) -> i32 {
+    if f.is_null() {
+        return EOF;
+    }
+    ensure_stdio_init();
+    let mut buf = [0u8; BUF_SIZE];
+    unsafe {
+        if fgets(buf.as_mut_ptr(), BUF_SIZE as i32, f).is_null() {
+            return EOF;
+        }
+        sscanf_impl(buf.as_ptr(), fmt, &mut args)
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vscanf(fmt: *const u8, ap: VaList<'_>) -> i32 {
+    ensure_stdio_init();
+    unsafe { vfscanf(stdin, fmt, ap) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scanf(fmt: *const u8, mut args: ...) -> i32 {
+    ensure_stdio_init();
+    let mut buf = [0u8; BUF_SIZE];
+    unsafe {
+        if fgets(buf.as_mut_ptr(), BUF_SIZE as i32, stdin).is_null() {
+            return EOF;
+        }
+        sscanf_impl(buf.as_ptr(), fmt, &mut args)
+    }
+}
+
 unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 {
     if s.is_null() || fmt.is_null() {
         return -1;

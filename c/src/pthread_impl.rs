@@ -859,6 +859,11 @@ fn key_lock_release() {
     KEY_LOCK.store(0, core::sync::atomic::Ordering::Release);
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pthread_getthreadid_np() -> i32 {
+    current_thread_index() as i32
+}
+
 /// Get the current thread index (0..63) for key value lookup.
 fn current_thread_index() -> usize {
     if let Some(tls) = salty::tls::current_tls() {

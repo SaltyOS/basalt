@@ -2,6 +2,10 @@
 #ifndef __ERRNO_H__
 #define __ERRNO_H__
 
+#include <sys/cdefs.h>
+
+__BEGIN_DECLS
+
 extern int *__errno_location(void);
 #define errno (*__errno_location())
 
@@ -67,5 +71,7 @@ extern int *__errno_location(void);
 #define ECANCELED       125
 #define EOWNERDEAD      130
 #define ENOTRECOVERABLE 131
+
+__END_DECLS
 
 #endif /* __ERRNO_H__ */

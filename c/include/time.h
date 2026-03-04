@@ -4,6 +4,7 @@
 
 #include <stddef.h>
 #include <sys/types.h>
+#include <sys/cdefs.h>
 
 #define CLOCK_REALTIME  0
 #define CLOCK_MONOTONIC 1
@@ -27,6 +28,8 @@ struct tm {
     int tm_yday;
     int tm_isdst;
 };
+
+__BEGIN_DECLS
 
 extern time_t    time(time_t *tloc);
 extern clock_t   clock(void);
@@ -56,5 +59,7 @@ extern int       daylight;
 
 extern time_t    timegm(struct tm *tm);
 extern char     *strptime(const char *s, const char *format, struct tm *tm);
+
+__END_DECLS
 
 #endif /* __TIME_H__ */

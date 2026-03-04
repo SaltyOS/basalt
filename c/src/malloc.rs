@@ -264,6 +264,32 @@ pub unsafe extern "C" fn strndup(s: *const u8, n: usize) -> *mut u8 {
     }
 }
 
+/// C11 aligned allocation.
+///
+/// Returns a pointer aligned to `alignment` with at least `size` bytes, or
+/// NULL on failure. `alignment` must be a power of two. Returns NULL for
+/// zero-sized allocations.
+///
+/// Note: the over-allocation means the unaligned prefix bytes are leaked
+/// (not returned to the free list). This is acceptable for the rare usage
+/// pattern of this function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aligned_alloc(alignment: usize, size: usize) -> *mut u8 {
+    if alignment == 0 || !alignment.is_power_of_two() {
+        return core::ptr::null_mut();
+    }
+    if alignment <= ALIGN {
+        return unsafe { malloc(size) };
+    }
+    unsafe {
+        let ptr = malloc(size + alignment);
+        if ptr.is_null() {
+            return core::ptr::null_mut();
+        }
+        ((ptr as usize + alignment - 1) & !(alignment - 1)) as *mut u8
+    }
+}
+
 /// Allocate memory with a specific alignment.
 ///
 /// `alignment` must be a power of two and at least `sizeof(void*)` (8 bytes).

@@ -22,3 +22,4 @@ pub mod bsd_err;
 pub mod bsd_stdio;
 pub mod mntent;
 pub mod statvfs;
+pub mod umtx;

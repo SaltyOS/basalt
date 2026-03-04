@@ -4,10 +4,12 @@
 
 #include <sys/types.h>
 #include <stddef.h>
+#include <sys/cdefs.h>
 
 /* POSIX.1-2008 conformance */
 #define _POSIX_VERSION  200809L
 #define _POSIX2_VERSION 200809L
+#define _POSIX_TIMERS   200809L
 
 #define STDIN_FILENO  0
 #define STDOUT_FILENO 1
@@ -38,6 +40,8 @@
 #define _PC_NAME_MAX    3
 #define _PC_PATH_MAX    4
 #define _PC_PIPE_BUF    5
+
+__BEGIN_DECLS
 
 extern ssize_t read(int fd, void *buf, size_t count);
 extern ssize_t write(int fd, const void *buf, size_t count);
@@ -174,5 +178,7 @@ extern ssize_t copy_file_range(int fd_in, off_t *off_in,
 
 /* getentropy — fill buffer with random bytes */
 extern int getentropy(void *buf, size_t buflen);
+
+__END_DECLS
 
 #endif /* __UNISTD_H__ */

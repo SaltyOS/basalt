@@ -212,11 +212,23 @@ pub fn compute_vm_layout(
             WINDOW2_STACK_BASE + stack_size,
         )
     } else {
-        (VmRegion::zero(), VmRegion::zero(), 0)
+        // Large binary: place stack/scratch dynamically above code region
+        let guard = 0x10000_u64; // 64 KiB guard gap
+        let sbase = page_align_up(code_end + guard);
+        (
+            VmRegion { base: sbase, size: stack_size },
+            VmRegion { base: sbase + stack_size, size: 0x1000 },
+            sbase + stack_size,
+        )
     };
 
     let initrd = if map_initrd && initrd_window_size > 0 {
-        VmRegion { base: INITRD_BASE, size: page_align_up(initrd_window_size as u64) }
+        let initrd_base = if scratch.size > 0 && scratch.end() > INITRD_BASE {
+            page_align_up(scratch.end() + 0x1000)
+        } else {
+            INITRD_BASE
+        };
+        VmRegion { base: initrd_base, size: page_align_up(initrd_window_size as u64) }
     } else {
         VmRegion::zero()
     };

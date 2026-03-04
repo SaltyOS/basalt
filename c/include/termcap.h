@@ -2,6 +2,10 @@
 #ifndef __TERMCAP_H__
 #define __TERMCAP_H__
 
+#include <sys/cdefs.h>
+
+__BEGIN_DECLS
+
 extern int   tgetent(char *bp, const char *name);
 extern int   tgetnum(const char *id);
 extern int   tgetflag(const char *id);
@@ -12,5 +16,7 @@ extern int   tputs(const char *str, int affcnt, int (*putc_fn)(int));
 extern char *BC;
 extern char *UP;
 extern char  PC;
+
+__END_DECLS
 
 #endif /* __TERMCAP_H__ */

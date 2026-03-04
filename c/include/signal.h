@@ -3,6 +3,7 @@
 #define __SIGNAL_H__
 
 #include <sys/types.h>
+#include <sys/cdefs.h>
 
 #define SIGHUP      1
 #define SIGINT      2
@@ -38,8 +39,23 @@
 #define SA_NOCLDSTOP  0x00000001
 #define SA_NOCLDWAIT  0x00000002
 #define SA_SIGINFO    0x00000004
+#define SA_ONSTACK    0x08000000
 #define SA_RESTART    0x10000000
+#define SA_NODEFER    0x40000000
 #define SA_RESETHAND  0x80000000
+
+/* Alternate signal stack constants */
+#define SS_ONSTACK  1
+#define SS_DISABLE  2
+#define MINSIGSTKSZ 2048
+#define SIGSTKSZ    8192
+
+/* Alternate signal stack type */
+typedef struct {
+    void  *ss_sp;     /* stack base address */
+    int    ss_flags;  /* SS_ONSTACK or SS_DISABLE */
+    size_t ss_size;   /* stack size in bytes */
+} stack_t;
 
 #define SIG_BLOCK     0
 #define SIG_UNBLOCK   1
@@ -77,6 +93,8 @@ struct sigaction {
 
 typedef void (*sighandler_t)(int);
 
+__BEGIN_DECLS
+
 extern sighandler_t signal(int signum, sighandler_t handler);
 extern int   sigaction(int signum, const struct sigaction *act,
                        struct sigaction *oldact);
@@ -97,5 +115,9 @@ extern int   raise(int sig);
 
 extern const char * const sys_signame[];
 extern char *strsignal(int sig);
+
+extern int sigaltstack(const stack_t *ss, stack_t *old_ss);
+
+__END_DECLS
 
 #endif /* __SIGNAL_H__ */

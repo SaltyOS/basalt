@@ -3,6 +3,9 @@
 #define __STRING_H__
 
 #include <stddef.h>
+#include <sys/cdefs.h>
+
+__BEGIN_DECLS
 
 extern void *memcpy(void *dest, const void *src, size_t n);
 extern void *memmove(void *dest, const void *src, size_t n);
@@ -58,5 +61,7 @@ extern void  explicit_bzero(void *s, size_t n);
 extern size_t strlcpy(char *dst, const char *src, size_t dstsize);
 extern size_t strlcat(char *dst, const char *src, size_t dstsize);
 extern int    strverscmp(const char *s1, const char *s2);
+
+__END_DECLS
 
 #endif /* __STRING_H__ */

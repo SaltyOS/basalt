@@ -3,6 +3,7 @@
 #define __MNTENT_H__
 
 #include <stdio.h>
+#include <sys/cdefs.h>
 
 #define MOUNTED "/etc/mtab"
 #define _PATH_MOUNTED "/etc/mtab"
@@ -17,9 +18,13 @@ struct mntent {
     int   mnt_passno;
 };
 
+__BEGIN_DECLS
+
 extern FILE *setmntent(const char *filename, const char *type);
 extern struct mntent *getmntent(FILE *stream);
 extern int endmntent(FILE *stream);
 extern char *hasmntopt(const struct mntent *mnt, const char *opt);
+
+__END_DECLS
 
 #endif /* __MNTENT_H__ */

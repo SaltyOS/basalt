@@ -2,6 +2,8 @@
 #ifndef __LANGINFO_H__
 #define __LANGINFO_H__
 
+#include <sys/cdefs.h>
+
 typedef int nl_item;
 
 #define CODESET     14
@@ -40,6 +42,10 @@ typedef int nl_item;
 #define ERA         50
 #define D_MD_ORDER  51
 
+__BEGIN_DECLS
+
 extern char *nl_langinfo(nl_item item);
+
+__END_DECLS
 
 #endif /* __LANGINFO_H__ */

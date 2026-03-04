@@ -3,6 +3,8 @@
 #define __SYS_RESOURCE_H__
 
 #include <sys/types.h>
+#include <sys/cdefs.h>
+#include <sys/time.h>
 
 #define RLIM_INFINITY (~0UL)
 
@@ -28,14 +30,8 @@ struct rlimit {
 };
 
 struct rusage {
-    struct {
-        long tv_sec;
-        long tv_usec;
-    } ru_utime;
-    struct {
-        long tv_sec;
-        long tv_usec;
-    } ru_stime;
+    struct timeval ru_utime;
+    struct timeval ru_stime;
     long ru_maxrss;
     long ru_ixrss;
     long ru_idrss;
@@ -52,8 +48,12 @@ struct rusage {
     long ru_nivcsw;
 };
 
+__BEGIN_DECLS
+
 extern int getrlimit(int resource, struct rlimit *rlim);
 extern int setrlimit(int resource, const struct rlimit *rlim);
 extern int getrusage(int who, struct rusage *usage);
+
+__END_DECLS
 
 #endif /* __SYS_RESOURCE_H__ */

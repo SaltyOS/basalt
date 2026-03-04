@@ -42,7 +42,7 @@
 #define __weak_reference(sym,alias)
 #endif
 
-#ifndef __restrict
+#if !defined(__restrict) && !defined(__cplusplus)
 #define __restrict restrict
 #endif
 

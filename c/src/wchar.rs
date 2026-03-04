@@ -1213,6 +1213,28 @@ pub unsafe extern "C" fn wcscoll(s1: *const WcharT, s2: *const WcharT) -> i32 {
     unsafe { wcscmp(s1, s2) }
 }
 
+/// wcspbrk — find first occurrence of any character from charset in ws.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wcspbrk(
+    ws: *const WcharT,
+    charset: *const WcharT,
+) -> *mut WcharT {
+    unsafe {
+        let mut p = ws;
+        while *p != 0 {
+            let mut s = charset;
+            while *s != 0 {
+                if *p == *s {
+                    return p as *mut WcharT;
+                }
+                s = s.add(1);
+            }
+            p = p.add(1);
+        }
+        core::ptr::null_mut()
+    }
+}
+
 /// wcsstr — find wide substring.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wcsstr(
@@ -1241,6 +1263,11 @@ pub unsafe extern "C" fn wcsstr(
 
 unsafe extern "C" {
     safe fn strtod(s: *const u8, endp: *mut *mut u8) -> f64;
+    safe fn strtof(s: *const u8, endp: *mut *mut u8) -> f32;
+    safe fn strtold(s: *const u8, endp: *mut *mut u8) -> f64;
+    safe fn strtol(s: *const u8, endp: *mut *mut u8, base: i32) -> i64;
+    safe fn strtoul(s: *const u8, endp: *mut *mut u8, base: i32) -> u64;
+    safe fn strtoll(s: *const u8, endp: *mut *mut u8, base: i32) -> i64;
     safe fn strtoull(s: *const u8, endp: *mut *mut u8, base: i32) -> u64;
     safe fn malloc(size: usize) -> *mut u8;
     safe fn free(ptr: *mut u8);
@@ -1264,6 +1291,126 @@ pub unsafe extern "C" fn wcstod(
         *buf.add(len) = 0;
         let mut narrow_end: *mut u8 = core::ptr::null_mut();
         let result = strtod(buf, &raw mut narrow_end);
+        if !endp.is_null() {
+            let consumed = narrow_end.offset_from(buf) as usize;
+            *endp = wcs.add(consumed) as *mut WcharT;
+        }
+        free(buf);
+        result
+    }
+}
+
+/// wcstof — convert wide string to float.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wcstof(wcs: *const WcharT, endp: *mut *mut WcharT) -> f32 {
+    unsafe {
+        let len = wcslen(wcs);
+        let buf = malloc(len + 1);
+        if buf.is_null() {
+            return 0.0;
+        }
+        for i in 0..len {
+            *buf.add(i) = *wcs.add(i) as u8;
+        }
+        *buf.add(len) = 0;
+        let mut narrow_end: *mut u8 = core::ptr::null_mut();
+        let result = strtof(buf, &raw mut narrow_end);
+        if !endp.is_null() {
+            let consumed = narrow_end.offset_from(buf) as usize;
+            *endp = wcs.add(consumed) as *mut WcharT;
+        }
+        free(buf);
+        result
+    }
+}
+
+/// wcstold — convert wide string to long double (mapped to f64).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wcstold(wcs: *const WcharT, endp: *mut *mut WcharT) -> f64 {
+    unsafe {
+        let len = wcslen(wcs);
+        let buf = malloc(len + 1);
+        if buf.is_null() {
+            return 0.0;
+        }
+        for i in 0..len {
+            *buf.add(i) = *wcs.add(i) as u8;
+        }
+        *buf.add(len) = 0;
+        let mut narrow_end: *mut u8 = core::ptr::null_mut();
+        let result = strtold(buf, &raw mut narrow_end);
+        if !endp.is_null() {
+            let consumed = narrow_end.offset_from(buf) as usize;
+            *endp = wcs.add(consumed) as *mut WcharT;
+        }
+        free(buf);
+        result
+    }
+}
+
+/// wcstol — convert wide string to long.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wcstol(wcs: *const WcharT, endp: *mut *mut WcharT, base: i32) -> i64 {
+    unsafe {
+        let len = wcslen(wcs);
+        let buf = malloc(len + 1);
+        if buf.is_null() {
+            return 0;
+        }
+        for i in 0..len {
+            *buf.add(i) = *wcs.add(i) as u8;
+        }
+        *buf.add(len) = 0;
+        let mut narrow_end: *mut u8 = core::ptr::null_mut();
+        let result = strtol(buf, &raw mut narrow_end, base);
+        if !endp.is_null() {
+            let consumed = narrow_end.offset_from(buf) as usize;
+            *endp = wcs.add(consumed) as *mut WcharT;
+        }
+        free(buf);
+        result
+    }
+}
+
+/// wcstoul — convert wide string to unsigned long.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wcstoul(wcs: *const WcharT, endp: *mut *mut WcharT, base: i32) -> u64 {
+    unsafe {
+        let len = wcslen(wcs);
+        let buf = malloc(len + 1);
+        if buf.is_null() {
+            return 0;
+        }
+        for i in 0..len {
+            *buf.add(i) = *wcs.add(i) as u8;
+        }
+        *buf.add(len) = 0;
+        let mut narrow_end: *mut u8 = core::ptr::null_mut();
+        let result = strtoul(buf, &raw mut narrow_end, base);
+        if !endp.is_null() {
+            let consumed = narrow_end.offset_from(buf) as usize;
+            *endp = wcs.add(consumed) as *mut WcharT;
+        }
+        free(buf);
+        result
+    }
+}
+
+/// wcstoll — convert wide string to long long.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wcstoll(wcs: *const WcharT, endp: *mut *mut WcharT, base: i32) -> i64 {
+    unsafe {
+        let len = wcslen(wcs);
+        let buf = malloc(len + 1);
+        if buf.is_null() {
+            return 0;
+        }
+        for i in 0..len {
+            *buf.add(i) = *wcs.add(i) as u8;
+        }
+        *buf.add(len) = 0;
+        let mut narrow_end: *mut u8 = core::ptr::null_mut();
+        let result = strtoll(buf, &raw mut narrow_end, base);
         if !endp.is_null() {
             let consumed = narrow_end.offset_from(buf) as usize;
             *endp = wcs.add(consumed) as *mut WcharT;
@@ -1315,6 +1462,18 @@ pub unsafe extern "C" fn wcsdup(src: *const WcharT) -> *mut WcharT {
     }
 }
 
+/// swprintf — wide formatted print to buffer. Not implemented.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn swprintf(
+    _s: *mut WcharT,
+    _n: usize,
+    _fmt: *const WcharT,
+    _args: ...
+) -> i32 {
+    crate::errno::set_errno(crate::errno::ENOSYS);
+    -1
+}
+
 /// fwprintf — wide formatted print. Not implemented.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fwprintf(
@@ -1333,6 +1492,7 @@ pub unsafe extern "C" fn fwprintf(
 unsafe extern "C" {
     safe fn fgetc(stream: *mut crate::stdio::FILE) -> i32;
     safe fn fputc(c: i32, stream: *mut crate::stdio::FILE) -> i32;
+    safe fn ungetc(c: i32, stream: *mut crate::stdio::FILE) -> i32;
 }
 
 #[unsafe(no_mangle)]
@@ -1412,5 +1572,236 @@ pub unsafe extern "C" fn putwchar(wc: WintT) -> WintT {
     crate::stdio::ensure_stdio_init();
     unsafe {
         fputwc(wc, (*(&raw const crate::stdio::stdout)))
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ungetwc(wc: WintT, stream: *mut crate::stdio::FILE) -> WintT {
+    if wc == WEOF {
+        return WEOF;
+    }
+    // Encode the wide character to UTF-8.
+    let mut buf: [u8; 4] = [0; 4];
+    let len = unsafe { wcrtomb(buf.as_mut_ptr(), wc as WcharT, core::ptr::null_mut()) };
+    if len == usize::MAX || len == 0 {
+        return WEOF;
+    }
+    // Push bytes back onto the stream in reverse order so that the next
+    // fgetwc() reads them in the original byte order.
+    let mut i = len;
+    while i > 0 {
+        i -= 1;
+        let result = ungetc(buf[i] as i32, stream);
+        if result < 0 {
+            return WEOF;
+        }
+    }
+    wc
+}
+
+// ---------------------------------------------------------------------------
+// Bounded multibyte/wide string conversion (POSIX non-standard extensions)
+// ---------------------------------------------------------------------------
+
+/// `wcsnrtombs` — convert at most `nwc` wide chars to multibyte, writing at
+/// most `len` bytes.  Updates `*src` to the position after the last consumed
+/// wide character (or to NULL on NUL terminator).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wcsnrtombs(
+    dst: *mut u8,
+    src: *mut *const WcharT,
+    nwc: usize,
+    len: usize,
+    ps: *mut MbstateT,
+) -> usize {
+    unsafe {
+        if src.is_null() || (*src).is_null() {
+            return 0;
+        }
+        let mut s = *src;
+        let mut byte_count: usize = 0;
+        let mut wc_consumed: usize = 0;
+
+        loop {
+            if wc_consumed >= nwc {
+                break;
+            }
+            let wc = *s;
+            if wc == 0 {
+                if !dst.is_null() && byte_count < len {
+                    *dst.add(byte_count) = 0;
+                }
+                *src = core::ptr::null();
+                return byte_count;
+            }
+            let mut buf: [u8; 4] = [0; 4];
+            let result = wcrtomb(buf.as_mut_ptr(), wc, ps);
+            if result == usize::MAX {
+                return usize::MAX;
+            }
+            if !dst.is_null() && byte_count + result > len {
+                break;
+            }
+            if !dst.is_null() {
+                let mut i = 0;
+                while i < result {
+                    *dst.add(byte_count + i) = buf[i];
+                    i += 1;
+                }
+            }
+            byte_count += result;
+            s = s.add(1);
+            wc_consumed += 1;
+        }
+
+        *src = s;
+        byte_count
+    }
+}
+
+/// `mbsnrtowcs` — convert at most `nms` multibyte bytes to wide characters,
+/// storing at most `len` wide chars.  Updates `*src` to the next unconsumed
+/// byte (or to NULL on NUL terminator).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mbsnrtowcs(
+    dst: *mut WcharT,
+    src: *mut *const u8,
+    nms: usize,
+    len: usize,
+    ps: *mut MbstateT,
+) -> usize {
+    unsafe {
+        if src.is_null() || (*src).is_null() {
+            return 0;
+        }
+        let mut s = *src;
+        let mut wc_count: usize = 0;
+        let mut byte_consumed: usize = 0;
+
+        if dst.is_null() {
+            // Count-only mode
+            loop {
+                if byte_consumed >= nms {
+                    break;
+                }
+                let remaining = core::cmp::min(nms - byte_consumed, 4);
+                let mut wc: WcharT = 0;
+                let result = mbrtowc(&raw mut wc, s, remaining, ps);
+                if result == 0 {
+                    break;
+                }
+                if result == usize::MAX || result == usize::MAX - 1 {
+                    crate::errno::set_errno(crate::errno::EILSEQ);
+                    return usize::MAX;
+                }
+                s = s.add(result);
+                byte_consumed += result;
+                wc_count += 1;
+            }
+            return wc_count;
+        }
+
+        while wc_count < len && byte_consumed < nms {
+            let remaining = core::cmp::min(nms - byte_consumed, 4);
+            let mut wc: WcharT = 0;
+            let result = mbrtowc(&raw mut wc, s, remaining, ps);
+            if result == 0 {
+                *dst.add(wc_count) = 0;
+                *src = core::ptr::null();
+                return wc_count;
+            }
+            if result == usize::MAX || result == usize::MAX - 1 {
+                crate::errno::set_errno(crate::errno::EILSEQ);
+                return usize::MAX;
+            }
+            *dst.add(wc_count) = wc;
+            s = s.add(result);
+            byte_consumed += result;
+            wc_count += 1;
+        }
+
+        *src = s;
+        wc_count
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Wide string collation / transformation (C locale = identity)
+// ---------------------------------------------------------------------------
+
+/// `wcsxfrm` — transform wide string for collation comparison.
+/// In the C locale, collation order is code-point order, so the
+/// transformation is the identity: copy src to dst (up to n wide chars)
+/// and return wcslen(src).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wcsxfrm(
+    dst: *mut WcharT,
+    src: *const WcharT,
+    n: usize,
+) -> usize {
+    unsafe {
+        let src_len = wcslen(src);
+        if !dst.is_null() && n > 0 {
+            wcsncpy(dst, src, n);
+        }
+        src_len
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Wide memory comparison / overlapping copy
+// ---------------------------------------------------------------------------
+
+/// `wmemcmp` — compare `n` wide characters.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wmemcmp(
+    s1: *const WcharT,
+    s2: *const WcharT,
+    n: usize,
+) -> i32 {
+    unsafe {
+        let mut i: usize = 0;
+        while i < n {
+            let a = *s1.add(i);
+            let b = *s2.add(i);
+            if a < b {
+                return -1;
+            }
+            if a > b {
+                return 1;
+            }
+            i += 1;
+        }
+        0
+    }
+}
+
+/// `wmemmove` — copy `n` wide characters, handling overlapping regions.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wmemmove(
+    dst: *mut WcharT,
+    src: *const WcharT,
+    n: usize,
+) -> *mut WcharT {
+    unsafe {
+        let dst_addr = dst as usize;
+        let src_addr = src as usize;
+        let elem_size = core::mem::size_of::<WcharT>();
+        if dst_addr <= src_addr || dst_addr >= src_addr + n * elem_size {
+            // No overlap or dst before src: forward copy is safe
+            let mut i: usize = 0;
+            while i < n {
+                *dst.add(i) = *src.add(i);
+                i += 1;
+            }
+        } else {
+            // dst is inside src region: copy backwards
+            let mut i = n;
+            while i > 0 {
+                i -= 1;
+                *dst.add(i) = *src.add(i);
+            }
+        }
+        dst
     }
 }

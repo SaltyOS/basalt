@@ -3,6 +3,7 @@
 #define __SYS_TIMES_H__
 
 #include <sys/types.h>
+#include <sys/cdefs.h>
 
 struct tms {
     clock_t tms_utime;
@@ -11,6 +12,10 @@ struct tms {
     clock_t tms_cstime;
 };
 
+__BEGIN_DECLS
+
 extern clock_t times(struct tms *buf);
+
+__END_DECLS
 
 #endif /* __SYS_TIMES_H__ */

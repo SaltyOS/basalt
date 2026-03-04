@@ -2,6 +2,8 @@
 #ifndef __TERMIOS_H__
 #define __TERMIOS_H__
 
+#include <sys/cdefs.h>
+
 #define NCCS 32
 
 struct termios {
@@ -116,6 +118,8 @@ typedef unsigned char cc_t;
 #define B57600  57600
 #define B115200 115200
 
+__BEGIN_DECLS
+
 extern int   tcgetattr(int fd, struct termios *termios_p);
 extern int   tcsetattr(int fd, int optional_actions,
                        const struct termios *termios_p);
@@ -129,5 +133,7 @@ extern speed_t cfgetispeed(const struct termios *termios_p);
 extern int     cfsetospeed(struct termios *termios_p, speed_t speed);
 extern int     cfsetispeed(struct termios *termios_p, speed_t speed);
 extern void    cfmakeraw(struct termios *termios_p);
+
+__END_DECLS
 
 #endif /* __TERMIOS_H__ */

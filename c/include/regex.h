@@ -3,6 +3,7 @@
 #define __REGEX_H__
 
 #include <stddef.h>
+#include <sys/cdefs.h>
 
 /* Compile flags */
 #define REG_EXTENDED 1
@@ -41,11 +42,15 @@ typedef struct {
     int rm_eo;
 } regmatch_t;
 
+__BEGIN_DECLS
+
 extern int    regcomp(regex_t *preg, const char *pattern, int cflags);
 extern int    regexec(const regex_t *preg, const char *string,
                       size_t nmatch, regmatch_t pmatch[], int eflags);
 extern void   regfree(regex_t *preg);
 extern size_t regerror(int errcode, const regex_t *preg,
                        char *errbuf, size_t errbuf_size);
+
+__END_DECLS
 
 #endif /* __REGEX_H__ */

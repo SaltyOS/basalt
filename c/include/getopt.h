@@ -2,6 +2,10 @@
 #ifndef __GETOPT_H__
 #define __GETOPT_H__
 
+#include <sys/cdefs.h>
+
+__BEGIN_DECLS
+
 extern char *optarg;
 extern int   optind;
 extern int   opterr;
@@ -26,5 +30,7 @@ extern int getopt_long(int argc, char * const argv[],
 extern int getopt_long_only(int argc, char * const argv[],
                             const char *optstring,
                             const struct option *longopts, int *longindex);
+
+__END_DECLS
 
 #endif /* __GETOPT_H__ */

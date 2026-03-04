@@ -129,6 +129,16 @@ pub unsafe extern "C" fn basename(path: *mut u8) -> *mut u8 {
 }
 
 // ---------------------------------------------------------------------------
+// chroot — not supported
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn chroot(_path: *const u8) -> i32 {
+    errno::set_errno(38); // ENOSYS
+    -1
+}
+
+// ---------------------------------------------------------------------------
 // sched_yield — maps to SYS_YIELD (syscall 8)
 // ---------------------------------------------------------------------------
 
@@ -669,6 +679,25 @@ pub unsafe extern "C" fn sem_getvalue(sem: *mut u8, sval: *mut i32) -> i32 {
         *sval = s.get_value();
     }
     0
+}
+
+// ---------------------------------------------------------------------------
+// __tls_get_addr — TLS runtime support (General Dynamic model)
+// ---------------------------------------------------------------------------
+
+#[repr(C)]
+struct TlsIndex {
+    ti_module: u64,
+    ti_offset: u64,
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __tls_get_addr(ti: *const TlsIndex) -> *mut core::ffi::c_void {
+    unsafe {
+        let tp: u64;
+        core::arch::asm!("mov {}, fs:0", out(reg) tp);
+        (tp + (*ti).ti_offset) as *mut core::ffi::c_void
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -31,6 +31,10 @@ const ATEXIT_MAX: usize = 32;
 static mut ATEXIT_FUNCS: [Option<unsafe extern "C" fn()>; ATEXIT_MAX] = [None; ATEXIT_MAX];
 static mut ATEXIT_COUNT: usize = 0;
 
+/// Saved pointer to the auxv on the initial stack.
+/// Set once by `__libc_start_main`; valid for the process lifetime.
+pub(crate) static mut SAVED_AUXV: *const u64 = core::ptr::null();
+
 // --- C++ ABI support ---
 
 #[repr(C)]
@@ -83,6 +87,15 @@ pub unsafe extern "C" fn __libc_start_main(
 
         // Initialize environ
         env::init_environ(envp);
+
+        // Save auxv pointer for elf_aux_info / getauxval (walk past envp null)
+        {
+            let mut ep = envp;
+            while !(*ep).is_null() {
+                ep = ep.add(1);
+            }
+            core::ptr::addr_of_mut!(SAVED_AUXV).write(ep.add(1) as *const u64);
+        }
 
         // Initialize IPC context from auxv if available
         init_ipc_from_auxv(stack_ptr);
@@ -270,6 +283,18 @@ pub unsafe extern "C" fn __cxa_atexit(
         CXA_ATEXIT_COUNT += 1;
         0
     }
+}
+
+/// Register a C++ thread-local destructor.
+/// Delegates to __cxa_atexit for now; full per-thread cleanup requires TLS destructor
+/// infrastructure that SaltyOS does not yet implement.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __cxa_thread_atexit(
+    dtor: unsafe extern "C" fn(*mut core::ffi::c_void),
+    obj: *mut core::ffi::c_void,
+    dso_handle: *mut core::ffi::c_void,
+) -> i32 {
+    unsafe { __cxa_atexit(dtor, obj, dso_handle) }
 }
 
 /// Call C++ destructors registered via __cxa_atexit.

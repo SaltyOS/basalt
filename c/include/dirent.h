@@ -3,6 +3,7 @@
 #define __DIRENT_H__
 
 #include <sys/types.h>
+#include <sys/cdefs.h>
 
 struct dirent {
     unsigned long  d_ino;
@@ -27,10 +28,14 @@ struct dirent {
 
 typedef struct __DIR DIR;
 
+__BEGIN_DECLS
+
 extern DIR           *opendir(const char *name);
 extern struct dirent *readdir(DIR *dirp);
 extern int            closedir(DIR *dirp);
 extern int            dirfd(DIR *dirp);
 extern void           rewinddir(DIR *dirp);
+
+__END_DECLS
 
 #endif /* __DIRENT_H__ */

@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <sys/cdefs.h>
 
 /*
  * posix_spawn file action types
@@ -43,6 +44,8 @@ typedef struct {
     sigset_t sigmask;
 } posix_spawnattr_t;
 
+__BEGIN_DECLS
+
 extern int posix_spawn(pid_t *pid, const char *path,
                        const posix_spawn_file_actions_t *file_actions,
                        const posix_spawnattr_t *attrp,
@@ -72,5 +75,7 @@ extern int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t *fact, i
 extern int posix_spawn_file_actions_adddup2(posix_spawn_file_actions_t *fact, int fd, int newfd);
 extern int posix_spawn_file_actions_addopen(posix_spawn_file_actions_t *fact, int fd,
                                             const char *path, int oflag, mode_t mode);
+
+__END_DECLS
 
 #endif /* __SPAWN_H__ */

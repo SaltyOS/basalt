@@ -2,6 +2,12 @@
 #ifndef __SCHED_H__
 #define __SCHED_H__
 
+#include <sys/cdefs.h>
+
+__BEGIN_DECLS
+
 extern int sched_yield(void);
+
+__END_DECLS
 
 #endif /* __SCHED_H__ */

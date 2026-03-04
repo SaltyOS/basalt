@@ -3,6 +3,7 @@
 #define __GLOB_H__
 
 #include <stddef.h>
+#include <sys/cdefs.h>
 
 #define GLOB_ERR      (1 << 0)
 #define GLOB_MARK     (1 << 1)
@@ -30,9 +31,13 @@ typedef struct {
     size_t   gl_offs;
 } glob_t;
 
+__BEGIN_DECLS
+
 extern int  glob(const char *pattern, int flags,
                  int (*errfunc)(const char *, int),
                  glob_t *pglob);
 extern void globfree(glob_t *pglob);
+
+__END_DECLS
 
 #endif /* __GLOB_H__ */

@@ -1,0 +1,14 @@
+#ifndef _MACHINE_ENDIAN_H_
+#define _MACHINE_ENDIAN_H_
+
+#define _BYTE_ORDER     __BYTE_ORDER__
+#define _LITTLE_ENDIAN  __ORDER_LITTLE_ENDIAN__
+#define _BIG_ENDIAN     __ORDER_BIG_ENDIAN__
+#define _PDP_ENDIAN     __ORDER_PDP_ENDIAN__
+
+#define BYTE_ORDER      _BYTE_ORDER
+#define LITTLE_ENDIAN   _LITTLE_ENDIAN
+#define BIG_ENDIAN      _BIG_ENDIAN
+#define PDP_ENDIAN      _PDP_ENDIAN
+
+#endif /* _MACHINE_ENDIAN_H_ */

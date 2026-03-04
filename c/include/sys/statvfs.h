@@ -3,6 +3,7 @@
 #define __SYS_STATVFS_H__
 
 #include <sys/types.h>
+#include <sys/cdefs.h>
 
 struct statvfs {
     unsigned long f_bsize;
@@ -18,7 +19,11 @@ struct statvfs {
     unsigned long f_namemax;
 };
 
+__BEGIN_DECLS
+
 extern int statvfs(const char *path, struct statvfs *buf);
 extern int fstatvfs(int fd, struct statvfs *buf);
+
+__END_DECLS
 
 #endif /* __SYS_STATVFS_H__ */

@@ -148,6 +148,11 @@ pub const ENETUNREACH: c_int = 101;
 pub const EPROTONOSUPPORT: c_int = 93;
 pub const EDESTADDRREQ: c_int = 89;
 pub const EMSGSIZE: c_int = 90;
+pub const ETXTBSY: c_int = 26;
+pub const EADDRNOTAVAIL: c_int = 99;
+pub const ENETDOWN: c_int = 100;
+pub const ESTALE: c_int = 116;
+pub const EDQUOT: c_int = 122;
 
 // =========================================================================
 // File I/O constants (from uapi/rust/consts.rs and C headers)
@@ -229,6 +234,18 @@ pub const INADDR_LOOPBACK: in_addr_t = 0x7f000001;
 pub const INADDR_BROADCAST: in_addr_t = 0xffffffff;
 
 pub const SCM_RIGHTS: c_int = 1;
+
+pub const IPPROTO_IPV6: c_int = 41;
+pub const IP_TTL: c_int = 2;
+pub const IP_MULTICAST_TTL: c_int = 33;
+pub const IP_MULTICAST_LOOP: c_int = 34;
+pub const IP_ADD_MEMBERSHIP: c_int = 35;
+pub const IP_DROP_MEMBERSHIP: c_int = 36;
+pub const IPV6_MULTICAST_LOOP: c_int = 19;
+pub const IPV6_ADD_MEMBERSHIP: c_int = 20;
+pub const IPV6_DROP_MEMBERSHIP: c_int = 21;
+pub const IPV6_V6ONLY: c_int = 26;
+pub const SOMAXCONN: c_int = 4096;
 
 pub const INET_ADDRSTRLEN: usize = 16;
 pub const INET6_ADDRSTRLEN: usize = 46;
@@ -332,8 +349,15 @@ pub const SIGSTOP: c_int = 19;
 pub const SIGTSTP: c_int = 20;
 pub const SIGTTIN: c_int = 21;
 pub const SIGTTOU: c_int = 22;
+pub const SIGURG: c_int = 23;
+pub const SIGXCPU: c_int = 24;
+pub const SIGXFSZ: c_int = 25;
+pub const SIGVTALRM: c_int = 26;
+pub const SIGPROF: c_int = 27;
 pub const SIGWINCH: c_int = 28;
+pub const SIGIO: c_int = 29;
 pub const SIGINFO: c_int = 29;
+pub const SIGSYS: c_int = 31;
 pub const NSIG: c_int = 32;
 pub const _NSIG: c_int = NSIG;
 
@@ -429,6 +453,7 @@ pub const _SC_PAGESIZE: c_int = 47;
 pub const _SC_PAGE_SIZE: c_int = _SC_PAGESIZE;
 pub const _SC_NPROCESSORS_CONF: c_int = 57;
 pub const _SC_NPROCESSORS_ONLN: c_int = 58;
+pub const _SC_HOST_NAME_MAX: c_int = 180;
 
 // =========================================================================
 // Resource limit constants
@@ -562,6 +587,7 @@ pub const TIOCSCTTY: c_ulong = 0x540E;
 pub const TIOCNOTTY: c_ulong = 0x5422;
 pub const FIONBIO: c_ulong = 0x5421;
 pub const FIONREAD: c_ulong = 0x541B;
+pub const FIOCLEX: c_ulong = 0x5451;
 
 // Directory entry types
 pub const DT_UNKNOWN: u8 = 0;
@@ -606,6 +632,14 @@ pub fn WIFSTOPPED(status: c_int) -> bool {
 #[inline]
 pub fn WSTOPSIG(status: c_int) -> c_int {
     (status >> 8) & 0xff
+}
+#[inline]
+pub fn WCOREDUMP(status: c_int) -> bool {
+    (status & 0x80) != 0
+}
+#[inline]
+pub fn WIFCONTINUED(status: c_int) -> bool {
+    status == 0xffff
 }
 
 // PATH_MAX
@@ -969,6 +1003,14 @@ pub struct linger {
 pub struct ip_mreq {
     pub imr_multiaddr: in_addr,
     pub imr_interface: in_addr,
+}
+
+// ipv6_mreq
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ipv6_mreq {
+    pub ipv6mr_multiaddr: in6_addr,
+    pub ipv6mr_interface: c_uint,
 }
 
 // rusage (stub)
@@ -1561,6 +1603,12 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn getrandom(buf: *mut c_void, buflen: size_t, flags: c_uint) -> ssize_t;
     pub fn uname(buf: *mut utsname) -> c_int;
+    pub fn fsync(fd: c_int) -> c_int;
+    pub fn chroot(path: *const c_char) -> c_int;
+    pub fn setuid(uid: uid_t) -> c_int;
+    pub fn setgid(gid: gid_t) -> c_int;
+    pub fn sched_yield() -> c_int;
+    pub fn gethostname(name: *mut c_char, len: size_t) -> c_int;
 
     // --- stdio ---
     pub fn printf(format: *const c_char, ...) -> c_int;

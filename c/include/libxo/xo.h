@@ -4,6 +4,7 @@
 #define __LIBXO_XO_H__
 
 #include <stdio.h>
+#include <sys/cdefs.h>
 
 /* XO handle type */
 typedef void *xo_handle_t;
@@ -22,6 +23,8 @@ typedef void *xo_handle_t;
 #define XOF_UNITS       0x0020
 #define XOF_FLUSH       0x0040
 #define XOF_COLUMNS     0x0080
+
+__BEGIN_DECLS
 
 /* Core emit functions */
 int xo_emit(const char *fmt, ...);
@@ -62,5 +65,7 @@ void xo_errx(int eval, const char *fmt, ...) __attribute__((noreturn));
 void xo_warn(const char *fmt, ...);
 void xo_warnx(const char *fmt, ...);
 void xo_error(const char *fmt, ...);
+
+__END_DECLS
 
 #endif /* __LIBXO_XO_H__ */

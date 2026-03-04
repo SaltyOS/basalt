@@ -3,6 +3,7 @@
 #define __SEARCH_H__
 
 #include <stddef.h>
+#include <sys/cdefs.h>
 
 typedef enum {
     preorder,
@@ -10,6 +11,8 @@ typedef enum {
     endorder,
     leaf
 } VISIT;
+
+__BEGIN_DECLS
 
 extern void *tsearch(const void *key, void **rootp,
                      int (*compar)(const void *, const void *));
@@ -19,5 +22,7 @@ extern void *tdelete(const void *key, void **rootp,
                      int (*compar)(const void *, const void *));
 extern void  twalk(const void *root,
                    void (*action)(const void *, VISIT, int));
+
+__END_DECLS
 
 #endif /* __SEARCH_H__ */

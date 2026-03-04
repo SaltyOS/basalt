@@ -700,6 +700,35 @@ pub unsafe extern "C" fn munmap(addr: *mut u8, length: usize) -> i32 {
     }
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn msync(_addr: *mut u8, _length: usize, _flags: i32) -> i32 {
+    0 // no-op: SaltyOS has no persistent memory-mapped I/O yet
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shm_open(name: *const u8, oflag: i32, _mode: u32) -> i32 {
+    unsafe {
+        let ret = salty::posix::posix_shm_open(name, oflag);
+        if ret < 0 {
+            errno::set_errno(-ret);
+            return -1;
+        }
+        ret
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shm_unlink(name: *const u8) -> i32 {
+    unsafe {
+        let ret = salty::posix::posix_shm_unlink(name);
+        if ret < 0 {
+            errno::set_errno(-ret);
+            return -1;
+        }
+        ret
+    }
+}
+
 // ---------------------------------------------------------------------------
 // FIFO
 // ---------------------------------------------------------------------------

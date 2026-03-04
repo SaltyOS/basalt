@@ -4,11 +4,12 @@
 
 #include <stddef.h>
 #include <sys/types.h>
+#include <sys/cdefs.h>
 
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
 #define RAND_MAX     0x7FFFFFFF
-#define MB_CUR_MAX   1
+#define MB_CUR_MAX   4  /* UTF-8 */
 
 typedef struct {
     int quot;
@@ -25,11 +26,14 @@ typedef struct {
     long long rem;
 } lldiv_t;
 
+__BEGIN_DECLS
+
 extern void *malloc(size_t size);
 extern void  free(void *ptr);
 extern void *realloc(void *ptr, size_t size);
 extern void *calloc(size_t nmemb, size_t size);
 extern int   posix_memalign(void **memptr, size_t alignment, size_t size);
+extern void *aligned_alloc(size_t alignment, size_t size);
 
 extern void  exit(int status);
 extern void  _exit(int status);
@@ -81,6 +85,8 @@ extern char *realpath(const char *path, char *resolved_path);
 
 extern size_t mbstowcs(wchar_t *dst, const char *src, size_t n);
 extern size_t wcstombs(char *dst, const wchar_t *src, size_t n);
+extern int   mbtowc(wchar_t *pwc, const char *s, size_t n);
+extern int   wctomb(char *s, wchar_t wc);
 extern int   system(const char *command);
 
 extern char **environ;
@@ -100,5 +106,7 @@ extern char       *fflagstostr(unsigned long flags);
 
 /* System load averages */
 extern int         getloadavg(double loadavg[], int nelem);
+
+__END_DECLS
 
 #endif /* __STDLIB_H__ */

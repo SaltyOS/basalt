@@ -1,12 +1,18 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef __FCNTL_H__
 #define __FCNTL_H__
-/* FreeBSD-compatible guard name */
+/* FreeBSD-compatible guard name.
+ * We set _SYS_FCNTL_H_ so FreeBSD's sys/fcntl.h is suppressed when we are
+ * included first. We also set __BESALTC_FCNTL_PROVIDES_FLOCK__ so that
+ * struct flock is only emitted when we are first (not when FreeBSD's header
+ * already provided it). */
 #ifndef _SYS_FCNTL_H_
 #define _SYS_FCNTL_H_
+#define __BESALTC_FCNTL_PROVIDES_FLOCK__
 #endif
 
 #include <sys/types.h>
+#include <sys/cdefs.h>
 
 #define O_RDONLY    0x0000
 #define O_WRONLY    0x0001
@@ -38,15 +44,31 @@
 
 #define FD_CLOEXEC  1
 
+/* POSIX advisory file lock — only provided when we were included before
+ * FreeBSD's sys/fcntl.h (which defines struct flock unconditionally). */
+#ifdef __BESALTC_FCNTL_PROVIDES_FLOCK__
+struct flock {
+    short  l_type;    /* F_RDLCK, F_WRLCK, or F_UNLCK */
+    short  l_whence;  /* SEEK_SET, SEEK_CUR, or SEEK_END */
+    off_t  l_start;   /* byte offset to start of lock region */
+    off_t  l_len;     /* length of lock region (0 = to EOF) */
+    pid_t  l_pid;     /* PID of process holding lock (F_GETLK only) */
+};
+#endif /* __BESALTC_FCNTL_PROVIDES_FLOCK__ */
+
 #define AT_FDCWD            (-100)
 #define AT_SYMLINK_NOFOLLOW 0x100
 #define AT_REMOVEDIR        0x200
 #define AT_SYMLINK_FOLLOW   0x400
 #define AT_EMPTY_PATH       0x1000
 
+__BEGIN_DECLS
+
 extern int open(const char *pathname, int flags, ...);
 extern int openat(int dirfd, const char *pathname, int flags, ...);
 extern int creat(const char *pathname, mode_t mode);
 extern int fcntl(int fd, int cmd, ...);
+
+__END_DECLS
 
 #endif /* __FCNTL_H__ */

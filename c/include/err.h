@@ -3,6 +3,9 @@
 #define __ERR_H__
 
 #include <stdarg.h>
+#include <sys/cdefs.h>
+
+__BEGIN_DECLS
 
 void err(int eval, const char *fmt, ...) __attribute__((noreturn, format(printf, 2, 3)));
 void errx(int eval, const char *fmt, ...) __attribute__((noreturn, format(printf, 2, 3)));
@@ -16,5 +19,7 @@ void vwarnx(const char *fmt, va_list ap);
 
 void errc(int eval, int code, const char *fmt, ...) __attribute__((noreturn, format(printf, 3, 4)));
 void warnc(int code, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+
+__END_DECLS
 
 #endif /* __ERR_H__ */

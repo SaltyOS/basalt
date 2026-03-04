@@ -3,6 +3,7 @@
 #define __SYS_WAIT_H__
 
 #include <sys/types.h>
+#include <sys/cdefs.h>
 
 #define WNOHANG   1
 #define WUNTRACED 2
@@ -15,9 +16,13 @@
 #define WSTOPSIG(status)    (((status) >> 8) & 0xff)
 #define WCOREDUMP(status)   ((status) & 0x80)
 
+__BEGIN_DECLS
+
 extern pid_t waitpid(pid_t pid, int *wstatus, int options);
 extern pid_t wait(int *wstatus);
 extern pid_t wait3(int *wstatus, int options, void *rusage);
 extern pid_t wait4(pid_t pid, int *wstatus, int options, void *rusage);
+
+__END_DECLS
 
 #endif /* __SYS_WAIT_H__ */

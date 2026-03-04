@@ -3,6 +3,7 @@
 #define __SYS_TIME_H__
 
 #include <sys/types.h>
+#include <sys/cdefs.h>
 
 #ifndef __TIMEVAL_DEFINED__
 #define __TIMEVAL_DEFINED__
@@ -16,6 +17,8 @@ struct timezone {
     int tz_minuteswest;
     int tz_dsttime;
 };
+
+__BEGIN_DECLS
 
 extern int gettimeofday(struct timeval *tv, void *tz);
 
@@ -31,5 +34,7 @@ struct itimerval {
 extern int setitimer(int which, const struct itimerval *new_value,
                      struct itimerval *old_value);
 extern int getitimer(int which, struct itimerval *curr_value);
+
+__END_DECLS
 
 #endif /* __SYS_TIME_H__ */

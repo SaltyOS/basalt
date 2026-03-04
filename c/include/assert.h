@@ -1,7 +1,11 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /* No include guard — assert.h must be re-includable per C standard. */
 
+#include <sys/cdefs.h>
+
+__BEGIN_DECLS
 extern void abort(void);
+__END_DECLS
 
 #undef assert
 

@@ -2,6 +2,10 @@
 #ifndef __CTYPE_H__
 #define __CTYPE_H__
 
+#include <sys/cdefs.h>
+
+__BEGIN_DECLS
+
 extern int isalpha(int c);
 extern int isdigit(int c);
 extern int isalnum(int c);
@@ -18,5 +22,7 @@ extern int isblank(int c);
 extern int toupper(int c);
 extern int tolower(int c);
 extern int toascii(int c);
+
+__END_DECLS
 
 #endif /* __CTYPE_H__ */

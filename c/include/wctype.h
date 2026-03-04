@@ -2,9 +2,13 @@
 #ifndef __WCTYPE_H__
 #define __WCTYPE_H__
 
+#include <sys/cdefs.h>
+
 typedef unsigned long wctype_t;
 typedef unsigned long wctrans_t;
 typedef unsigned int  wint_t;
+
+__BEGIN_DECLS
 
 extern int iswalpha(wint_t wc);
 extern int iswdigit(wint_t wc);
@@ -27,5 +31,7 @@ extern int       iswctype(wint_t wc, wctype_t desc);
 extern wint_t    nextwctype(wint_t wc, wctype_t desc);
 extern wctrans_t wctrans(const char *name);
 extern wint_t    towctrans(wint_t wc, wctrans_t desc);
+
+__END_DECLS
 
 #endif /* __WCTYPE_H__ */

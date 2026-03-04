@@ -2,6 +2,8 @@
 #ifndef __MATH_H__
 #define __MATH_H__
 
+#include <sys/cdefs.h>
+
 /* Classification constants (match __fpclassify return values) */
 #define FP_NAN       0
 #define FP_INFINITE  1
@@ -30,6 +32,8 @@
 #define M_2_SQRTPI 1.12837916709551257390
 #define M_SQRT2    1.41421356237309504880
 #define M_SQRT1_2  0.70710678118654752440
+
+__BEGIN_DECLS
 
 /* Classification macros */
 extern int __fpclassify(double x);
@@ -164,5 +168,7 @@ extern double tgamma(double x);
 /* NaN generation */
 extern double nan(const char *tag);
 extern float  nanf(const char *tag);
+
+__END_DECLS
 
 #endif /* __MATH_H__ */

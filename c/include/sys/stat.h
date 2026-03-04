@@ -4,6 +4,7 @@
 
 #include <sys/types.h>
 #include <time.h>
+#include <sys/cdefs.h>
 
 struct stat {
     unsigned long st_dev;
@@ -96,6 +97,8 @@ struct stat {
 #define S_IXOTH  01
 #define S_IRWXO  07
 
+__BEGIN_DECLS
+
 extern int stat(const char *pathname, struct stat *statbuf);
 extern int lstat(const char *pathname, struct stat *statbuf);
 extern int fstat(int fd, struct stat *statbuf);
@@ -115,5 +118,7 @@ extern int fchmodat(int dirfd, const char *pathname, mode_t mode, int flags);
 extern int utimensat(int dirfd, const char *pathname,
                      const struct timespec times[2], int flags);
 extern int futimens(int fd, const struct timespec times[2]);
+
+__END_DECLS
 
 #endif /* __SYS_STAT_H__ */

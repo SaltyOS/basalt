@@ -4,6 +4,9 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <sys/cdefs.h>
+
+__BEGIN_DECLS
 
 int   expand_number(const char *buf, int64_t *num);
 char *fgetln(FILE *fp, size_t *lenp);
@@ -23,5 +26,7 @@ char *getbsize(int *headerlenp, long *blocksizep);
 int humanize_number(char *buf, size_t len, int64_t bytes,
                     const char *suffix, int scale, int flags);
 int dehumanize_number(const char *str, int64_t *size);
+
+__END_DECLS
 
 #endif /* __LIBUTIL_H__ */

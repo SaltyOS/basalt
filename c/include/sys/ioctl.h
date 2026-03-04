@@ -2,6 +2,8 @@
 #ifndef __SYS_IOCTL_H__
 #define __SYS_IOCTL_H__
 
+#include <sys/cdefs.h>
+
 #define TIOCGWINSZ  0x5413
 #define TIOCSWINSZ  0x5414
 #define FIONREAD    0x541B
@@ -17,6 +19,10 @@ struct winsize {
     unsigned short ws_ypixel;
 };
 
+__BEGIN_DECLS
+
 extern int ioctl(int fd, unsigned long request, ...);
+
+__END_DECLS
 
 #endif /* __SYS_IOCTL_H__ */

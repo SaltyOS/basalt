@@ -17,6 +17,11 @@
 #define KERN_VERSION    4
 #define KERN_HOSTNAME   10
 #define KERN_OSRELDATE  24
+#define KERN_PROC       14
+
+/* KERN_PROC sub-identifiers */
+#define KERN_PROC_PID        1
+#define KERN_PROC_INC_THREAD 0x10
 
 /* CTL_HW identifiers */
 #define HW_MACHINE      1

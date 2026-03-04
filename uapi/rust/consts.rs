@@ -192,7 +192,7 @@ pub const SALTYFS_GETPARENT: u64 = 20;
 /// Fixed virtual addresses for well-known memory regions.
 pub const INITRD_VADDR: u64 = 0x0000_0000_0100_0000;
 pub const SCRATCH_VADDR: u64 = 0x0000_0000_0200_0000;
-pub const BOOTINFO_VADDR: u64 = 0x0000_0000_00C0_0000;
+pub const BOOTINFO_VADDR: u64 = 0x0000_0000_001F_F000;
 pub const BOOTINFO_MAGIC: u64 = 0x534C5459_424F4F54; // "SLTYBOOT"
 
 /// Capability rights bitmask (all rights granted).

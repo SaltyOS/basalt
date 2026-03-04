@@ -5,6 +5,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/cdefs.h>
 
 typedef struct _ftsent FTSENT;
 typedef struct _fts FTS;
@@ -89,12 +90,16 @@ struct _ftsent {
 #define FTS_NOINSTR     3           /* no instructions */
 #define FTS_SKIP        4           /* discard node */
 
+__BEGIN_DECLS
+
 FTS    *fts_open(char * const *, int,
                  int (*)(const FTSENT * const *, const FTSENT * const *));
 FTSENT *fts_read(FTS *);
 FTSENT *fts_children(FTS *, int);
 int     fts_set(FTS *, FTSENT *, int);
 int     fts_close(FTS *);
+
+__END_DECLS
 
 #define fts_get_clientptr(fts) ((fts)->fts_clientptr)
 #define fts_set_clientptr(fts, p) ((fts)->fts_clientptr = (p))

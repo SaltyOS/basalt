@@ -3,12 +3,17 @@
 #define __INTTYPES_H__
 
 #include <stdint.h>
+#include <sys/cdefs.h>
 
 typedef long intmax_t;
 typedef unsigned long uintmax_t;
 
+__BEGIN_DECLS
+
 extern intmax_t  strtoimax(const char *nptr, char **endptr, int base);
 extern uintmax_t strtoumax(const char *nptr, char **endptr, int base);
+
+__END_DECLS
 
 /* Format macros for printf */
 #define PRId8   "d"
@@ -39,6 +44,17 @@ extern uintmax_t strtoumax(const char *nptr, char **endptr, int base);
 #define PRIdMAX "ld"
 #define PRIuMAX "lu"
 #define PRIxMAX "lx"
+
+/* Pointer-width format macros (uintptr_t/intptr_t = unsigned long/long on x86_64) */
+#define PRIdPTR "ld"
+#define PRIiPTR "li"
+#define PRIuPTR "lu"
+#define PRIxPTR "lx"
+#define PRIXPTR "lX"
+#define PRIoPTR "lo"
+#define SCNdPTR "ld"
+#define SCNuPTR "lu"
+#define SCNxPTR "lx"
 
 /* Format macros for scanf */
 #define SCNd8   "hhd"
