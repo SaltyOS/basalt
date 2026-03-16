@@ -3,6 +3,18 @@
 //! Each thread has a `ThreadLocalBlock` at the address pointed to by FS_BASE.
 //! The x86_64 TLS ABI requires `%fs:0` to hold a self-pointer (`self_ptr`).
 //!
+//! ## ELF TLS (Variant II) Layout
+//!
+//! x86_64 uses Variant II TLS, where ELF TLS data (`.tdata`/`.tbss`) is placed
+//! *below* the thread pointer (TP). The `MainTlsBlock` struct encodes this:
+//!
+//! ```text
+//! [elf_tls: MAX_ELF_TLS_SIZE bytes] [tcb: ThreadLocalBlock]
+//!                                    ^-- TP (fs:0 = self-pointer)
+//! ```
+//!
+//! TLS variables are accessed at `TP - aligned_memsz + offset`.
+//!
 //! The main thread's TLS block is statically allocated. Spawned threads have
 //! their TLS blocks placed at the top of their stack (below the guard page).
 //!
@@ -18,6 +30,38 @@ use core::sync::atomic::{AtomicBool, Ordering};
 /// Prevents `current_tls()` from reading `fs:[0]` when FS_BASE is 0,
 /// which would fault on the unmapped zero page.
 static TLS_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+/// Maximum static TLS data size across the executable and loaded DSOs.
+///
+/// This must be large enough for the combined PT_TLS footprint that rtld
+/// exports for the process. 4096 bytes covers the current C++ runtime set.
+pub const MAX_ELF_TLS_SIZE: usize = 4096;
+
+/// Maximum number of static TLS modules exported by rtld.
+pub const MAX_STATIC_TLS_MODULES: usize = 8;
+
+/// Per-module static TLS metadata exported by rtld.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct StaticTlsModule {
+    pub module_id: u64,
+    pub template_addr: u64,
+    pub filesz: u64,
+    pub memsz: u64,
+    pub tp_offset: i64,
+}
+
+impl StaticTlsModule {
+    pub const fn zeroed() -> Self {
+        StaticTlsModule {
+            module_id: 0,
+            template_addr: 0,
+            filesz: 0,
+            memsz: 0,
+            tp_offset: 0,
+        }
+    }
+}
 
 /// Per-thread local storage block.
 ///
@@ -86,6 +130,127 @@ impl ThreadLocalBlock {
     }
 }
 
+/// Combined ELF TLS area + TCB for a single thread.
+///
+/// Variant II layout: ELF TLS data is placed immediately before the TCB
+/// in memory. FS_BASE (thread pointer) points to `tcb`, and ELF TLS
+/// variables are accessed at negative offsets from TP.
+#[repr(C, align(64))]
+struct MainTlsBlock {
+    /// Static TLS area reserved for the executable and all loaded DSOs.
+    elf_tls: [u8; MAX_ELF_TLS_SIZE],
+    /// Thread control block (TP points here).
+    tcb: ThreadLocalBlock,
+}
+
+/// Static TLS block for the main thread (ELF TLS area + TCB).
+static mut MAIN_TLS_BLOCK: MainTlsBlock = MainTlsBlock {
+    elf_tls: [0u8; MAX_ELF_TLS_SIZE],
+    tcb: ThreadLocalBlock::zeroed(),
+};
+
+#[inline]
+pub fn static_tls_total_memsz() -> u64 {
+    unsafe { *(&raw const crate::__besalt_tls_memsz) }
+}
+
+#[inline]
+pub fn static_tls_align() -> u64 {
+    let align = unsafe { *(&raw const crate::__besalt_tls_align) };
+    if align < 1 { 1 } else { align }
+}
+
+#[inline]
+fn static_tls_module_count() -> usize {
+    let count = unsafe { *(&raw const crate::__besalt_tls_module_count) as usize };
+    core::cmp::min(count, MAX_STATIC_TLS_MODULES)
+}
+
+#[inline]
+unsafe fn static_tls_module(index: usize) -> StaticTlsModule {
+    unsafe {
+        let modules = (&raw const crate::__besalt_tls_modules) as *const StaticTlsModule;
+        core::ptr::read(modules.add(index))
+    }
+}
+
+#[inline]
+unsafe fn current_tp_value() -> u64 {
+    let ptr: u64;
+    unsafe {
+        core::arch::asm!(
+            "mov {}, fs:[0]",
+            out(reg) ptr,
+            options(nostack, pure, readonly)
+        );
+    }
+    ptr
+}
+
+pub(crate) unsafe fn initialize_static_tls_for_tp(tp: u64) {
+    let tls_memsz = static_tls_total_memsz();
+    if tls_memsz == 0 || tls_memsz > MAX_ELF_TLS_SIZE as u64 {
+        return;
+    }
+
+    unsafe {
+        let tls_base = tp.wrapping_sub(tls_memsz);
+        core::ptr::write_bytes(tls_base as *mut u8, 0, tls_memsz as usize);
+
+        let module_count = static_tls_module_count();
+        if module_count == 0 {
+            let tls_filesz = *(&raw const crate::__besalt_tls_filesz);
+            let tls_template = *(&raw const crate::__besalt_tls_template);
+            if tls_template != 0 && tls_filesz > 0 {
+                core::ptr::copy_nonoverlapping(
+                    tls_template as *const u8,
+                    tls_base as *mut u8,
+                    tls_filesz as usize,
+                );
+            }
+            return;
+        }
+
+        for i in 0..module_count {
+            let module = static_tls_module(i);
+            if module.module_id == 0 || module.memsz == 0 {
+                continue;
+            }
+
+            if module.template_addr != 0 && module.filesz > 0 {
+                let dst = tp.wrapping_add(module.tp_offset as u64) as *mut u8;
+                core::ptr::copy_nonoverlapping(
+                    module.template_addr as *const u8,
+                    dst,
+                    module.filesz as usize,
+                );
+            }
+        }
+    }
+}
+
+unsafe fn tls_addr_from_tp(tp: u64, module_id: u64, offset: u64) -> *mut u8 {
+    let module_count = static_tls_module_count();
+    if module_id != 0 && module_count != 0 {
+        unsafe {
+            for i in 0..module_count {
+                let module = static_tls_module(i);
+                if module.module_id == module_id {
+                    return tp
+                        .wrapping_add(module.tp_offset as u64)
+                        .wrapping_add(offset) as *mut u8;
+                }
+            }
+        }
+    }
+
+    tp.wrapping_sub(static_tls_total_memsz()).wrapping_add(offset) as *mut u8
+}
+
+pub unsafe fn tls_addr(module_id: u64, offset: u64) -> *mut u8 {
+    unsafe { tls_addr_from_tp(current_tp_value(), module_id, offset) }
+}
+
 /// Read the current thread's TLS block pointer from `%fs:0`.
 ///
 /// Returns `None` if TLS has not been initialized for this process
@@ -95,14 +260,7 @@ pub fn current_tls() -> Option<*mut ThreadLocalBlock> {
     if !TLS_INITIALIZED.load(Ordering::Acquire) {
         return None;
     }
-    let ptr: u64;
-    unsafe {
-        core::arch::asm!(
-            "mov {}, fs:[0]",
-            out(reg) ptr,
-            options(nostack, pure, readonly)
-        );
-    }
+    let ptr = unsafe { current_tp_value() };
     if ptr == 0 {
         None
     } else {
@@ -139,23 +297,19 @@ pub fn current_errno() -> *mut i32 {
 /// Global fallback errno (used before TLS is initialized)
 static mut GLOBAL_ERRNO: i32 = 0;
 
-/// Static TLS block for the main thread.
-///
-/// Allocated statically to avoid heap allocation during startup.
-/// Initialized by `init_main_thread_tls()`.
-static mut MAIN_THREAD_TLS: ThreadLocalBlock = ThreadLocalBlock::zeroed();
-
 /// Initialize TLS for the main thread.
 ///
-/// Called during process startup (from CRT or `_start`). Copies the
-/// existing global IPC context into the TLS block and sets FS_BASE.
+/// Called during process startup (from CRT or `_start`). Sets up the ELF
+/// TLS data area (if present) by copying `.tdata` and zeroing `.tbss`,
+/// then configures FS_BASE to point to the TCB.
 ///
 /// # Safety
 /// Must be called exactly once during process initialization, before
 /// any other threads are created.
 pub unsafe fn init_main_thread_tls() {
     unsafe {
-        let tls = &raw mut MAIN_THREAD_TLS;
+        let tls = &raw mut MAIN_TLS_BLOCK.tcb;
+        initialize_static_tls_for_tp(tls as u64);
 
         // Set self-pointer (x86_64 TLS ABI)
         (*tls).self_ptr = tls;

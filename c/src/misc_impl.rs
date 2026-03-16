@@ -682,7 +682,14 @@ pub unsafe extern "C" fn sem_getvalue(sem: *mut u8, sval: *mut i32) -> i32 {
 }
 
 // ---------------------------------------------------------------------------
-// __tls_get_addr — TLS runtime support (General Dynamic model)
+// __tls_get_addr — TLS runtime support (General Dynamic model, Variant II)
+//
+// x86_64 Variant II layout: ELF TLS data is placed BELOW the thread pointer.
+//   TP - aligned_memsz = start of TLS data
+//   TP + offset = TLS variable (offset is negative for Variant II)
+//
+// For the GD (General Dynamic) model, DTPOFF64 stores the raw offset within
+// the TLS segment. __tls_get_addr computes: TP - aligned_memsz + ti_offset.
 // ---------------------------------------------------------------------------
 
 #[repr(C)]
@@ -694,9 +701,7 @@ struct TlsIndex {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __tls_get_addr(ti: *const TlsIndex) -> *mut core::ffi::c_void {
     unsafe {
-        let tp: u64;
-        core::arch::asm!("mov {}, fs:0", out(reg) tp);
-        (tp + (*ti).ti_offset) as *mut core::ffi::c_void
+        salty::tls::tls_addr((*ti).ti_module, (*ti).ti_offset) as *mut core::ffi::c_void
     }
 }
 

@@ -5,6 +5,8 @@ use crate::consts::*;
 use crate::types::*;
 use super::CAP_PROCMGR_EP;
 
+const EXEC_MSG_MIN_SLOWPATH_LEN: usize = 5;
+
 /// Terminate the current process with `status`.
 ///
 /// Sends `PM_EXIT` to the process manager via blocking Call. The procmgr
@@ -128,9 +130,10 @@ pub unsafe fn posix_waitpid(pid: i32, status: *mut i32) -> i32 {
 /// Replace the current process image with a new program.
 ///
 /// Packs the executable path, argv, and envp into a single IPC message to
-/// the process manager. Arguments and environment strings are packed
-/// contiguously (null-terminated) into the remaining message registers.
-/// Returns 0 on success (caller is replaced), -1 on error.
+/// the process manager. The path and argc/envc metadata travel in message
+/// registers; argv/envp string bytes are staged in the IPC buffer's reserved
+/// payload area so large environments are not silently truncated.
+/// Returns 0 on success (caller is replaced), -errno on error.
 pub unsafe fn posix_execve(
     path: *const u8,
     argv: *const *const u8,
@@ -188,51 +191,54 @@ pub unsafe fn posix_execve(
         let next = path_regs;
         msg.regs[next] = ((argc as u64) << 32) | (envc as u64);
 
-        // Pack null-terminated strings contiguously into regs[next+1..]
-        let str_start = next + 1;
-        let avail_bytes = (20 - str_start) * 8;
-        let copy_len = if total_str_len > avail_bytes { avail_bytes } else { total_str_len };
+        if total_str_len > IPC_BUFFER_RESERVED_BYTES {
+            return -7; // E2BIG
+        }
 
-        let str_dst = &mut msg.regs[str_start] as *mut u64 as *mut u8;
+        let ctx = crate::tls::current_ipc_ctx();
+        if ctx.is_null() || (*ctx).ipc_buffer.is_null() {
+            return -5; // EIO
+        }
+
+        // regs[path_regs + 1] = total argv/envp payload bytes in ipc_buffer.reserved[]
+        msg.regs[next + 1] = total_str_len as u64;
+        msg.length = core::cmp::max(next + 2, EXEC_MSG_MIN_SLOWPATH_LEN) as u64;
+
+        let ipc_buf = &mut *(*ctx).ipc_buffer;
+        let str_dst = ipc_buf.reserved.as_mut_ptr() as *mut u8;
         let mut pos = 0usize;
 
         if !argv.is_null() {
             let mut i = 0;
-            while !(*argv.add(i)).is_null() && pos < copy_len {
+            while !(*argv.add(i)).is_null() {
                 let arg = *argv.add(i);
                 let mut j = 0usize;
-                while *arg.add(j) != 0 && pos < copy_len {
+                while *arg.add(j) != 0 {
                     *str_dst.add(pos) = *arg.add(j);
                     pos += 1;
                     j += 1;
                 }
-                if pos < copy_len {
-                    *str_dst.add(pos) = 0;
-                    pos += 1;
-                }
+                *str_dst.add(pos) = 0;
+                pos += 1;
                 i += 1;
             }
         }
         if !envp.is_null() {
             let mut i = 0;
-            while !(*envp.add(i)).is_null() && pos < copy_len {
+            while !(*envp.add(i)).is_null() {
                 let env = *envp.add(i);
                 let mut j = 0usize;
-                while *env.add(j) != 0 && pos < copy_len {
+                while *env.add(j) != 0 {
                     *str_dst.add(pos) = *env.add(j);
                     pos += 1;
                     j += 1;
                 }
-                if pos < copy_len {
-                    *str_dst.add(pos) = 0;
-                    pos += 1;
-                }
+                *str_dst.add(pos) = 0;
+                pos += 1;
                 i += 1;
             }
         }
-
-        let str_regs = (pos + 7) / 8;
-        msg.length = (str_start + str_regs) as u64;
+        debug_assert_eq!(pos, total_str_len);
 
         let err = crate::ipc::call_ctx(
             crate::tls::current_ipc_ctx(),
@@ -242,6 +248,9 @@ pub unsafe fn posix_execve(
         );
         if err != 0 {
             return -5; // EIO
+        }
+        if reply.label == BESALT_OUT_OF_RANGE {
+            return -7; // E2BIG
         }
         if reply.label != BESALT_OK {
             return super::besalt_err_to_posix(reply.label);

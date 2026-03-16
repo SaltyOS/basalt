@@ -298,12 +298,23 @@ pub unsafe fn pthread_create(
             (*tc).state.store(TC_DETACHED, Ordering::Release);
         }
 
-        // 4. Place TLS block at the top of the stack
+        // 4. Place TLS block at the top of the stack (ELF TLS area + TCB)
+        //
+        // Variant II layout (high to low address):
+        //   [TCB: ThreadLocalBlock]    ← TP (fs:0)
+        //   [ELF TLS: memsz bytes]    ← TP - memsz
+        //   [stack ...]
         let stack_top = stack_base + stack_size;
-        let tls_addr = (stack_top - core::mem::size_of::<ThreadLocalBlock>() as u64) & !0xF;
-        let tls = tls_addr as *mut ThreadLocalBlock;
+        let tls_memsz = tls::static_tls_total_memsz();
+        let tcb_align = core::cmp::max(tls::static_tls_align(), 16);
+        let tcb_size = core::mem::size_of::<ThreadLocalBlock>() as u64;
+        let tcb_addr = stack_top.saturating_sub(tcb_size) & !(tcb_align - 1);
+        let tls_addr = tcb_addr.saturating_sub(tls_memsz);
+        let total_tls = (tcb_addr + tcb_size).saturating_sub(tls_addr);
+        let tls = tcb_addr as *mut ThreadLocalBlock;
 
-        core::ptr::write_bytes(tls as *mut u8, 0, core::mem::size_of::<ThreadLocalBlock>());
+        core::ptr::write_bytes(tls_addr as *mut u8, 0, total_tls as usize);
+        tls::initialize_static_tls_for_tp(tcb_addr);
         (*tls).self_ptr = tls;
         (*tls).thread_id = tid;
         (*tls).control = tc as *mut u8; // back-pointer to ThreadControl
@@ -402,8 +413,8 @@ pub unsafe fn pthread_create(
         (*tls).ipc_ctx.ipc_buffer = ipc_buf_vaddr as *mut IpcBuffer;
         (*tls).ipc_ctx.send_cap_count = 0;
 
-        // 9. Set TLS base for the new thread
-        let err = invoke::tcb_set_tls_base(tcb_slot, tls_addr);
+        // 9. Set TLS base for the new thread (TP = TCB address, not ELF TLS start)
+        let err = invoke::tcb_set_tls_base(tcb_slot, tcb_addr);
         if err != 0 {
             serial::serial_puts(b"[PTHREAD] tcb_set_tls_base failed\n");
             rollback_create(tc, stack_addr, stack_size, true);

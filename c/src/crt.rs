@@ -14,6 +14,7 @@
 //! 7. Initialize `posix_mm` with the mmsrv endpoint (slot 7)
 //! 8. Set program name from `argv[0]` for BSD `err(3)` functions
 //! 9. Initialize FreeBSD rune locale tables for `ctype.h` compatibility
+//! 10. Run executable preinit/init arrays in ELF priority order
 //!
 //! Custom auxv tags used by SaltyOS:
 //! - `0x1007` (`AT_BESALT_SLOT_BASE`): slot allocator pool base
@@ -61,13 +62,11 @@ unsafe impl Sync for SyncPtr {}
 #[used]
 static __dso_handle: SyncPtr = SyncPtr(core::ptr::null());
 
-// Linker-provided .init_array/.fini_array boundaries
-unsafe extern "C" {
-    static __init_array_start: unsafe extern "C" fn();
-    static __init_array_end: unsafe extern "C" fn();
-    static __fini_array_start: unsafe extern "C" fn();
-    static __fini_array_end: unsafe extern "C" fn();
-}
+/// Saved executable .fini_array bounds provided by `_start`.
+///
+/// These must come from the main executable, not from `libc.so` itself.
+static mut SAVED_FINI_ARRAY_START: *const unsafe extern "C" fn() = core::ptr::null();
+static mut SAVED_FINI_ARRAY_END: *const unsafe extern "C" fn() = core::ptr::null();
 
 /// Called from _start (crt_start.S). Receives a pointer to main() and the
 /// initial stack pointer. Parses the stack to extract argc, argv, envp, and
@@ -76,6 +75,12 @@ unsafe extern "C" {
 pub unsafe extern "C" fn __libc_start_main(
     main_fn: unsafe extern "C" fn(i32, *const *const u8, *const *const u8) -> i32,
     stack_ptr: *const u64,
+    preinit_array_start: *const unsafe extern "C" fn(),
+    preinit_array_end: *const unsafe extern "C" fn(),
+    init_array_start: *const unsafe extern "C" fn(),
+    init_array_end: *const unsafe extern "C" fn(),
+    fini_array_start: *const unsafe extern "C" fn(),
+    fini_array_end: *const unsafe extern "C" fn(),
 ) -> ! {
     unsafe {
         // Stack layout: argc, argv[0], argv[1], ..., NULL, envp[0], ..., NULL, auxv...
@@ -111,9 +116,6 @@ pub unsafe extern "C" fn __libc_start_main(
             crate::compat::freebsd::bsd_misc::setprogname(*argv);
         }
 
-        // Initialize FreeBSD locale/rune compatibility
-        crate::compat::freebsd::rune::init_rune_locale();
-
         // Probe fd 0: if already open (inherited from exec), skip /dev/console.
         // dup(0) succeeds if fd 0 exists (exec'd process), fails if empty (fresh spawn).
         let probe = salty::posix::posix_dup(0);
@@ -134,8 +136,17 @@ pub unsafe extern "C" fn __libc_start_main(
         // using fprintf(stderr, ...) etc. get valid FILE* from the GOT.
         crate::stdio::ensure_stdio_init();
 
-        // Call .init_array constructors (C++ global constructors)
-        call_init_array();
+        // Initialize FreeBSD locale/rune compatibility before user
+        // constructors can call into ctype/locale-sensitive helpers.
+        crate::compat::freebsd::rune::init_rune_locale();
+
+        core::ptr::addr_of_mut!(SAVED_FINI_ARRAY_START).write(fini_array_start);
+        core::ptr::addr_of_mut!(SAVED_FINI_ARRAY_END).write(fini_array_end);
+
+        // Run ELF preinit/init arrays in the same order expected by other ELF
+        // environments: preinit first, then init in ascending priority order.
+        call_preinit_array(preinit_array_start, preinit_array_end);
+        call_init_array(init_array_start, init_array_end);
 
         // Call main
         let ret = main_fn(argc, argv, envp);
@@ -189,6 +200,7 @@ unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
         // Parse auxv
         let mut slot_base: u64 = 0;
         let mut slot_count: u64 = 0;
+        let mut mm_ep: u64 = CAP_MMSRV_EP; // fallback to slot 7 if absent
 
         loop {
             let tag = *p;
@@ -199,6 +211,7 @@ unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
             match tag {
                 0x1007 => slot_base = val,   // AT_BESALT_SLOT_BASE
                 0x1008 => slot_count = val,  // AT_BESALT_SLOT_COUNT
+                0x100B => mm_ep = val,       // AT_BESALT_MM_EP
                 _ => {}
             }
             p = p.add(2);
@@ -220,8 +233,8 @@ unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
             salty::slot_alloc::slot_alloc_init(slot_base, slot_count, cspace_ntfn);
         }
 
-        // Initialize posix_mm with the mmsrv endpoint (slot 7 for post-mmsrv processes)
-        salty::posix_mm::posix_mm_init(CAP_MMSRV_EP);
+        // Initialize posix_mm with the pager endpoint discovered from auxv
+        salty::posix_mm::posix_mm_init(mm_ep);
     }
 }
 
@@ -254,7 +267,9 @@ pub unsafe extern "C" fn exit(status: i32) -> ! {
         __cxa_finalize(core::ptr::null_mut());
 
         // Call .fini_array destructors in reverse order
-        call_fini_array();
+        let fini_start = core::ptr::addr_of!(SAVED_FINI_ARRAY_START).read();
+        let fini_end = core::ptr::addr_of!(SAVED_FINI_ARRAY_END).read();
+        call_fini_array(fini_start, fini_end);
 
         // Flush stdio
         crate::stdio::fflush_all();
@@ -318,11 +333,23 @@ pub unsafe extern "C" fn __cxa_finalize(dso_handle: *mut core::ffi::c_void) {
     }
 }
 
-/// Call all function pointers in the .init_array section (forward order)
-unsafe fn call_init_array() {
+/// Call all function pointers in the .preinit_array section (forward order)
+unsafe fn call_preinit_array(
+    mut p: *const unsafe extern "C" fn(),
+    end: *const unsafe extern "C" fn(),
+) {
     unsafe {
-        let mut p = core::ptr::addr_of!(__init_array_start) as *const unsafe extern "C" fn();
-        let end = core::ptr::addr_of!(__init_array_end) as *const unsafe extern "C" fn();
+        while p < end {
+            let func = core::ptr::read(p);
+            func();
+            p = p.add(1);
+        }
+    }
+}
+
+/// Call all function pointers in the .init_array section (forward order)
+unsafe fn call_init_array(mut p: *const unsafe extern "C" fn(), end: *const unsafe extern "C" fn()) {
+    unsafe {
         while p < end {
             let func = core::ptr::read(p);
             func();
@@ -332,10 +359,11 @@ unsafe fn call_init_array() {
 }
 
 /// Call all function pointers in the .fini_array section (reverse order)
-unsafe fn call_fini_array() {
+unsafe fn call_fini_array(
+    start: *const unsafe extern "C" fn(),
+    mut p: *const unsafe extern "C" fn(),
+) {
     unsafe {
-        let start = core::ptr::addr_of!(__fini_array_start) as *const unsafe extern "C" fn();
-        let mut p = core::ptr::addr_of!(__fini_array_end) as *const unsafe extern "C" fn();
         while p > start {
             p = p.sub(1);
             let func = core::ptr::read(p);

@@ -109,6 +109,38 @@ pub static mut __besalt_slot_count: u64 = 0;
 #[linkage = "weak"]
 pub static mut __besalt_cspace_ntfn: u64 = 0;
 
+/// ELF TLS template address (runtime address of `.tdata` in the loaded binary).
+/// Set by rtld after processing PT_TLS.
+#[unsafe(no_mangle)]
+#[linkage = "weak"]
+pub static mut __besalt_tls_template: u64 = 0;
+
+/// Size of `.tdata` section (initialized TLS data to copy).
+#[unsafe(no_mangle)]
+#[linkage = "weak"]
+pub static mut __besalt_tls_filesz: u64 = 0;
+
+/// Total static TLS size across the executable and all loaded PT_TLS DSOs.
+#[unsafe(no_mangle)]
+#[linkage = "weak"]
+pub static mut __besalt_tls_memsz: u64 = 0;
+
+/// Maximum alignment required by the process static TLS layout.
+#[unsafe(no_mangle)]
+#[linkage = "weak"]
+pub static mut __besalt_tls_align: u64 = 1;
+
+/// Number of populated entries in `__besalt_tls_modules`.
+#[unsafe(no_mangle)]
+#[linkage = "weak"]
+pub static mut __besalt_tls_module_count: u64 = 0;
+
+/// Per-module static TLS metadata exported by rtld.
+#[unsafe(no_mangle)]
+#[linkage = "weak"]
+pub static mut __besalt_tls_modules: [tls::StaticTlsModule; tls::MAX_STATIC_TLS_MODULES] =
+    [tls::StaticTlsModule::zeroed(); tls::MAX_STATIC_TLS_MODULES];
+
 // ---------------------------------------------------------------------------
 // Panic handler (for libbesalt.so and statically-linked binaries)
 // ---------------------------------------------------------------------------

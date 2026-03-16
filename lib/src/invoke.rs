@@ -147,6 +147,13 @@ pub fn vspace_protect(vspace: Cap, vaddr: u64, flags: u64) -> i32 {
     invoke(vspace, VSPACE_PROTECT, vaddr, flags, 0, 0).error as i32
 }
 
+/// Change protection flags on a contiguous range of pages in the given VSpace.
+/// Returns `(error_code, pages_protected)`.
+pub fn vspace_protect_range(vspace: Cap, vaddr: u64, count: u64, flags: u64) -> (i32, u64) {
+    let r = invoke(vspace, VSPACE_PROTECT_RANGE, vaddr, count, flags, 0);
+    (r.error as i32, r.value)
+}
+
 /// Map an intermediate page table at the given level for `vaddr`.
 pub fn vspace_map_pt(vspace: Cap, frame: Cap, vaddr: u64, level: u64) -> i32 {
     invoke(vspace, VSPACE_MAP_PT, frame, vaddr, level, 0).error as i32

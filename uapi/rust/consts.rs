@@ -74,7 +74,7 @@ pub const TCB_SET_FAULT_HANDLER: u64 = 0x4B;
 pub const TCB_COPY_FPU: u64 = 0x4C;
 pub const TCB_SET_TLS_BASE: u64 = 0x4D;
 
-/// VSpace invoke labels (0x50-0x5E): map, unmap, map_pt, walk, copy_page, map_device, clone_cow, map_device_range, protect, map_demand, map_demand_range, cow_resolve, set_cow_pool, set_cow_notif, replenish_cow_pool.
+/// VSpace invoke labels (0x50-0x5F): map, unmap, map_pt, walk, copy_page, map_device, clone_cow, map_device_range, protect, map_demand, map_demand_range, cow_resolve, set_cow_pool, set_cow_notif, replenish_cow_pool, protect_range.
 pub const VSPACE_MAP: u64 = 0x50;
 pub const VSPACE_UNMAP: u64 = 0x51;
 pub const VSPACE_MAP_PT: u64 = 0x52;
@@ -90,6 +90,7 @@ pub const VSPACE_COW_RESOLVE: u64 = 0x5B;
 pub const VSPACE_SET_COW_POOL: u64 = 0x5C;
 pub const VSPACE_SET_COW_NOTIF: u64 = 0x5D;
 pub const VSPACE_REPLENISH_COW_POOL: u64 = 0x5E;
+pub const VSPACE_PROTECT_RANGE: u64 = 0x5F;
 
 /// IRQ control invoke label (0x60): acquire IRQ handler capability.
 pub const IRQ_CONTROL_GET: u64 = 0x60;
@@ -304,8 +305,8 @@ pub const POSIX_VFS_PWRITE: u64 = 63;
 pub const POSIX_VFS_BULK_SETUP: u64 = 64;
 pub const POSIX_VFS_BULK_READ: u64 = 65;
 
-/// Per-client bulk SHM size for VFS I/O (256KB = 64 pages).
-pub const BULK_SHM_PAGES: u64 = 64;
+/// Per-client bulk SHM size for VFS I/O (1MB = 256 pages).
+pub const BULK_SHM_PAGES: u64 = 256;
 
 // AT_* flags for *at() family
 pub const AT_FDCWD: i32 = -100;
@@ -448,6 +449,7 @@ pub const MM_ALLOC_THREAD_OBJECTS: u64 = 0x8E;
 pub const MM_FREE_THREAD_OBJECTS: u64 = 0x8F;
 pub const MM_GET_CLIENT_STATS: u64 = 0x90;
 pub const MM_ALLOC_OBJECT: u64 = 0x91;
+pub const MM_REGISTER_SHARED_REGION: u64 = 0x92;
 
 /// Name service IPC protocol labels (register/lookup endpoint by name).
 pub const POSIX_NS_REGISTER: u64 = 1;
@@ -539,6 +541,7 @@ pub const MAP_LAZY: i32 = 0x40;
 pub const AT_BESALT_SLOT_BASE: u64 = 0x1007;
 pub const AT_BESALT_SLOT_COUNT: u64 = 0x1008;
 pub const AT_BESALT_CSPACE_NTFN: u64 = 0x100A;
+pub const AT_BESALT_MM_EP: u64 = 0x100B;
 
 /// ELF format constants (class, data encoding, types, segment types, relocation types).
 pub const ELF_PAGE_SIZE: u64 = 4096;

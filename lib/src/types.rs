@@ -44,6 +44,11 @@ impl BesaltMsg {
     }
 }
 
+/// Number of u64 words in the IPC buffer's reserved payload area.
+pub const IPC_BUFFER_RESERVED_WORDS: usize = 478;
+/// Number of bytes in the IPC buffer's reserved payload area.
+pub const IPC_BUFFER_RESERVED_BYTES: usize = IPC_BUFFER_RESERVED_WORDS * core::mem::size_of::<u64>();
+
 /// Kernel-shared IPC buffer page (4096 bytes).
 ///
 /// Mapped at a fixed virtual address per thread. The kernel reads/writes
@@ -65,7 +70,7 @@ pub struct IpcBuffer {
     pub receive_cnode: u64,
     pub receive_index: u64,
     pub receive_depth: u64,
-    pub reserved: [u64; 478],
+    pub reserved: [u64; IPC_BUFFER_RESERVED_WORDS],
 }
 
 /// Per-thread IPC context: a pointer to the IPC buffer page and the

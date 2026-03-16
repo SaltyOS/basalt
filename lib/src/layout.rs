@@ -9,8 +9,8 @@
 //!
 //! SPDX-License-Identifier: GPL-2.0-only
 
-/// Number of 4K stack pages allocated per child process (default 16K stack).
-pub const CHILD_STACK_PAGES: usize = 4;
+/// Number of 4K stack pages allocated per child process (default 128 KiB stack).
+pub const CHILD_STACK_PAGES: usize = 32;
 
 // ---- Default VA addresses (private to layout computation) ----
 // These define the canonical user address space layout within the first
