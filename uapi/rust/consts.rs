@@ -426,6 +426,7 @@ pub const POSIX_PM_LIST_PIDS: u64 = 27;
 pub const POSIX_PM_GET_PROC_INFO: u64 = 28;
 pub const POSIX_PM_RESUME: u64 = 29;
 pub const POSIX_PM_UMASK: u64 = 30;
+pub const POSIX_PM_REQUEST_UNTYPED: u64 = 31;
 // Deterministic CNode slots for CSpace expansion (root slots 1008-1015)
 pub const CSPACE_EXPAND_BASE: u64 = 1008;
 pub const MAX_CSPACE_EXPANSIONS: usize = 8;
