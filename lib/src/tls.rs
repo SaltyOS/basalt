@@ -95,6 +95,10 @@ pub struct ThreadLocalBlock {
     _pad1: u32,
     /// LIFO stack of cleanup handlers (intrusive linked list)
     pub cleanup_stack: *mut CleanupHandler,
+    /// Futex address the thread is currently blocked on (for cancel wake).
+    /// Set before futex_wait at cancellation points, cleared after return.
+    /// 0 means the thread is not blocked on any cancellation-point futex.
+    pub blocked_futex_addr: core::sync::atomic::AtomicU64,
 }
 
 /// Cleanup handler node for pthread_cleanup_push/pop.
@@ -126,6 +130,7 @@ impl ThreadLocalBlock {
             cancel_pending: 0,
             _pad1: 0,
             cleanup_stack: core::ptr::null_mut(),
+            blocked_futex_addr: core::sync::atomic::AtomicU64::new(0),
         }
     }
 }

@@ -50,7 +50,7 @@ pub struct PthreadCondT {
     inner: [u8; 8],
 }
 
-/// pthread_rwlock_t wraps libsalty's sync::RWLock (two AtomicU32 = 8 bytes).
+/// pthread_rwlock_t wraps libsalty's sync::RWLock (three AtomicU32 = 12 bytes).
 /// Padded to 16 bytes for alignment.
 #[repr(C)]
 pub struct PthreadRwlockT {

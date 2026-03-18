@@ -27,6 +27,29 @@ fn remaining_timeout_ns(deadline_ns: u64) -> u64 {
     deadline_ns.saturating_sub(monotonic_now_ns())
 }
 
+/// Record the futex address we're about to block on (for cancellation wake).
+/// pthread_cancel() reads this to wake threads blocked at cancellation points.
+#[inline]
+fn set_blocked_futex(addr: *const u32) {
+    if let Some(tls) = crate::tls::current_tls() {
+        // SAFETY: tls is a valid pointer to the current thread's TLS block
+        unsafe {
+            (*tls).blocked_futex_addr.store(addr as u64, Ordering::Release);
+        }
+    }
+}
+
+/// Clear the blocked futex address after returning from futex_wait.
+#[inline]
+fn clear_blocked_futex() {
+    if let Some(tls) = crate::tls::current_tls() {
+        // SAFETY: tls is a valid pointer to the current thread's TLS block
+        unsafe {
+            (*tls).blocked_futex_addr.store(0, Ordering::Release);
+        }
+    }
+}
+
 // =========================================================================
 // Mutex: futex-based, 3-state (0=unlocked, 1=locked, 2=locked+waiters)
 // =========================================================================
@@ -50,21 +73,37 @@ impl Mutex {
     }
 
     /// Acquire the mutex, blocking if necessary.
+    ///
+    /// Three-phase algorithm:
+    /// 1. Fast path: uncontended CAS 0 → 1 (no syscall)
+    /// 2. Spin phase: brief userspace spin before entering kernel (~40 iters)
+    /// 3. Futex phase: kernel-mediated wait with swap(2) waiter flag
+    ///
+    /// The spin phase avoids the expensive futex_wait syscall + context switch
+    /// when the lock holder is on another CPU and about to release.
     pub fn lock(&self) {
         // Fast path: uncontended CAS 0 → 1
         if self.state.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
             return;
         }
 
-        // Slow path: swap to 2 (locked + waiters) and futex_wait
+        // Spin phase: try to acquire without entering the kernel.
+        // On SMP, the holder may be running on another CPU and about to
+        // release. A brief spin avoids the ~1µs futex syscall overhead.
+        for _ in 0..40 {
+            if self.state.load(Ordering::Relaxed) == 0 {
+                if self.state.compare_exchange_weak(0, 2, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+                    return;
+                }
+            }
+            core::hint::spin_loop();
+        }
+
+        // Futex phase: always use swap(2) to preserve the waiter flag.
         loop {
-            // If state was already non-zero, swap to 2
-            let prev = self.state.swap(2, Ordering::Acquire);
-            if prev == 0 {
-                // We acquired the lock (and marked waiters — harmless)
+            if self.state.swap(2, Ordering::Acquire) == 0 {
                 return;
             }
-            // Block until state changes from 2
             futex_wait(self.futex_ptr(), 2);
         }
     }
@@ -72,36 +111,29 @@ impl Mutex {
     /// Acquire the mutex with a timeout in nanoseconds.
     /// Returns true if the lock was acquired, false on timeout.
     pub fn lock_timeout(&self, timeout_ns: u64) -> bool {
-        let deadline_ns = monotonic_now_ns().saturating_add(timeout_ns);
-
-        // Fast path: uncontended CAS 0 → 1
+        // Fast path: uncontended CAS 0 → 1 (no syscall)
         if self.state.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
             return true;
         }
 
-        // Slow path: swap to 2 (locked + waiters) and futex_wait_timeout
+        // Slow path: always swap(2) to preserve waiter flag
+        let deadline_ns = monotonic_now_ns().saturating_add(timeout_ns);
+
         loop {
-            let prev = self.state.swap(2, Ordering::Acquire);
-            if prev == 0 {
+            if self.state.swap(2, Ordering::Acquire) == 0 {
                 return true;
             }
 
             let remaining_ns = remaining_timeout_ns(deadline_ns);
             if remaining_ns == 0 {
-                // Timeout — try one last time before giving up
-                if self.state.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
-                    return true;
-                }
-                return false;
+                // Timeout — last try with swap(2) to keep waiter flag correct
+                return self.state.swap(2, Ordering::Acquire) == 0;
             }
 
             let err = futex_wait_timeout(self.futex_ptr(), 2, remaining_ns);
             if err == crate::consts::BESALT_CANCELLED {
-                // Timeout — try one last time before giving up
-                if self.state.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
-                    return true;
-                }
-                return false;
+                // Timeout — last try with swap(2)
+                return self.state.swap(2, Ordering::Acquire) == 0;
             }
         }
     }
@@ -322,9 +354,18 @@ impl TypedMutex {
         if self.state.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
             return;
         }
+        // Spin phase
+        for _ in 0..40 {
+            if self.state.load(Ordering::Relaxed) == 0 {
+                if self.state.compare_exchange_weak(0, 2, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+                    return;
+                }
+            }
+            core::hint::spin_loop();
+        }
+        // Futex phase
         loop {
-            let prev = self.state.swap(2, Ordering::Acquire);
-            if prev == 0 {
+            if self.state.swap(2, Ordering::Acquire) == 0 {
                 return;
             }
             futex_wait(self.futex_ptr(), 2);
@@ -333,33 +374,23 @@ impl TypedMutex {
 
     /// Internal: acquire the futex lock with timeout. Returns true on success.
     fn lock_inner_timeout(&self, timeout_ns: u64) -> bool {
-        let deadline_ns = monotonic_now_ns().saturating_add(timeout_ns);
-
         if self.state.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
             return true;
         }
+        let deadline_ns = monotonic_now_ns().saturating_add(timeout_ns);
         loop {
-            let prev = self.state.swap(2, Ordering::Acquire);
-            if prev == 0 {
+            if self.state.swap(2, Ordering::Acquire) == 0 {
                 return true;
             }
 
             let remaining_ns = remaining_timeout_ns(deadline_ns);
             if remaining_ns == 0 {
-                // Timeout — last-chance try
-                if self.state.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
-                    return true;
-                }
-                return false;
+                return self.state.swap(2, Ordering::Acquire) == 0;
             }
 
             let err = futex_wait_timeout(self.futex_ptr(), 2, remaining_ns);
             if err == crate::consts::BESALT_CANCELLED {
-                // Timeout — last-chance try
-                if self.state.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
-                    return true;
-                }
-                return false;
+                return self.state.swap(2, Ordering::Acquire) == 0;
             }
         }
     }
@@ -449,7 +480,9 @@ impl Condvar {
     pub fn wait(&self, mutex: &Mutex) {
         let current_seq = self.seq.load(Ordering::Relaxed);
         mutex.unlock();
+        set_blocked_futex(self.futex_ptr());
         futex_wait(self.futex_ptr(), current_seq);
+        clear_blocked_futex();
         mutex.lock();
         // Cancellation point: check after re-acquiring mutex
         check_cancellation();
@@ -462,7 +495,9 @@ impl Condvar {
     pub fn wait_timeout(&self, mutex: &Mutex, timeout_ns: u64) -> i32 {
         let current_seq = self.seq.load(Ordering::Relaxed);
         mutex.unlock();
+        set_blocked_futex(self.futex_ptr());
         let err = futex_wait_timeout(self.futex_ptr(), current_seq, timeout_ns);
+        clear_blocked_futex();
         mutex.lock();
         // Cancellation point: check after re-acquiring mutex
         check_cancellation();
@@ -479,7 +514,9 @@ impl Condvar {
         if saved == 0 {
             return 1; // EPERM — caller doesn't own the mutex
         }
+        set_blocked_futex(self.futex_ptr());
         futex_wait(self.futex_ptr(), current_seq);
+        clear_blocked_futex();
         mutex.condvar_relock(saved);
         check_cancellation();
         0
@@ -495,7 +532,9 @@ impl Condvar {
         if saved == 0 {
             return 1; // EPERM — caller doesn't own the mutex
         }
+        set_blocked_futex(self.futex_ptr());
         let err = futex_wait_timeout(self.futex_ptr(), current_seq, timeout_ns);
+        clear_blocked_futex();
         mutex.condvar_relock(saved);
         check_cancellation();
         if err == crate::consts::BESALT_CANCELLED { 110 } else { 0 }
@@ -533,6 +572,7 @@ impl Condvar {
 pub struct RWLock {
     state: AtomicU32,
     writer_wake: AtomicU32,
+    writer_waiting: AtomicU32,
 }
 
 const WRITER_BIT: u32 = 1 << 31;
@@ -542,22 +582,26 @@ impl RWLock {
         RWLock {
             state: AtomicU32::new(0),
             writer_wake: AtomicU32::new(0),
+            writer_waiting: AtomicU32::new(0),
         }
     }
 
     /// Acquire a shared (read) lock.
+    ///
+    /// Yields to waiting writers: if a writer is queued, new readers wait
+    /// rather than acquiring immediately, preventing writer starvation.
     pub fn read_lock(&self) {
         loop {
             let s = self.state.load(Ordering::Relaxed);
-            if s & WRITER_BIT == 0 {
-                // No writer — try to increment reader count
+            if s & WRITER_BIT == 0 && self.writer_waiting.load(Ordering::Relaxed) == 0 {
+                // No writer holding or waiting — try to increment reader count
                 if self.state.compare_exchange_weak(
                     s, s + 1, Ordering::Acquire, Ordering::Relaxed,
                 ).is_ok() {
                     return;
                 }
             } else {
-                // Writer holds lock — wait for writer_wake
+                // Writer holds lock or is waiting — wait for writer_wake
                 futex_wait(self.writer_futex_ptr(), self.writer_wake.load(Ordering::Relaxed));
             }
         }
@@ -575,14 +619,21 @@ impl RWLock {
 
     /// Acquire an exclusive (write) lock.
     pub fn write_lock(&self) {
+        // Fast path: no contention
+        if self.state.compare_exchange_weak(
+            0, WRITER_BIT, Ordering::Acquire, Ordering::Relaxed,
+        ).is_ok() {
+            return;
+        }
+        // Signal that a writer is waiting so new readers yield
+        self.writer_waiting.fetch_add(1, Ordering::Relaxed);
         loop {
-            // Try to set WRITER_BIT when state == 0 (no readers, no writers)
             if self.state.compare_exchange_weak(
                 0, WRITER_BIT, Ordering::Acquire, Ordering::Relaxed,
             ).is_ok() {
+                self.writer_waiting.fetch_sub(1, Ordering::Relaxed);
                 return;
             }
-            // Wait for the state to become 0
             let s = self.state.load(Ordering::Relaxed);
             if s != 0 {
                 futex_wait(self.writer_futex_ptr(), self.writer_wake.load(Ordering::Relaxed));
@@ -625,10 +676,19 @@ impl RWLock {
     /// Acquire a shared (read) lock with a timeout in nanoseconds.
     /// Returns true if acquired, false on timeout.
     pub fn read_lock_timeout(&self, timeout_ns: u64) -> bool {
+        // Fast path: try uncontended read lock before computing deadline
+        let s = self.state.load(Ordering::Relaxed);
+        if s & WRITER_BIT == 0 && self.writer_waiting.load(Ordering::Relaxed) == 0 {
+            if self.state.compare_exchange_weak(
+                s, s + 1, Ordering::Acquire, Ordering::Relaxed,
+            ).is_ok() {
+                return true;
+            }
+        }
         let deadline_ns = monotonic_now_ns().saturating_add(timeout_ns);
         loop {
             let s = self.state.load(Ordering::Relaxed);
-            if s & WRITER_BIT == 0 {
+            if s & WRITER_BIT == 0 && self.writer_waiting.load(Ordering::Relaxed) == 0 {
                 if self.state.compare_exchange_weak(
                     s, s + 1, Ordering::Acquire, Ordering::Relaxed,
                 ).is_ok() {
@@ -660,17 +720,26 @@ impl RWLock {
     /// Acquire an exclusive (write) lock with a timeout in nanoseconds.
     /// Returns true if acquired, false on timeout.
     pub fn write_lock_timeout(&self, timeout_ns: u64) -> bool {
+        // Fast path
+        if self.state.compare_exchange_weak(
+            0, WRITER_BIT, Ordering::Acquire, Ordering::Relaxed,
+        ).is_ok() {
+            return true;
+        }
+        self.writer_waiting.fetch_add(1, Ordering::Relaxed);
         let deadline_ns = monotonic_now_ns().saturating_add(timeout_ns);
         loop {
             if self.state.compare_exchange_weak(
                 0, WRITER_BIT, Ordering::Acquire, Ordering::Relaxed,
             ).is_ok() {
+                self.writer_waiting.fetch_sub(1, Ordering::Relaxed);
                 return true;
             }
             let s = self.state.load(Ordering::Relaxed);
             if s != 0 {
                 let remaining = remaining_timeout_ns(deadline_ns);
                 if remaining == 0 {
+                    self.writer_waiting.fetch_sub(1, Ordering::Relaxed);
                     return false;
                 }
                 let wake_val = self.writer_wake.load(Ordering::Relaxed);
@@ -680,8 +749,10 @@ impl RWLock {
                     if self.state.compare_exchange(
                         0, WRITER_BIT, Ordering::Acquire, Ordering::Relaxed,
                     ).is_ok() {
+                        self.writer_waiting.fetch_sub(1, Ordering::Relaxed);
                         return true;
                     }
+                    self.writer_waiting.fetch_sub(1, Ordering::Relaxed);
                     return false;
                 }
             }
@@ -817,6 +888,15 @@ impl Semaphore {
     /// Decrement with timeout in nanoseconds.
     /// Returns 0 on success, 110 (ETIMEDOUT) on timeout.
     pub fn wait_timeout(&self, timeout_ns: u64) -> i32 {
+        // Fast path: uncontended decrement before computing deadline
+        let c = self.count.load(Ordering::Relaxed);
+        if c > 0 {
+            if self.count.compare_exchange_weak(
+                c, c - 1, Ordering::Acquire, Ordering::Relaxed,
+            ).is_ok() {
+                return 0;
+            }
+        }
         let deadline_ns = monotonic_now_ns().saturating_add(timeout_ns);
         loop {
             let c = self.count.load(Ordering::Relaxed);

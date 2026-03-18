@@ -64,7 +64,8 @@ pub fn tcb_set_space_with_depth(tcb: Cap, cspace: Cap, vspace: Cap, depth: u64) 
 }
 
 /// Set the fault endpoint for a TCB. Page faults and exceptions are
-/// delivered as IPC messages to this endpoint.
+/// delivered as IPC messages to this endpoint. Pass `0` to clear the
+/// current fault handler.
 pub fn tcb_set_fault_handler(tcb: Cap, fault_ep: Cap) -> i32 {
     invoke(tcb, TCB_SET_FAULT_HANDLER, fault_ep, 0, 0, 0).error as i32
 }

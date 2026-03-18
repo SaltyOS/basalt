@@ -6,10 +6,11 @@
 //!
 //! ## Handle lifetime safety
 //!
-//! `pthread_t` is a pointer into a global `ThreadControl` pool (not a pointer
-//! to the thread's stack-resident TLS block). This eliminates use-after-free
-//! on double-join, enables self-join detection, and makes detached-thread
-//! cleanup safe.
+//! `pthread_t` is an opaque u64 encoding a pool index and generation counter
+//! (not a raw pointer). The generation counter is incremented each time a pool
+//! slot is recycled, preventing ABA issues where a stale handle could
+//! reference a different thread. All API functions validate the generation
+//! before accessing the pool slot.
 //!
 //! ## State machine
 //!
@@ -31,7 +32,7 @@ use crate::slot_alloc;
 use crate::syscall::{futex_wait, futex_wake};
 use crate::tls::{self, ThreadLocalBlock};
 use crate::types::*;
-use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 /// Maximum concurrent threads per process (slot 0 = main thread)
 const MAX_THREADS: usize = 64;
@@ -46,6 +47,9 @@ const TC_DETACHED_EXITED: u32 = 5;
 
 /// Default thread stack size: 2 MiB
 const DEFAULT_STACK_SIZE: u64 = 2 * 1024 * 1024;
+
+/// Hint for next free thread pool slot — avoids O(N) linear scan.
+static NEXT_FREE_HINT: AtomicUsize = AtomicUsize::new(1);
 
 /// Thread attributes for pthread_create.
 #[repr(C)]
@@ -92,6 +96,8 @@ impl PthreadAttr {
 pub struct ThreadControl {
     /// Lifecycle state (TC_UNUSED / TC_RUNNING / TC_EXITED / TC_JOINED / TC_DETACHED / TC_DETACHED_EXITED)
     state: AtomicU32,
+    /// Generation counter — incremented on each slot reuse to prevent ABA
+    generation: AtomicU32,
     /// Futex word for pthread_join synchronization (0 = not exited, 1 = exited)
     join_futex: AtomicU32,
     /// Return value from pthread_exit (set by exiting thread, read by joiner)
@@ -110,6 +116,8 @@ pub struct ThreadControl {
     frame_cap: u64,
     /// Pointer to the thread's TLS block (on its stack)
     tls_ptr: *mut ThreadLocalBlock,
+    /// IPC buffer virtual address (for cleanup via vspace_unmap)
+    ipc_buf_vaddr: u64,
 }
 
 // SAFETY: ThreadControl fields are accessed through raw pointers with
@@ -123,6 +131,7 @@ impl ThreadControl {
     const fn zeroed() -> Self {
         ThreadControl {
             state: AtomicU32::new(TC_UNUSED),
+            generation: AtomicU32::new(0),
             join_futex: AtomicU32::new(0),
             exit_value: core::ptr::null_mut(),
             thread_id: 0,
@@ -132,6 +141,7 @@ impl ThreadControl {
             sc_cap: 0,
             frame_cap: 0,
             tls_ptr: core::ptr::null_mut(),
+            ipc_buf_vaddr: 0,
         }
     }
 
@@ -204,8 +214,47 @@ const CAP_SELF_VSPACE: u64 = 1;
 const CAP_SELF_CSPACE: u64 = 2;
 const CAP_MMSRV_EP: u64 = 7;
 
-/// Opaque thread handle (pointer to ThreadControl pool slot)
-pub type PthreadT = *mut ThreadControl;
+/// Opaque thread handle: bits [15:0] = pool index, bits [31:16] = generation.
+/// Prevents ABA issues where a stale handle references a recycled pool slot.
+pub type PthreadT = u64;
+
+/// Sentinel value for a null/invalid thread handle.
+pub const PTHREAD_NULL: PthreadT = u64::MAX;
+
+/// Encode a pool index and generation counter into an opaque handle.
+fn encode_handle(index: usize, generation: u32) -> PthreadT {
+    ((index as u64) & 0xFFFF) | (((generation as u64) & 0xFFFF) << 16)
+}
+
+/// Decode a handle into (pool_index, generation). Returns None for invalid handles.
+fn decode_handle(handle: PthreadT) -> Option<(usize, u16)> {
+    if handle == PTHREAD_NULL {
+        return None;
+    }
+    let index = (handle & 0xFFFF) as usize;
+    let generation = ((handle >> 16) & 0xFFFF) as u16;
+    if index >= MAX_THREADS {
+        return None;
+    }
+    Some((index, generation))
+}
+
+/// Validate a handle against the current generation of its pool slot.
+/// Returns a raw pointer to the ThreadControl if the generation matches.
+///
+/// # Safety
+/// The returned pointer is valid as long as the pool slot is not recycled
+/// (which can only happen after the caller finishes its operation).
+unsafe fn validate_handle(handle: PthreadT) -> Option<*mut ThreadControl> {
+    let (index, expected_gen) = decode_handle(handle)?;
+    let tc = pool_ptr(index);
+    // SAFETY: tc points to a valid pool slot (index < MAX_THREADS)
+    let current_gen = unsafe { (*tc).generation.load(Ordering::Acquire) };
+    if (current_gen as u16) != expected_gen {
+        return None;
+    }
+    Some(tc)
+}
 
 /// Initialize the main thread's ThreadControl slot (pool index 0).
 ///
@@ -240,19 +289,35 @@ pub unsafe fn pthread_create(
     arg: *mut u8,
 ) -> i32 {
     unsafe {
-        // Opportunistically reclaim detached-exited threads before taking a slot.
-        reap_detached_zombies();
-
-        // 1. Find a free slot in the thread pool (slot 0 is main thread)
+        // 1. Find a free slot in the thread pool (slot 0 is main thread).
+        // Start from NEXT_FREE_HINT to avoid O(N) scan when slots are dense.
+        let hint = NEXT_FREE_HINT.load(Ordering::Relaxed);
         let mut slot_index = usize::MAX;
-        for i in 1..MAX_THREADS {
+        for offset in 0..(MAX_THREADS - 1) {
+            let i = ((hint - 1 + offset) % (MAX_THREADS - 1)) + 1;
             let tc = pool_ptr(i);
             if (*tc).state.compare_exchange(
                 TC_UNUSED, TC_RUNNING,
                 Ordering::AcqRel, Ordering::Relaxed,
             ).is_ok() {
                 slot_index = i;
+                NEXT_FREE_HINT.store((i % (MAX_THREADS - 1)) + 1, Ordering::Relaxed);
                 break;
+            }
+        }
+        if slot_index == usize::MAX {
+            // Pool full — reap detached-exited zombies and retry once.
+            reap_detached_zombies();
+            for i in 1..MAX_THREADS {
+                let tc = pool_ptr(i);
+                if (*tc).state.compare_exchange(
+                    TC_UNUSED, TC_RUNNING,
+                    Ordering::AcqRel, Ordering::Relaxed,
+                ).is_ok() {
+                    slot_index = i;
+                    NEXT_FREE_HINT.store((i % (MAX_THREADS - 1)) + 1, Ordering::Relaxed);
+                    break;
+                }
             }
         }
         if slot_index == usize::MAX {
@@ -391,6 +456,7 @@ pub unsafe fn pthread_create(
 
         // 8. Map IPC buffer frame
         let ipc_buf_vaddr = IPC_BUF_NEXT.fetch_add(4096, Ordering::Relaxed);
+        (*tc).ipc_buf_vaddr = ipc_buf_vaddr;
         let err = invoke::vspace_map(
             CAP_SELF_VSPACE,
             frame_slot,
@@ -465,9 +531,10 @@ pub unsafe fn pthread_create(
             return -1;
         }
 
-        // Return thread handle (pointer to pool slot)
+        // Return ABA-safe thread handle
         if !thread_out.is_null() {
-            *thread_out = tc;
+            let cur_gen = (*tc).generation.load(Ordering::Relaxed);
+            *thread_out = encode_handle(slot_index, cur_gen);
         }
 
         0
@@ -562,10 +629,17 @@ unsafe fn cleanup_thread(tc: *mut ThreadControl) {
         let frame_cap = (*tc).frame_cap;
         let stack_base = (*tc).stack_base;
         let stack_size = (*tc).stack_size;
+        let ipc_va = (*tc).ipc_buf_vaddr;
 
         // Suspend the thread's TCB (should already be suspended)
         if tcb_cap != 0 {
             invoke::tcb_suspend_retry(tcb_cap, 4);
+        }
+
+        // Unmap IPC buffer page before deleting the frame cap
+        if ipc_va != 0 {
+            invoke::vspace_unmap(CAP_SELF_VSPACE, ipc_va);
+            (*tc).ipc_buf_vaddr = 0;
         }
 
         // Unmap and free the stack (this also destroys the TLS block)
@@ -584,6 +658,8 @@ unsafe fn cleanup_thread(tc: *mut ThreadControl) {
             invoke::cnode_delete(CAP_SELF_CSPACE, frame_cap);
         }
 
+        // Increment generation to invalidate stale handles (ABA prevention)
+        (*tc).generation.fetch_add(1, Ordering::Release);
         // Return slot to pool
         (*tc).state.store(TC_UNUSED, Ordering::Release);
     }
@@ -647,21 +723,18 @@ pub unsafe fn process_exit_reap() {
 /// Returns 0 on success, -1 on error (null handle, self-join, detached,
 /// or already joined).
 pub unsafe fn pthread_join(thread: PthreadT, retval: *mut *mut u8) -> i32 {
-    if thread.is_null() {
-        return -1;
-    }
+    let tc = match unsafe { validate_handle(thread) } {
+        Some(tc) => tc,
+        None => return -1,
+    };
 
     unsafe {
         // Joining is a natural safe point to reclaim detached-exited zombies.
         reap_detached_zombies();
 
-        let tc = thread;
-
         // Self-join check: deadlock prevention
-        if let Some(tls) = tls::current_tls() {
-            if (*tls).control as *mut ThreadControl == tc {
-                return -1; // EDEADLK
-            }
+        if pthread_self() == thread {
+            return -1; // EDEADLK
         }
 
         // Wait for the thread to exit
@@ -705,11 +778,24 @@ pub unsafe fn pthread_join(thread: PthreadT, retval: *mut *mut u8) -> i32 {
 
 /// Return the calling thread's handle.
 ///
-/// Returns a pointer to the calling thread's ThreadControl pool slot.
+/// Returns an ABA-safe encoded handle for the calling thread.
 pub fn pthread_self() -> PthreadT {
     match tls::current_tls() {
-        Some(tls) => unsafe { (*tls).control as *mut ThreadControl },
-        None => core::ptr::null_mut(),
+        Some(tls) => unsafe {
+            let tc = (*tls).control as *mut ThreadControl;
+            if tc.is_null() {
+                return PTHREAD_NULL;
+            }
+            // Compute pool index from pointer offset
+            let base = &raw mut THREAD_POOL as *mut ThreadControl;
+            let index = tc.offset_from(base) as usize;
+            if index >= MAX_THREADS {
+                return PTHREAD_NULL;
+            }
+            let cur_gen = (*tc).generation.load(Ordering::Relaxed);
+            encode_handle(index, cur_gen)
+        },
+        None => PTHREAD_NULL,
     }
 }
 
@@ -723,19 +809,27 @@ pub const PTHREAD_CANCELED: *mut u8 = usize::MAX as *mut u8;
 ///
 /// Returns 0 on success, -1 if the thread is not alive.
 pub unsafe fn pthread_cancel(thread: PthreadT) -> i32 {
-    if thread.is_null() {
-        return -1;
-    }
+    let tc = match unsafe { validate_handle(thread) } {
+        Some(tc) => tc,
+        None => return -1,
+    };
     unsafe {
-        let state = (*thread).state.load(Ordering::Acquire);
+        let state = (*tc).state.load(Ordering::Acquire);
         if state != TC_RUNNING && state != TC_DETACHED {
             return -1;
         }
-        let tls = (*thread).tls_ptr;
+        let tls = (*tc).tls_ptr;
         if tls.is_null() {
             return -1;
         }
+        // Set cancellation flag
         core::ptr::write_volatile(&raw mut (*tls).cancel_pending, 1);
+        // Wake thread if blocked on a cancellation-point futex.
+        // Spurious wake is safe — all cancellation points re-check their conditions.
+        let futex_addr = (*tls).blocked_futex_addr.load(Ordering::Acquire);
+        if futex_addr != 0 {
+            futex_wake(futex_addr as *const u32, 1);
+        }
     }
     0
 }
@@ -839,14 +933,13 @@ unsafe fn run_cleanup_handlers(tls: *mut tls::ThreadLocalBlock) {
 ///
 /// Returns 0 on success, -1 on error.
 pub unsafe fn pthread_detach(thread: PthreadT) -> i32 {
-    if thread.is_null() {
-        return -1;
-    }
+    let tc = match unsafe { validate_handle(thread) } {
+        Some(tc) => tc,
+        None => return -1,
+    };
     unsafe {
         // Detach calls are also safe points for deferred cleanup.
         reap_detached_zombies();
-
-        let tc = thread;
 
         // Try: thread is still running → mark as detached
         if (*tc).state.compare_exchange(
