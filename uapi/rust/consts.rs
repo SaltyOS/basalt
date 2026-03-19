@@ -141,6 +141,8 @@ pub const DISPLAY_PRESENT: u64 = 2;
 pub const DISPLAY_FILL_RECT: u64 = 6;
 pub const DISPLAY_WRITE_TEXT: u64 = 7;
 pub const DISPLAY_TERMINAL_WRITE: u64 = 8;
+/// Display ring buffer setup: ttyd sends SHM ID + notification cap.
+pub const DISPLAY_SETUP_RING: u64 = 9;
 
 
 /// Well-known capability slot indices (set by kernel for init, inherited by children).
