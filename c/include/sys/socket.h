@@ -10,6 +10,11 @@
 #define AF_LOCAL  AF_UNIX
 #define AF_INET   2
 
+#define PF_UNSPEC AF_UNSPEC
+#define PF_UNIX   AF_UNIX
+#define PF_LOCAL  AF_LOCAL
+#define PF_INET   AF_INET
+
 #define SOCK_STREAM    1
 #define SOCK_DGRAM     2
 #define SOCK_CLOEXEC   0x80000
