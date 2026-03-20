@@ -3,7 +3,7 @@
 //!
 //! Single inline-assembly wrapper for all BesaltOS kernel syscalls.
 //!
-//! # Register ABI
+//! # x86_64 Register ABI
 //!
 //! | Register | Direction | Purpose |
 //! |----------|-----------|---------|
@@ -17,7 +17,19 @@
 //! | `rcx` | clobbered | Kernel overwrites with return RIP |
 //! | `r11` | clobbered | Kernel overwrites with saved RFLAGS |
 //!
-//! `options(nostack)` is used because the `syscall` instruction does not
+//! # AArch64 Register ABI
+//!
+//! | Register | Direction | Purpose |
+//! |----------|-----------|---------|
+//! | `x8` | in | Syscall number |
+//! | `x0` | in/out | Argument 0 in, error code out |
+//! | `x1` | in/out | Argument 1 in, return value out |
+//! | `x2` | in | Argument 2 |
+//! | `x3` | in | Argument 3 |
+//! | `x4` | in | Argument 4 |
+//! | `x5` | in | Argument 5 |
+//!
+//! `options(nostack)` is used because the syscall instruction does not
 //! touch the user stack -- the kernel switches to its own per-thread stack.
 
 use crate::types::BesaltResult;
@@ -38,6 +50,8 @@ pub fn syscall(
 ) -> BesaltResult {
     let error: u64;
     let value: u64;
+
+    #[cfg(target_arch = "x86_64")]
     unsafe {
         core::arch::asm!(
             "syscall",
@@ -53,6 +67,24 @@ pub fn syscall(
             options(nostack),
         );
     }
+
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        // AArch64 syscall ABI: x8 = syscall number, x0-x5 = args
+        // Returns: x0 = error, x1 = value
+        core::arch::asm!(
+            "svc #0",
+            in("x8") num,
+            inlateout("x0") a0 => error,
+            inlateout("x1") a1 => value,
+            in("x2") a2,
+            in("x3") a3,
+            in("x4") a4,
+            in("x5") a5,
+            options(nostack),
+        );
+    }
+
     BesaltResult { error, value }
 }
 

@@ -20,14 +20,14 @@ rust_userland_args = [
 ]
 
 # SSE2-accelerated saltyc routines — auto-enabled on x86_64 (ISA baseline).
-if get_option('arch') == 'x86_64'
+if arch == 'x86_64'
   rust_userland_args += ['--cfg=saltyc_sse2',
     '-C', 'target-feature=+sse,+sse2,-soft-float']
 endif
 
 # fork.S compile-time feature flags
 fork_asm_args = []
-if get_option('arch') == 'x86_64'
+if arch == 'x86_64'
   fork_asm_args += ['-DSALTY_X86_SIMD=1']
 endif
 
@@ -50,9 +50,9 @@ libbesalt_rust = custom_target('libbesalt_rust',
 libbesalt_obj = libbesalt_rust[0]
 libbesalt_rmeta = libbesalt_rust[1]
 
-# Step 2: fork.S -> fork.o
+# Step 2: fork_<arch>.S -> fork.o
 fork_obj = custom_target('fork_asm',
-  input: files('fork.S'),
+  input: files('fork_' + arch + '.S'),
   output: 'fork.o',
   command: [cc_cmd, '--target=' + c_target, fork_asm_args, '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
