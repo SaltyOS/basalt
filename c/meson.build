@@ -23,17 +23,17 @@ saltyc_rust = custom_target('saltyc_rust',
 
 saltyc_obj = saltyc_rust[0]
 
-# Step 2: crt_start.S -> crt_start.o
+# Step 2: crt_start_{arch}.S -> crt_start.o
 crt_start_obj = custom_target('crt_start_asm',
-  input: files('crt_start.S'),
+  input: files('src/arch' / arch / 'crt_start.S'),
   output: 'crt_start.o',
   command: [cc_cmd, '--target=' + c_target, '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
 )
 
-# Step 3: setjmp.S -> setjmp.o
+# Step 3: setjmp_{arch}.S -> setjmp.o
 setjmp_obj = custom_target('setjmp_asm',
-  input: files('setjmp.S'),
+  input: files('src/arch' / arch / 'setjmp.S'),
   output: 'setjmp.o',
   command: [cc_cmd, '--target=' + c_target, '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
@@ -48,7 +48,7 @@ _clang_resource_dir = run_command(
 # Keep libc internals freestanding, but force PIC for shared-library linkage.
 _saltyc_c_flags = [
   '--target=' + c_target,
-  '-ffreestanding', '-nostdinc', '-fno-stack-protector', '-mno-red-zone',
+  '-ffreestanding', '-nostdinc', '-fno-stack-protector',
   '-fPIC',
   '-isystem', meson.current_source_dir() / 'include',
   '-isystem', _clang_resource_dir / 'include',
@@ -56,7 +56,7 @@ _saltyc_c_flags = [
 
 # Step 3b: fts.c -> fts.o (BSD file tree stream, compiled as C)
 fts_obj = custom_target('fts_c',
-  input: files('fts.c'),
+  input: files('src/fts.c'),
   output: 'fts.o',
   command: [cc_cmd, _saltyc_c_flags, '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
@@ -64,7 +64,7 @@ fts_obj = custom_target('fts_c',
 
 # Step 3c: getopt.c -> getopt.o (POSIX getopt + GNU getopt_long)
 getopt_obj = custom_target('getopt_c',
-  input: files('getopt.c'),
+  input: files('src/getopt.c'),
   output: 'getopt.o',
   command: [cc_cmd, _saltyc_c_flags, '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
@@ -72,7 +72,7 @@ getopt_obj = custom_target('getopt_c',
 
 # Step 3d: libutil_compat.c -> libutil_compat.o (expand_number, fgetln)
 libutil_compat_obj = custom_target('libutil_compat_c',
-  input: files('libutil_compat.c'),
+  input: files('src/compat/libutil_compat.c'),
   output: 'libutil_compat.o',
   command: [cc_cmd, _saltyc_c_flags, '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
@@ -80,7 +80,7 @@ libutil_compat_obj = custom_target('libutil_compat_c',
 
 # Step 3e: md5.c -> md5.o (RFC 1321 MD5)
 md5_obj = custom_target('md5_c',
-  input: files('md5.c'),
+  input: files('src/compat/md5.c'),
   output: 'md5.o',
   command: [cc_cmd, _saltyc_c_flags, '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
@@ -88,7 +88,7 @@ md5_obj = custom_target('md5_c',
 
 # Step 3f: cap_fileargs.c -> cap_fileargs.o (Capsicum fileargs wrapper)
 cap_fileargs_obj = custom_target('cap_fileargs_c',
-  input: files('cap_fileargs.c'),
+  input: files('src/compat/cap_fileargs.c'),
   output: 'cap_fileargs.o',
   command: [cc_cmd, _saltyc_c_flags, '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
@@ -96,7 +96,7 @@ cap_fileargs_obj = custom_target('cap_fileargs_c',
 
 # Step 3g: xo_stub.c -> xo_stub.o (libxo text-mode stub)
 xo_stub_obj = custom_target('xo_stub_c',
-  input: files('xo_stub.c'),
+  input: files('src/compat/xo_stub.c'),
   output: 'xo_stub.o',
   command: [cc_cmd, _saltyc_c_flags, '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
@@ -115,7 +115,6 @@ libc_so = custom_target('libc_so',
     '-shared',
     '-nostdlib', '-nostartfiles',
     '-fno-stack-protector',
-    '-mno-red-zone',
     '-Wl,-soname,libc.so',
     '-T', saltyc_link,
     '-o', '@OUTPUT@',

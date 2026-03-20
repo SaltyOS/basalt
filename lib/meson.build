@@ -52,7 +52,7 @@ libbesalt_rmeta = libbesalt_rust[1]
 
 # Step 2: fork_<arch>.S -> fork.o
 fork_obj = custom_target('fork_asm',
-  input: files('fork_' + arch + '.S'),
+  input: files('src/arch' / arch / 'fork.S'),
   output: 'fork.o',
   command: [cc_cmd, '--target=' + c_target, fork_asm_args, '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
@@ -67,7 +67,6 @@ libbesalt_so = custom_target('libbesalt_so',
     '-shared',
     '-nostdlib', '-nostartfiles',
     '-fno-stack-protector',
-    '-mno-red-zone',
     '-Wl,-soname,libbesalt.so',
     '-T', libbesalt_link,
     '-o', '@OUTPUT@',
