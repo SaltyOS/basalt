@@ -547,9 +547,12 @@ pub fn vspace_fork_range(
 // ---- MemoryObject operations ----
 
 /// Commit `count` pages starting at `offset` in a MemoryObject.
-/// Allocates physical frames from the MO's backing untyped.
-pub fn mo_commit(mo: Cap, offset: u64, count: u64) -> i32 {
-    invoke(mo, MO_COMMIT, offset, count, 0, 0).error as i32
+/// Allocates physical frames from the given untyped (`ut_cap`), or from
+/// the kernel PMM if `ut_cap == 0`.
+/// Returns `(error, committed_count)`.
+pub fn mo_commit(mo: Cap, offset: u64, count: u64, ut_cap: u64) -> (i32, u64) {
+    let r = invoke(mo, MO_COMMIT, offset, count, ut_cap, 0);
+    (r.error as i32, r.value)
 }
 
 /// Decommit `count` pages starting at `offset`.
