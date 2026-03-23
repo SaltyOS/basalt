@@ -111,6 +111,30 @@ pub const IOPORT_OUT32: u64 = 0x75;
 pub const IOPORT_CONFIGURE: u64 = 0x76;
 pub const IOPORT_CREATE: u64 = 0x77;
 
+/// MemoryObject invoke labels (0x90-0x96): commit, decommit, get_size, clone, resize, read, write.
+pub const MO_COMMIT: u64 = 0x90;
+pub const MO_DECOMMIT: u64 = 0x91;
+pub const MO_GET_SIZE: u64 = 0x92;
+pub const MO_CLONE: u64 = 0x93;
+pub const MO_RESIZE: u64 = 0x94;
+pub const MO_READ: u64 = 0x95;
+pub const MO_WRITE: u64 = 0x96;
+/// VSpace invoke labels for MemoryObject mapping (0x97-0x98).
+pub const VSPACE_MAP_MO: u64 = 0x97;
+pub const VSPACE_UNMAP_MO: u64 = 0x98;
+/// Share a read-only page from src VSpace to dst VSpace without COW.
+/// Copies the PTE only if present and read-only; skips writable pages
+/// (returns error) so the source VSpace is never modified.
+pub const VSPACE_SHARE_RO_PAGE: u64 = 0x99;
+
+/// Fork a range of pages from parent VSpace to child VSpace with COW.
+/// Reads actual parent PTEs, write-protects writable pages in parent,
+/// copies PTEs to child preserving all flags (EXECUTABLE etc.).
+/// Also registers in child MO's radix tree and VSpace Maple tree.
+/// Args: arg0=child_vspace_cap, arg1=child_mo_cap, arg2=va_start,
+///       arg3=(page_count<<32)|mo_offset
+pub const VSPACE_FORK_RANGE: u64 = 0x9A;
+
 /// Console server IPC labels: read/write serial data, terminal attributes.
 pub const CONSOLE_WRITE: u64 = 1;
 pub const CONSOLE_READ: u64 = 2;
@@ -162,6 +186,9 @@ pub const CAP_UNTYPED_START: u64 = 16;
 pub const PCI_FIND_DEVICE: u64 = 1;
 pub const PCI_GET_CAPS: u64 = 2;
 pub const PCI_LIST: u64 = 3;
+pub const PCI_READ_CONFIG32: u64 = 4;
+pub const PCI_GET_BAR_CAP: u64 = 5;
+pub const PCI_WRITE_CONFIG32: u64 = 6;
 
 /// Block device driver IPC labels.
 pub const BLK_READ: u64 = 1;
@@ -238,6 +265,7 @@ pub const OBJ_FRAME: u64 = 7;
 pub const OBJ_IRQ_HANDLER: u64 = 8;
 pub const OBJ_IO_PORT: u64 = 9;
 pub const OBJ_SCHED_CONTEXT: u64 = 10;
+pub const OBJ_MEMORY_OBJECT: u64 = 11;
 
 /// POSIX VFS IPC protocol labels. Each label identifies a file operation
 /// dispatched to the VFS server via `Call(CAP_VFS_EP, ...)`.
@@ -553,6 +581,7 @@ pub const ELFDATA2LSB: u8 = 1;
 pub const ET_EXEC: u16 = 2;
 pub const ET_DYN: u16 = 3;
 pub const EM_X86_64: u16 = 62;
+pub const EM_AARCH64: u16 = 183;
 pub const PT_LOAD: u32 = 1;
 pub const PT_DYNAMIC: u32 = 2;
 pub const PT_INTERP: u32 = 3;
@@ -567,6 +596,7 @@ pub const DT_RELA: i64 = 7;
 pub const DT_RELASZ: i64 = 8;
 pub const DT_RELAENT: i64 = 9;
 pub const R_X86_64_RELATIVE: u32 = 8;
+pub const R_AARCH64_RELATIVE: u32 = 1027;
 
 /// ELF loader error codes returned by `elf_load`.
 pub const ELF_OK: i32 = 0;

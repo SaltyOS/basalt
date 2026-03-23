@@ -278,6 +278,27 @@ pub fn vspace_clone_cow_page(
     .error as i32
 }
 
+/// Share a read-only page from src VSpace to dst VSpace.
+///
+/// Copies the PTE only if present and read-only. Returns non-zero for
+/// writable or absent pages — the source VSpace is never modified.
+pub fn vspace_share_ro_page(
+    src_vspace: Cap,
+    src_vaddr: u64,
+    dst_vspace: Cap,
+    dst_vaddr: u64,
+) -> i32 {
+    invoke(
+        src_vspace,
+        VSPACE_SHARE_RO_PAGE,
+        src_vaddr,
+        dst_vspace,
+        dst_vaddr,
+        0,
+    )
+    .error as i32
+}
+
 /// Install a demand-page PTE at `vaddr` in the given VSpace.
 ///
 /// On first user access, the kernel allocates a zero-fill frame directly
@@ -497,6 +518,83 @@ pub fn device_untyped_create(
     dest_slot: u64,
 ) -> i32 {
     invoke(irq_ctrl, DEVICE_UNTYPED_CREATE, phys_addr, size_bits, dest_cnode, dest_slot).error as i32
+}
+
+/// Fork a range of pages from parent VSpace (invoke target) to child VSpace.
+/// Copies parent PTEs to child, write-protects writable parent pages with COW.
+/// Preserves all PTE flags (EXECUTABLE, USER, etc.).
+/// Returns (error, pages_forked).
+pub fn vspace_fork_range(
+    parent_vspace: Cap,
+    child_vspace: Cap,
+    child_mo: Cap,
+    va_start: u64,
+    page_count: u64,
+    mo_offset: u64,
+) -> (i32, u64) {
+    let count_and_offset = (page_count << 32) | (mo_offset & 0xFFFF_FFFF);
+    let r = invoke(
+        parent_vspace,
+        VSPACE_FORK_RANGE,
+        child_vspace,
+        child_mo,
+        va_start,
+        count_and_offset,
+    );
+    (r.error as i32, r.value)
+}
+
+// ---- MemoryObject operations ----
+
+/// Commit `count` pages starting at `offset` in a MemoryObject.
+/// Allocates physical frames from the MO's backing untyped.
+pub fn mo_commit(mo: Cap, offset: u64, count: u64) -> i32 {
+    invoke(mo, MO_COMMIT, offset, count, 0, 0).error as i32
+}
+
+/// Decommit `count` pages starting at `offset`.
+/// Releases physical frames back to the MO's backing store.
+pub fn mo_decommit(mo: Cap, offset: u64, count: u64) -> i32 {
+    invoke(mo, MO_DECOMMIT, offset, count, 0, 0).error as i32
+}
+
+/// Get the page count of a MemoryObject.
+pub fn mo_get_size(mo: Cap) -> (i32, u64) {
+    let r = invoke(mo, MO_GET_SIZE, 0, 0, 0, 0);
+    (r.error as i32, r.value)
+}
+
+/// Create a COW snapshot clone of a MemoryObject.
+/// `child_mo_slot` is the destination cap slot for the new child MO.
+/// `flags` can include clone options.
+/// Returns 0 on success.
+pub fn mo_clone(mo: Cap, child_mo_slot: u64, flags: u64) -> i32 {
+    invoke(mo, MO_CLONE, child_mo_slot, flags, 0, 0).error as i32
+}
+
+/// Resize a MemoryObject (only works if created with RESIZABLE flag).
+pub fn mo_resize(mo: Cap, new_page_count: u64) -> i32 {
+    invoke(mo, MO_RESIZE, new_page_count, 0, 0, 0).error as i32
+}
+
+/// Map a range of pages from a MemoryObject into a VSpace.
+/// `mo_cap` is the MemoryObject capability.
+/// `vaddr` is the target virtual address (page-aligned).
+/// `mo_offset` is the page offset within the MO.
+/// `count_and_flags` encodes (count << 32) | flags.
+pub fn vspace_map_mo(
+    vspace: Cap,
+    mo_cap: u64,
+    vaddr: u64,
+    mo_offset: u64,
+    count_and_flags: u64,
+) -> i32 {
+    invoke(vspace, VSPACE_MAP_MO, mo_cap, vaddr, mo_offset, count_and_flags).error as i32
+}
+
+/// Unmap a MO range from a VSpace.
+pub fn vspace_unmap_mo(vspace: Cap, vaddr: u64, count: u64) -> i32 {
+    invoke(vspace, VSPACE_UNMAP_MO, vaddr, count, 0, 0).error as i32
 }
 
 // ===========================================================================

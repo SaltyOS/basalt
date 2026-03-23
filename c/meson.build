@@ -1,7 +1,7 @@
 # saltyc — SaltyOS C Standard Library (Rust + ASM → libc.so)
 # SPDX-License-Identifier: GPL-2.0-only
 
-saltyc_link = meson.current_source_dir() / 'saltyc.ld'
+saltyc_link = meson.current_source_dir() / 'arch' / arch / 'saltyc.ld'
 rust_build_dir = meson.project_build_root() / 'rust'
 
 # Step 1: Rust -> .o + .rmeta (depends on libbesalt for --extern salty)

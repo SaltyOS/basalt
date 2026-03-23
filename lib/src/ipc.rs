@@ -179,6 +179,30 @@ pub unsafe fn recv_ctx(
     r.error as i32
 }
 
+/// Timed receive: blocks until a sender arrives or `timeout_ns` elapses.
+/// Returns 0 on success, BESALT_CANCELLED on timeout.
+pub unsafe fn recv_timed_ctx(
+    ctx: *mut IpcContext,
+    ep: Cap,
+    timeout_ns: u64,
+    msg: *mut BesaltMsg,
+    badge: *mut u64,
+) -> i32 {
+    let r = syscall(SYS_RECV_TIMED, ep, timeout_ns, 0, 0, 0, 0);
+    if r.error == 0 {
+        unsafe {
+            if !badge.is_null() {
+                *badge = r.value;
+            }
+            if !msg.is_null() && !ctx.is_null() && !(*ctx).ipc_buffer.is_null() {
+                let buf = (*ctx).ipc_buffer as *const BesaltMsg;
+                *msg = *buf;
+            }
+        }
+    }
+    r.error as i32
+}
+
 /// Blocking call (send + receive): sends `msg` on `ep`, then blocks
 /// waiting for the server's reply. The reply message is written to `*reply`.
 /// This is the standard client RPC pattern. Returns 0 on success.

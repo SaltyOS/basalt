@@ -548,10 +548,17 @@ pub unsafe fn pthread_create(
 #[unsafe(no_mangle)]
 #[unsafe(naked)]
 pub unsafe extern "C" fn pthread_entry_trampoline() {
+    #[cfg(target_arch = "x86_64")]
     core::arch::naked_asm!(
         "pop rdi",
         "pop rsi",
         "jmp {helper}",
+        helper = sym pthread_trampoline_helper,
+    );
+    #[cfg(target_arch = "aarch64")]
+    core::arch::naked_asm!(
+        "ldp x0, x1, [sp], #16",
+        "b {helper}",
         helper = sym pthread_trampoline_helper,
     );
 }

@@ -1,7 +1,7 @@
 # libbesalt.so - SaltyOS System Call Library (Rust)
 # SPDX-License-Identifier: GPL-2.0-only
 
-libbesalt_link = meson.current_source_dir() / 'libsalty.ld'
+libbesalt_link = meson.current_source_dir() / 'arch' / arch / 'libsalty.ld'
 libbesalt_build_dir = meson.current_build_dir()
 rust_build_dir = meson.project_build_root() / 'rust'
 
@@ -23,6 +23,11 @@ rust_userland_args = [
 if arch == 'x86_64'
   rust_userland_args += ['--cfg=saltyc_sse2',
     '-C', 'target-feature=+sse,+sse2,-soft-float']
+endif
+
+# NEON/FPU — auto-enabled on aarch64 (NEON is mandatory in ARMv8-A).
+if arch == 'aarch64'
+  rust_userland_args += ['--cfg=saltyc_neon']
 endif
 
 # fork.S compile-time feature flags

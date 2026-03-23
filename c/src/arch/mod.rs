@@ -71,3 +71,9 @@ pub mod x86_64;
 
 #[cfg(target_arch = "x86_64")]
 pub type Arch = x86_64::X86_64Arch;
+
+#[cfg(target_arch = "aarch64")]
+pub mod aarch64;
+
+#[cfg(target_arch = "aarch64")]
+pub type Arch = aarch64::AArch64Arch;

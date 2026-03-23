@@ -182,9 +182,19 @@ unsafe fn static_tls_module(index: usize) -> StaticTlsModule {
 #[inline]
 unsafe fn current_tp_value() -> u64 {
     let ptr: u64;
+    #[cfg(target_arch = "x86_64")]
     unsafe {
         core::arch::asm!(
             "mov {}, fs:[0]",
+            out(reg) ptr,
+            options(nostack, pure, readonly)
+        );
+    }
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        // TPIDR_EL0 holds the thread pointer on aarch64
+        core::arch::asm!(
+            "mrs {}, TPIDR_EL0",
             out(reg) ptr,
             options(nostack, pure, readonly)
         );

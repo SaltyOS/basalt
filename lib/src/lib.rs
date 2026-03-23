@@ -424,8 +424,6 @@ pub extern "C" fn besalt_futex_wake(addr: *const u32, count: u32) -> i32 {
 // C ABI exports: Fork helper (called from fork.S)
 // ---------------------------------------------------------------------------
 
-static mut FORK_STACK_CHECK_BUDGET: u32 = 8;
-
 /// Fork implementation called from the `fork.S` assembly trampoline.
 ///
 /// `saved_rsp` points to a stack frame containing callee-saved registers
@@ -443,24 +441,35 @@ pub extern "C" fn _posix_fork_impl(saved_rsp: u64, child_entry: u64) -> i32 {
 
     unsafe {
         let saved = saved_rsp as *const u64;
-        let mut before = [0u64; 7];
-        for (i, slot) in before.iter_mut().enumerate() {
-            *slot = *saved.add(i);
-        }
 
         let mut msg = BesaltMsg::zeroed();
         let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_PM_FORK;
-        msg.length = 9;
         msg.regs[0] = saved_rsp;
         msg.regs[1] = child_entry;
-        msg.regs[2] = *saved.add(5); // rbp
-        msg.regs[3] = *saved.add(4); // rbx
-        msg.regs[4] = *saved.add(3); // r12
-        msg.regs[5] = *saved.add(2); // r13
-        msg.regs[6] = *saved.add(1); // r14
-        msg.regs[7] = *saved.add(0); // r15
-        msg.regs[8] = *saved.add(6); // return RIP
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            msg.length = 9;
+            msg.regs[2] = *saved.add(5); // rbp
+            msg.regs[3] = *saved.add(4); // rbx
+            msg.regs[4] = *saved.add(3); // r12
+            msg.regs[5] = *saved.add(2); // r13
+            msg.regs[6] = *saved.add(1); // r14
+            msg.regs[7] = *saved.add(0); // r15
+            msg.regs[8] = *saved.add(6); // return RIP
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            msg.length = 9;
+            msg.regs[2] = *saved.add(18); // x29 (FP)
+            msg.regs[3] = *saved.add(19); // x30 (LR / return address)
+            msg.regs[4] = *saved.add(8);  // x19
+            msg.regs[5] = *saved.add(9);  // x20
+            msg.regs[6] = *saved.add(10); // x21
+            msg.regs[7] = *saved.add(11); // x22
+            msg.regs[8] = *saved.add(19); // x30 (return address)
+        }
 
         // Pass parent's TLS base so procmgr can set FS_BASE on the child TCB.
         // The child has a COW copy of the parent's TLS block at the same virtual
@@ -480,27 +489,6 @@ pub extern "C" fn _posix_fork_impl(saved_rsp: u64, child_entry: u64) -> i32 {
         );
         if err != 0 || reply.label != BESALT_OK {
             return -1;
-        }
-
-        if FORK_STACK_CHECK_BUDGET > 0 {
-            for (i, was) in before.iter().enumerate() {
-                let now = *saved.add(i);
-                if now != *was {
-                    let mut lb = serial::LineBuf::new();
-                    lb.str(b"[FORKCHK] parent stack changed idx=");
-                    lb.hex(i as u64);
-                    lb.str(b" was=");
-                    lb.hex(*was);
-                    lb.str(b" now=");
-                    lb.hex(now);
-                    lb.str(b" rsp=");
-                    lb.hex(saved_rsp);
-                    lb.str(b"\n");
-                    lb.flush();
-                    break;
-                }
-            }
-            FORK_STACK_CHECK_BUDGET -= 1;
         }
 
         reply.regs[0] as i32

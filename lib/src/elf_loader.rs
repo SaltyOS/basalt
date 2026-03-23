@@ -8,7 +8,7 @@
 //! correct permissions.
 //!
 //! Supports both ET_EXEC (fixed address) and ET_DYN (PIE, relocated to
-//! `load_base`). R_X86_64_RELATIVE relocations are applied in-place
+//! `load_base`). RELATIVE relocations are applied in-place
 //! via the scratch page technique.
 //!
 //! Frame allocation uses a pluggable strategy: callers can provide an
@@ -199,7 +199,7 @@ fn vaddr_to_file_offset(
     None
 }
 
-/// Apply R_X86_64_RELATIVE relocations for PIE binaries.
+/// Apply RELATIVE relocations for PIE binaries.
 ///
 /// Reads the PT_DYNAMIC segment to find DT_RELA entries, then writes
 /// each relocated value through the scratch page. Only RELATIVE relocs
@@ -288,7 +288,11 @@ unsafe fn apply_relocations(
             let rela = &*(data.add(entry_off) as *const Elf64Rela);
             let reloc_type = (rela.r_info & 0xFFFF_FFFF) as u32;
 
-            if reloc_type == R_X86_64_RELATIVE {
+            #[cfg(target_arch = "x86_64")]
+            let is_relative = reloc_type == R_X86_64_RELATIVE;
+            #[cfg(target_arch = "aarch64")]
+            let is_relative = reloc_type == R_AARCH64_RELATIVE;
+            if is_relative {
                 let target_vaddr = rela.r_offset + delta;
                 let value = load_base.wrapping_add(rela.r_addend as u64);
 
@@ -482,7 +486,12 @@ pub unsafe fn elf_load(
         if ehdr.e_type != ET_EXEC && ehdr.e_type != ET_DYN {
             return ELF_BAD_TYPE;
         }
+        #[cfg(target_arch = "x86_64")]
         if ehdr.e_machine != EM_X86_64 {
+            return ELF_BAD_ARCH;
+        }
+        #[cfg(target_arch = "aarch64")]
+        if ehdr.e_machine != EM_AARCH64 {
             return ELF_BAD_ARCH;
         }
 

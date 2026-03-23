@@ -1,30 +1,34 @@
-//! C runtime startup
+//! Process runtime startup
 //! SPDX-License-Identifier: GPL-2.0-only
 //!
-//! Entry point for all C programs on SaltyOS. The dynamic linker (`rtld`)
-//! calls `_start` (in `crt_start.S`), which calls `__libc_start_main` here.
+//! Entry point for all dynamically-linked programs on SaltyOS (C and Rust).
+//! The dynamic linker (`rtld`) calls `_start` (in `crt_start.S`), which
+//! calls `__libc_start_main` here.
 //!
-//! Initialization sequence:
-//! 1. Parse the initial stack layout: `argc`, `argv[]`, `envp[]`, `auxv[]`
-//! 2. Initialize `environ` from `envp`
-//! 3. Parse SaltyOS-specific auxv tags (`AT_BESALT_*`) to set up IPC context
-//! 4. Call `tcb_set_ipc_buffer` to configure the per-thread IPC buffer
-//! 5. Initialize `ipc_context` for libsalty IPC wrappers
-//! 6. Initialize the per-process slot allocator (preferring RTLD-exported pool)
-//! 7. Initialize `posix_mm` with the mmsrv endpoint (slot 7)
-//! 8. Set program name from `argv[0]` for BSD `err(3)` functions
-//! 9. Initialize FreeBSD rune locale tables for `ctype.h` compatibility
-//! 10. Run executable preinit/init arrays in ELF priority order
+//! Initialization is split into two layers:
+//!
+//! **Common runtime init** (`common_init`) — required by all processes:
+//! 1. Set up IPC buffer at fixed vaddr and initialize IPC context
+//! 2. Initialize per-process slot allocator (preferring RTLD-exported pool)
+//! 3. Initialize `posix_mm` with mmsrv endpoint from auxv (0 = no pager)
+//! 4. Initialize TLS for the main thread
+//!
+//! **C/POSIX layer** (remainder of `__libc_start_main`):
+//! 5. Parse argc/argv/envp, initialize `environ`
+//! 6. Set program name from `argv[0]` for BSD `err(3)` functions
+//! 7. Probe/open stdio fds (fd 0/1/2 → `/dev/console` if absent)
+//! 8. Initialize FreeBSD rune locale tables for `ctype.h` compatibility
+//! 9. Run executable preinit/init arrays in ELF priority order
+//! 10. Call `main(argc, argv, envp)`, then `exit()`
 //!
 //! Custom auxv tags used by SaltyOS:
 //! - `0x1007` (`AT_BESALT_SLOT_BASE`): slot allocator pool base
 //! - `0x1008` (`AT_BESALT_SLOT_COUNT`): slot allocator pool size
+//! - `0x100B` (`AT_BESALT_MM_EP`): mmsrv endpoint cap slot
 
 use crate::env;
 
-// Standard child CSpace layout
 const CAP_SELF_TCB: u64 = 0;
-const CAP_MMSRV_EP: u64 = 7;
 
 /// Maximum number of atexit handlers
 const ATEXIT_MAX: usize = 32;
@@ -102,14 +106,9 @@ pub unsafe extern "C" fn __libc_start_main(
             core::ptr::addr_of_mut!(SAVED_AUXV).write(ep.add(1) as *const u64);
         }
 
-        // Initialize IPC context from auxv if available
-        init_ipc_from_auxv(stack_ptr);
-
-        // Initialize memory manager
-        init_mm_from_auxv(stack_ptr);
-
-        // Initialize TLS for the main thread (must come after IPC + MM init)
-        salty::tls::init_main_thread_tls();
+        // Common runtime init: IPC buffer, slot allocator, mmsrv, TLS.
+        // Shared by all dynamically-linked processes (C and Rust alike).
+        common_init(stack_ptr);
 
         // Set program name from argv[0] for BSD err(3) functions
         if argc > 0 && !(*argv).is_null() {
@@ -156,6 +155,17 @@ pub unsafe extern "C" fn __libc_start_main(
     }
 }
 
+/// Common runtime initialization for all dynamically-linked SaltyOS processes.
+/// Sets up the IPC buffer, per-process slot allocator, mmsrv client, and TLS.
+/// Called by `__libc_start_main` before any C/POSIX-specific setup.
+unsafe fn common_init(stack_ptr: *const u64) {
+    unsafe {
+        init_ipc_from_auxv(stack_ptr);
+        init_mm_from_auxv(stack_ptr);
+        salty::tls::init_main_thread_tls();
+    }
+}
+
 /// Parse auxv entries from the stack
 unsafe fn init_ipc_from_auxv(stack_ptr: *const u64) {
     unsafe {
@@ -184,8 +194,8 @@ unsafe fn init_ipc_from_auxv(stack_ptr: *const u64) {
 /// Parses SaltyOS-specific auxiliary vector entries (`AT_BESALT_*`) to discover
 /// the slot allocator pool and the mmsrv endpoint capability. The RTLD may
 /// have already consumed some slots, so its exported values take precedence
-/// over raw auxv. The mmsrv endpoint (CAP_MMSRV_EP = slot 7) is provided by
-/// the process manager at spawn time for all post-mmsrv processes.
+/// over raw auxv. The mmsrv endpoint is provided via `AT_BESALT_MM_EP` by
+/// the spawner (init or procmgr). If absent, defaults to 0 (no pager).
 unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
     unsafe {
         let argc = *stack_ptr as usize;
@@ -200,7 +210,7 @@ unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
         // Parse auxv
         let mut slot_base: u64 = 0;
         let mut slot_count: u64 = 0;
-        let mut mm_ep: u64 = CAP_MMSRV_EP; // fallback to slot 7 if absent
+        let mut mm_ep: u64 = 0; // default: no mmsrv (overridden by AT_BESALT_MM_EP)
 
         loop {
             let tag = *p;
