@@ -179,7 +179,17 @@ foreach src : _cxxabi_srcs
   )
 endforeach
 
-# Link libc++.so — libcxx + libcxxabi objects + DT_NEEDED entries for libc/libbesalt
+# Locate libclang_rt.builtins.a for the target so that 128-bit float builtins
+# (__lttf2, __trunctfdf2, etc.) are statically linked into libc++.so.
+# This mirrors Fuchsia's approach: each shared library that needs compiler-rt
+# builtins links them in at build time.
+_clang_rt_builtins = run_command(
+  cc_cmd[0], '--target=' + c_target, '-print-libgcc-file-name',
+  capture: true, check: true,
+).stdout().strip()
+
+# Link libc++.so — libcxx + libcxxabi objects + compiler-rt builtins +
+# DT_NEEDED entries for libc/libbesalt
 libcxx_so = custom_target('libcxx_so',
   input: _all_objs,
   output: 'libc++.so',
@@ -192,6 +202,7 @@ libcxx_so = custom_target('libcxx_so',
     '-z', 'max-page-size=4096',
     '-o', '@OUTPUT@',
     '@INPUT@',
+    _clang_rt_builtins,
     '-L', besaltc_build_dir,
     '-lc',
     '-L', libbesalt_build_dir,
