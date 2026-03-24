@@ -827,6 +827,22 @@ pub extern "C" fn besalt_getaddrinfo(node: *const u8, result: *mut types::DnsAdd
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn besalt_dns_resolve_multi(
+    hostname: *const u8,
+    hostname_len: usize,
+    result: *mut types::DnsResult,
+) -> i32 {
+    if hostname.is_null() || hostname_len == 0 || hostname_len > 120 || result.is_null() {
+        return -1;
+    }
+    // SAFETY: Caller guarantees hostname points to hostname_len valid bytes.
+    let slice = unsafe { core::slice::from_raw_parts(hostname, hostname_len) };
+    let r = unsafe { dns::dns_resolve_multi(slice) };
+    unsafe { *result = r; }
+    if r.count == 0 { -1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn besalt_gethostbyname(name: *const u8) -> u32 {
     unsafe { dns::posix_gethostbyname(name) }
 }

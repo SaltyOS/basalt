@@ -68,31 +68,45 @@ pub struct EpollEvent {
 }
 
 // ---------------------------------------------------------------------------
-// Static storage for getaddrinfo result (no heap)
+// EAI error codes (must match netdb.h)
 // ---------------------------------------------------------------------------
 
-static mut STATIC_ADDRINFO: AddrInfo = AddrInfo {
-    ai_flags: 0,
-    ai_family: 0,
-    ai_socktype: 0,
-    ai_protocol: 0,
-    ai_addrlen: 0,
-    _pad0: 0,
-    ai_addr: core::ptr::null_mut(),
-    ai_canonname: core::ptr::null_mut(),
-    ai_next: core::ptr::null_mut(),
-};
+const EAI_AGAIN: i32 = 2;
+const EAI_BADFLAGS: i32 = 3;
+const EAI_FAIL: i32 = 4;
+const EAI_FAMILY: i32 = 5;
+const EAI_MEMORY: i32 = 6;
+const EAI_NONAME: i32 = 8;
+const EAI_SERVICE: i32 = 9;
+const EAI_SOCKTYPE: i32 = 10;
+const EAI_SYSTEM: i32 = 11;
+const EAI_OVERFLOW: i32 = 14;
 
-static mut STATIC_SOCKADDR: SockAddrIn = SockAddrIn {
-    sin_family: 0,
-    sin_port: 0,
-    sin_addr: 0,
-    sin_zero: [0; 8],
-};
+// AI flags (must match netdb.h)
+const AI_PASSIVE: i32 = 1;
+const AI_NUMERICHOST: i32 = 4;
+const AI_NUMERICSERV: i32 = 0x400;
 
-// EAI error codes
-const EAI_NONAME: i32 = -2;
-const EAI_SYSTEM: i32 = -11;
+// Socket constants
+const AF_UNSPEC: i32 = 0;
+const AF_INET: i32 = 2;
+const SOCK_STREAM: i32 = 1;
+const SOCK_DGRAM: i32 = 2;
+const IPPROTO_TCP: i32 = 6;
+const IPPROTO_UDP: i32 = 17;
+
+// Well-known service table: (name, port, preferred socktype)
+const SERVICES: &[(&[u8], u16, i32)] = &[
+    (b"http", 80, SOCK_STREAM),
+    (b"https", 443, SOCK_STREAM),
+    (b"ftp", 21, SOCK_STREAM),
+    (b"ssh", 22, SOCK_STREAM),
+    (b"telnet", 23, SOCK_STREAM),
+    (b"smtp", 25, SOCK_STREAM),
+    (b"domain", 53, SOCK_DGRAM),
+    (b"dns", 53, SOCK_DGRAM),
+    (b"ntp", 123, SOCK_DGRAM),
+];
 
 // ---------------------------------------------------------------------------
 // Socket creation / connection
@@ -369,83 +383,394 @@ pub unsafe extern "C" fn getpeername(
 // DNS name resolution
 // ---------------------------------------------------------------------------
 
+/// Parse a null-terminated C string as a numeric port number.
+/// Returns `Some(port)` for valid u16, `None` otherwise.
+unsafe fn parse_numeric_port(s: *const u8) -> Option<u16> {
+    if s.is_null() {
+        return None;
+    }
+    unsafe {
+        let mut i = 0usize;
+        let mut val: u32 = 0;
+        if *s == 0 {
+            return None;
+        }
+        while *s.add(i) != 0 {
+            let c = *s.add(i);
+            if c < b'0' || c > b'9' {
+                return None;
+            }
+            val = val * 10 + (c - b'0') as u32;
+            if val > 65535 {
+                return None;
+            }
+            i += 1;
+        }
+        Some(val as u16)
+    }
+}
+
+/// Look up a service name in the built-in table.
+/// Returns `(port, preferred_socktype)` or `None`.
+unsafe fn lookup_service(name: *const u8) -> Option<(u16, i32)> {
+    if name.is_null() {
+        return None;
+    }
+    unsafe {
+        let mut len = 0usize;
+        while *name.add(len) != 0 && len < 32 {
+            len += 1;
+        }
+        if len == 0 {
+            return None;
+        }
+        let name_slice = core::slice::from_raw_parts(name, len);
+        for &(svc_name, port, st) in SERVICES {
+            if svc_name.len() == name_slice.len() {
+                let mut eq = true;
+                for j in 0..svc_name.len() {
+                    // Case-insensitive compare
+                    let a = if name_slice[j] >= b'A' && name_slice[j] <= b'Z' {
+                        name_slice[j] + 32
+                    } else {
+                        name_slice[j]
+                    };
+                    if a != svc_name[j] {
+                        eq = false;
+                        break;
+                    }
+                }
+                if eq {
+                    return Some((port, st));
+                }
+            }
+        }
+        None
+    }
+}
+
+/// Parse a null-terminated C string as a dotted-decimal IPv4 address.
+/// Returns the IP in host byte order, or `None`.
+unsafe fn parse_numeric_ipv4(s: *const u8) -> Option<u32> {
+    if s.is_null() {
+        return None;
+    }
+    unsafe {
+        let mut len = 0usize;
+        while *s.add(len) != 0 && len < 64 {
+            len += 1;
+        }
+        if len == 0 {
+            return None;
+        }
+        salty::dns::parse_ipv4_numeric(core::slice::from_raw_parts(s, len))
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getaddrinfo(
     node: *const u8,
-    _service: *const u8,
-    _hints: *const u8,
+    service: *const u8,
+    hints: *const AddrInfo,
     res: *mut *mut AddrInfo,
 ) -> i32 {
     if res.is_null() {
-        return EAI_NONAME;
+        return EAI_SYSTEM;
     }
     unsafe {
-        if node.is_null() {
-            *res = core::ptr::null_mut();
-            return EAI_NONAME;
-        }
+        *res = core::ptr::null_mut();
 
-        let mut dns_result = salty::types::DnsAddrInfo {
-            family: 0,
-            socktype: 0,
-            protocol: 0,
-            addr: salty::types::SockAddrIn {
-                family: 0,
-                port: 0,
-                addr: 0,
-            },
+        // Parse hints
+        let (hint_family, hint_socktype, hint_protocol, hint_flags) = if !hints.is_null() {
+            (
+                (*hints).ai_family,
+                (*hints).ai_socktype,
+                (*hints).ai_protocol,
+                (*hints).ai_flags,
+            )
+        } else {
+            (AF_UNSPEC, 0, 0, 0)
         };
 
-        let ret = salty::dns::posix_getaddrinfo(node, &raw mut dns_result);
-        if ret != 0 {
-            *res = core::ptr::null_mut();
-            return EAI_NONAME;
+        // Validate family
+        if hint_family != AF_UNSPEC && hint_family != AF_INET {
+            return EAI_FAMILY;
+        }
+        // Validate socktype
+        if hint_socktype != 0 && hint_socktype != SOCK_STREAM && hint_socktype != SOCK_DGRAM {
+            return EAI_SOCKTYPE;
         }
 
-        // Fill static SockAddrIn
-        let sa = &raw mut STATIC_SOCKADDR;
-        (*sa).sin_family = dns_result.addr.family;
-        (*sa).sin_port = dns_result.addr.port;
-        (*sa).sin_addr = dns_result.addr.addr;
-        (*sa).sin_zero = [0; 8];
+        // Parse service -> port
+        let port: u16 = if service.is_null() || *service == 0 {
+            0
+        } else if let Some(p) = parse_numeric_port(service) {
+            p
+        } else {
+            // Named service
+            if hint_flags & AI_NUMERICSERV != 0 {
+                return EAI_SERVICE;
+            }
+            match lookup_service(service) {
+                Some((p, _)) => p,
+                None => return EAI_SERVICE,
+            }
+        };
 
-        // Fill static AddrInfo
-        let ai = &raw mut STATIC_ADDRINFO;
-        (*ai).ai_flags = 0;
-        (*ai).ai_family = dns_result.family;
-        (*ai).ai_socktype = dns_result.socktype;
-        (*ai).ai_protocol = dns_result.protocol;
-        (*ai).ai_addrlen = core::mem::size_of::<SockAddrIn>() as u32;
-        (*ai).ai_addr = sa as *mut u8;
-        (*ai).ai_canonname = core::ptr::null_mut();
-        (*ai).ai_next = core::ptr::null_mut();
+        // Resolve addresses
+        let mut addrs = [0u32; 4];
+        let mut addr_count: usize = 0;
 
-        *res = ai;
+        if node.is_null() || *node == 0 {
+            // No node specified
+            if hint_flags & AI_PASSIVE != 0 {
+                addrs[0] = 0; // INADDR_ANY
+            } else {
+                addrs[0] = 0x7f_00_00_01; // 127.0.0.1
+            }
+            addr_count = 1;
+        } else if let Some(ip) = parse_numeric_ipv4(node) {
+            addrs[0] = ip;
+            addr_count = 1;
+        } else {
+            // Non-numeric host
+            if hint_flags & AI_NUMERICHOST != 0 {
+                return EAI_NONAME;
+            }
+            // DNS lookup
+            let mut len = 0usize;
+            while *node.add(len) != 0 && len < 120 {
+                len += 1;
+            }
+            if len == 0 || len >= 120 {
+                return EAI_NONAME;
+            }
+            let hostname = core::slice::from_raw_parts(node, len);
+            let dns = salty::dns::dns_resolve_multi(hostname);
+            if dns.count == 0 {
+                return EAI_NONAME;
+            }
+            addr_count = dns.count as usize;
+            if addr_count > 4 {
+                addr_count = 4;
+            }
+            for i in 0..addr_count {
+                addrs[i] = dns.addrs[i];
+            }
+        }
+
+        // Determine socktype/protocol combinations
+        let combos: &[(i32, i32)] = match hint_socktype {
+            SOCK_STREAM => &[(SOCK_STREAM, IPPROTO_TCP)],
+            SOCK_DGRAM => &[(SOCK_DGRAM, IPPROTO_UDP)],
+            _ => {
+                if hint_protocol == IPPROTO_TCP {
+                    &[(SOCK_STREAM, IPPROTO_TCP)]
+                } else if hint_protocol == IPPROTO_UDP {
+                    &[(SOCK_DGRAM, IPPROTO_UDP)]
+                } else {
+                    &[(SOCK_STREAM, IPPROTO_TCP), (SOCK_DGRAM, IPPROTO_UDP)]
+                }
+            }
+        };
+
+        // Build linked list via malloc
+        let ai_size = core::mem::size_of::<AddrInfo>();
+        let sa_size = core::mem::size_of::<SockAddrIn>();
+        let alloc_size = ai_size + sa_size;
+
+        let mut head: *mut AddrInfo = core::ptr::null_mut();
+        let mut tail: *mut AddrInfo = core::ptr::null_mut();
+
+        for i in 0..addr_count {
+            for &(socktype, protocol) in combos {
+                let ptr = crate::malloc::malloc(alloc_size);
+                if ptr.is_null() {
+                    freeaddrinfo(head);
+                    return EAI_MEMORY;
+                }
+                // Zero the allocation
+                core::ptr::write_bytes(ptr, 0, alloc_size);
+
+                let ai = ptr as *mut AddrInfo;
+                let sa = ptr.add(ai_size) as *mut SockAddrIn;
+
+                // Fill SockAddrIn (network byte order for sin_port/sin_addr)
+                (*sa).sin_family = AF_INET as u16;
+                (*sa).sin_port = port.to_be();
+                (*sa).sin_addr = addrs[i].to_be();
+
+                // Fill AddrInfo
+                (*ai).ai_flags = hint_flags;
+                (*ai).ai_family = AF_INET;
+                (*ai).ai_socktype = socktype;
+                (*ai).ai_protocol = protocol;
+                (*ai).ai_addrlen = sa_size as u32;
+                (*ai).ai_addr = sa as *mut u8;
+                (*ai).ai_canonname = core::ptr::null_mut();
+                (*ai).ai_next = core::ptr::null_mut();
+
+                if head.is_null() {
+                    head = ai;
+                } else {
+                    (*tail).ai_next = ai;
+                }
+                tail = ai;
+            }
+        }
+
+        *res = head;
         0
     }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn freeaddrinfo(_res: *mut AddrInfo) {
-    // No-op: static allocation
+pub unsafe extern "C" fn freeaddrinfo(res: *mut AddrInfo) {
+    unsafe {
+        let mut cur = res;
+        while !cur.is_null() {
+            let next = (*cur).ai_next;
+            crate::malloc::free(cur as *mut u8);
+            cur = next;
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getnameinfo(
-    _sa: *const u8,
+    sa: *const u8,
     _salen: u32,
-    _host: *mut u8,
-    _hostlen: u32,
-    _serv: *mut u8,
-    _servlen: u32,
-    _flags: i32,
+    host: *mut u8,
+    hostlen: u32,
+    serv: *mut u8,
+    servlen: u32,
+    flags: i32,
 ) -> i32 {
-    EAI_NONAME
+    unsafe {
+        if sa.is_null() {
+            return EAI_FAIL;
+        }
+        let sin = sa as *const SockAddrIn;
+
+        // Host portion
+        if !host.is_null() && hostlen > 0 {
+            let ip_be = (*sin).sin_addr;
+            let ip = u32::from_be(ip_be);
+            let a = (ip >> 24) & 0xff;
+            let b = (ip >> 16) & 0xff;
+            let c = (ip >> 8) & 0xff;
+            let d = ip & 0xff;
+
+            if flags & 1 != 0 {
+                // NI_NUMERICHOST: always numeric
+                let mut buf = [0u8; 16];
+                let len = fmt_ipv4(&mut buf, a, b, c, d);
+                if len + 1 > hostlen as usize {
+                    return EAI_OVERFLOW;
+                }
+                core::ptr::copy_nonoverlapping(buf.as_ptr(), host, len);
+                *host.add(len) = 0;
+            } else {
+                // Try reverse DNS, fall back to numeric
+                let rlen = salty::dns::dns_reverse_lookup(ip, host, (hostlen - 1) as usize);
+                if rlen > 0 {
+                    *host.add(rlen) = 0;
+                } else {
+                    let mut buf = [0u8; 16];
+                    let len = fmt_ipv4(&mut buf, a, b, c, d);
+                    if len + 1 > hostlen as usize {
+                        return EAI_OVERFLOW;
+                    }
+                    core::ptr::copy_nonoverlapping(buf.as_ptr(), host, len);
+                    *host.add(len) = 0;
+                }
+            }
+        }
+
+        // Service portion
+        if !serv.is_null() && servlen > 0 {
+            let port = u16::from_be((*sin).sin_port);
+            let mut buf = [0u8; 6];
+            let len = fmt_u16(&mut buf, port);
+            if len + 1 > servlen as usize {
+                return EAI_OVERFLOW;
+            }
+            core::ptr::copy_nonoverlapping(buf.as_ptr(), serv, len);
+            *serv.add(len) = 0;
+        }
+
+        0
+    }
+}
+
+/// Format an IPv4 address as "a.b.c.d" into `buf`. Returns length written.
+fn fmt_ipv4(buf: &mut [u8; 16], a: u32, b: u32, c: u32, d: u32) -> usize {
+    let mut pos = 0usize;
+    pos += fmt_u32_into(buf, pos, a);
+    buf[pos] = b'.';
+    pos += 1;
+    pos += fmt_u32_into(buf, pos, b);
+    buf[pos] = b'.';
+    pos += 1;
+    pos += fmt_u32_into(buf, pos, c);
+    buf[pos] = b'.';
+    pos += 1;
+    pos += fmt_u32_into(buf, pos, d);
+    pos
+}
+
+fn fmt_u32_into(buf: &mut [u8; 16], start: usize, val: u32) -> usize {
+    if val >= 100 {
+        buf[start] = b'0' + (val / 100) as u8;
+        buf[start + 1] = b'0' + ((val / 10) % 10) as u8;
+        buf[start + 2] = b'0' + (val % 10) as u8;
+        3
+    } else if val >= 10 {
+        buf[start] = b'0' + (val / 10) as u8;
+        buf[start + 1] = b'0' + (val % 10) as u8;
+        2
+    } else {
+        buf[start] = b'0' + val as u8;
+        1
+    }
+}
+
+fn fmt_u16(buf: &mut [u8; 6], val: u16) -> usize {
+    let v = val as u32;
+    if v == 0 {
+        buf[0] = b'0';
+        return 1;
+    }
+    let mut digits = [0u8; 5];
+    let mut n = v;
+    let mut i = 0usize;
+    while n > 0 {
+        digits[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        i += 1;
+    }
+    for j in 0..i {
+        buf[j] = digits[i - 1 - j];
+    }
+    i
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gai_strerror(_errcode: i32) -> *const u8 {
-    b"Name resolution error\0".as_ptr()
+pub unsafe extern "C" fn gai_strerror(errcode: i32) -> *const u8 {
+    match errcode {
+        0 => b"Success\0".as_ptr(),
+        EAI_AGAIN => b"Temporary failure in name resolution\0".as_ptr(),
+        EAI_BADFLAGS => b"Invalid value for ai_flags\0".as_ptr(),
+        EAI_FAIL => b"Non-recoverable failure in name resolution\0".as_ptr(),
+        EAI_FAMILY => b"ai_family not supported\0".as_ptr(),
+        EAI_MEMORY => b"Memory allocation failure\0".as_ptr(),
+        EAI_NONAME => b"Name or service not known\0".as_ptr(),
+        EAI_SERVICE => b"Servname not supported for ai_socktype\0".as_ptr(),
+        EAI_SOCKTYPE => b"ai_socktype not supported\0".as_ptr(),
+        EAI_SYSTEM => b"System error\0".as_ptr(),
+        EAI_OVERFLOW => b"Argument buffer overflow\0".as_ptr(),
+        _ => b"Unknown error\0".as_ptr(),
+    }
 }
 
 // ---------------------------------------------------------------------------

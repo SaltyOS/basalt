@@ -472,6 +472,32 @@ impl EpollEvent {
     }
 }
 
+/// Maximum number of IP addresses returned by a single DNS query.
+pub const DNS_MAX_RESULTS: usize = 4;
+
+/// Multi-result DNS resolution: carries up to `DNS_MAX_RESULTS` IPv4
+/// addresses from a single dnssrv query without heap allocation.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct DnsResult {
+    /// Number of valid entries in `addrs` (0 = resolution failed).
+    pub count: u32,
+    /// TTL in seconds from the DNS reply.
+    pub ttl: u32,
+    /// IPv4 addresses in host byte order.
+    pub addrs: [u32; DNS_MAX_RESULTS],
+}
+
+impl DnsResult {
+    pub const fn zeroed() -> Self {
+        DnsResult {
+            count: 0,
+            ttl: 0,
+            addrs: [0; DNS_MAX_RESULTS],
+        }
+    }
+}
+
 /// DNS address info result (POSIX getaddrinfo equivalent).
 /// Returns a single result per call. No heap-allocated linked list since
 /// this is a `no_std` environment; callers resolve one address at a time.

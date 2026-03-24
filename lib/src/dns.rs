@@ -72,6 +72,118 @@ pub unsafe fn dns_resolve(hostname: &[u8]) -> u32 {
     unsafe { dns_resolve_with_ep(hostname, CAP_DNSSRV_DEFAULT) }
 }
 
+/// Resolve a hostname to up to 4 IPv4 addresses.
+///
+/// Returns a `DnsResult` with `count > 0` on success.
+/// Addresses are in host byte order.
+///
+/// # Safety
+///
+/// Caller must ensure the IPC context is initialized and `dnssrv_ep` is a
+/// valid endpoint capability slot connected to the dnssrv service.
+pub unsafe fn dns_resolve_multi_with_ep(hostname: &[u8], dnssrv_ep: u64) -> DnsResult {
+    unsafe {
+        if hostname.is_empty() || hostname.len() > 120 {
+            return DnsResult::zeroed();
+        }
+
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
+
+        msg.label = DNS_RESOLVE;
+        msg.regs[0] = hostname.len() as u64;
+
+        // SAFETY: Pack hostname bytes into regs[1..]. The BesaltMsg regs array
+        // has 20 entries (160 bytes), and hostname is at most 120 bytes, so
+        // this copy stays within bounds.
+        let dst = &raw mut msg.regs[1] as *mut u8;
+        core::ptr::copy_nonoverlapping(hostname.as_ptr(), dst, hostname.len());
+        msg.length = 1 + ((hostname.len() as u64 + 7) / 8);
+
+        let err = ipc::call_ctx(
+            tls::current_ipc_ctx(),
+            dnssrv_ep,
+            &raw const msg,
+            &raw mut reply,
+        );
+        if err != 0 || reply.label != BESALT_OK {
+            return DnsResult::zeroed();
+        }
+
+        let ip_count = reply.regs[0] as u32;
+        if ip_count == 0 {
+            return DnsResult::zeroed();
+        }
+
+        let count = if ip_count > DNS_MAX_RESULTS as u32 {
+            DNS_MAX_RESULTS as u32
+        } else {
+            ip_count
+        };
+        let mut result = DnsResult {
+            count,
+            ttl: reply.regs[1] as u32,
+            addrs: [0; DNS_MAX_RESULTS],
+        };
+        for i in 0..count as usize {
+            result.addrs[i] = reply.regs[2 + i] as u32;
+        }
+        result
+    }
+}
+
+/// Resolve a hostname to up to 4 IPv4 addresses using the default dnssrv
+/// endpoint (slot 64).
+///
+/// # Safety
+///
+/// Caller must ensure the IPC context is initialized and the dnssrv endpoint
+/// is available at capability slot 64.
+pub unsafe fn dns_resolve_multi(hostname: &[u8]) -> DnsResult {
+    unsafe { dns_resolve_multi_with_ep(hostname, CAP_DNSSRV_DEFAULT) }
+}
+
+/// Parse a dotted-decimal IPv4 string into a `u32` in host byte order.
+///
+/// Returns `Some(ip)` on success, `None` if the string is not a valid
+/// numeric IPv4 address. Example: `b"10.0.2.2"` -> `Some(0x0A00_0202)`.
+pub fn parse_ipv4_numeric(s: &[u8]) -> Option<u32> {
+    let mut octets = [0u32; 4];
+    let mut octet_idx = 0usize;
+    let mut cur: u32 = 0;
+    let mut digits = 0u32;
+
+    for &b in s {
+        if b == b'.' {
+            if digits == 0 || octet_idx >= 3 {
+                return None;
+            }
+            if cur > 255 {
+                return None;
+            }
+            octets[octet_idx] = cur;
+            octet_idx += 1;
+            cur = 0;
+            digits = 0;
+        } else if b >= b'0' && b <= b'9' {
+            cur = cur * 10 + (b - b'0') as u32;
+            digits += 1;
+            if digits > 3 {
+                return None;
+            }
+        } else {
+            return None;
+        }
+    }
+
+    if digits == 0 || octet_idx != 3 || cur > 255 {
+        return None;
+    }
+    octets[3] = cur;
+
+    Some((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3])
+}
+
 /// Resolve a hostname and fill a DnsAddrInfo struct.
 ///
 /// `node` is a null-terminated hostname string.
