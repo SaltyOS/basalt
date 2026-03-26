@@ -55,5 +55,6 @@ pub mod compat;
 pub mod socket;
 pub mod inet;
 pub mod getrandom;
+pub mod stack_protector;
 
 // Panic handler is provided by libsalty (our dependency)

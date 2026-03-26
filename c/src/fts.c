@@ -454,8 +454,7 @@ FTSENT *fts_read(FTS *sp)
 
     for (;;) {
         switch (priv->state) {
-
-        case STATE_ROOTS: {
+        case STATE_ROOTS:
             /* Return root entries one at a time from argv */
             if (priv->arg_idx >= priv->argc) {
                 priv->state = STATE_DONE;
@@ -500,9 +499,8 @@ FTSENT *fts_read(FTS *sp)
             /* If more roots remain and this isn't a directory, stay in ROOTS */
 
             return ent;
-        }
 
-        case STATE_CHILDREN: {
+        case STATE_CHILDREN:
             /* Pop next child from the child list */
             if (sp->fts_child) {
                 FTSENT *child = sp->fts_child;
@@ -532,9 +530,8 @@ FTSENT *fts_read(FTS *sp)
              */
             priv->state = STATE_POSTORDER;
             continue;
-        }
 
-        case STATE_POSTORDER: {
+        case STATE_POSTORDER:
             /*
              * Walk up the tree returning FTS_DP entries for each
              * completed directory.
@@ -606,9 +603,10 @@ FTSENT *fts_read(FTS *sp)
             }
 
             return dp;
-        }
 
         case STATE_DONE:
+            return NULL;
+
         default:
             return NULL;
         }

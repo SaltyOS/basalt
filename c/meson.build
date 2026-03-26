@@ -48,7 +48,8 @@ _clang_resource_dir = run_command(
 # Keep libc internals freestanding, but force PIC for shared-library linkage.
 _saltyc_c_flags = [
   '--target=' + c_target,
-  '-ffreestanding', '-nostdinc', '-fno-stack-protector',
+  '-ffreestanding', '-nostdinc',
+  '-fstack-protector-strong',
   '-fPIC',
   '-isystem', meson.current_source_dir() / 'include',
   '-isystem', _clang_resource_dir / 'include',
@@ -58,7 +59,9 @@ _saltyc_c_flags = [
 fts_obj = custom_target('fts_c',
   input: files('src/fts.c'),
   output: 'fts.o',
-  command: [cc_cmd, _saltyc_c_flags, '-c', '@INPUT@', '-o', '@OUTPUT@'],
+  depfile: 'fts.d',
+  command: [cc_cmd, _saltyc_c_flags, '-MMD', '-MF', '@DEPFILE@',
+           '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
 )
 
@@ -66,7 +69,9 @@ fts_obj = custom_target('fts_c',
 getopt_obj = custom_target('getopt_c',
   input: files('src/getopt.c'),
   output: 'getopt.o',
-  command: [cc_cmd, _saltyc_c_flags, '-c', '@INPUT@', '-o', '@OUTPUT@'],
+  depfile: 'getopt.d',
+  command: [cc_cmd, _saltyc_c_flags, '-MMD', '-MF', '@DEPFILE@',
+           '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
 )
 
@@ -74,7 +79,9 @@ getopt_obj = custom_target('getopt_c',
 libutil_compat_obj = custom_target('libutil_compat_c',
   input: files('src/compat/libutil_compat.c'),
   output: 'libutil_compat.o',
-  command: [cc_cmd, _saltyc_c_flags, '-c', '@INPUT@', '-o', '@OUTPUT@'],
+  depfile: 'libutil_compat.d',
+  command: [cc_cmd, _saltyc_c_flags, '-MMD', '-MF', '@DEPFILE@',
+           '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
 )
 
@@ -82,7 +89,9 @@ libutil_compat_obj = custom_target('libutil_compat_c',
 md5_obj = custom_target('md5_c',
   input: files('src/compat/md5.c'),
   output: 'md5.o',
-  command: [cc_cmd, _saltyc_c_flags, '-c', '@INPUT@', '-o', '@OUTPUT@'],
+  depfile: 'md5.d',
+  command: [cc_cmd, _saltyc_c_flags, '-MMD', '-MF', '@DEPFILE@',
+           '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
 )
 
@@ -90,7 +99,9 @@ md5_obj = custom_target('md5_c',
 cap_fileargs_obj = custom_target('cap_fileargs_c',
   input: files('src/compat/cap_fileargs.c'),
   output: 'cap_fileargs.o',
-  command: [cc_cmd, _saltyc_c_flags, '-c', '@INPUT@', '-o', '@OUTPUT@'],
+  depfile: 'cap_fileargs.d',
+  command: [cc_cmd, _saltyc_c_flags, '-MMD', '-MF', '@DEPFILE@',
+           '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
 )
 
@@ -98,7 +109,9 @@ cap_fileargs_obj = custom_target('cap_fileargs_c',
 xo_stub_obj = custom_target('xo_stub_c',
   input: files('src/compat/xo_stub.c'),
   output: 'xo_stub.o',
-  command: [cc_cmd, _saltyc_c_flags, '-c', '@INPUT@', '-o', '@OUTPUT@'],
+  depfile: 'xo_stub.d',
+  command: [cc_cmd, _saltyc_c_flags, '-MMD', '-MF', '@DEPFILE@',
+           '-c', '@INPUT@', '-o', '@OUTPUT@'],
   build_by_default: true,
 )
 
