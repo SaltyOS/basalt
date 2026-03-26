@@ -427,13 +427,13 @@ pub unsafe fn pthread_create(
             &raw mut reply,
         );
         if err != 0 || reply.label != BESALT_OK {
-            let mut lb = serial::LineBuf::new();
-            lb.str(b"[PTHREAD] MM_ALLOC_THREAD_OBJECTS failed err=");
-            lb.hex(err as u64);
-            lb.str(b" label=");
-            lb.hex(reply.label);
-            lb.str(b"\n");
-            lb.flush();
+            crate::uerror!(|_lb| {
+                _lb.str(b"[PTHREAD] MM_ALLOC_THREAD_OBJECTS failed err=");
+                _lb.hex(err as u64);
+                _lb.str(b" label=");
+                _lb.hex(reply.label);
+                _lb.str(b"\n");
+            });
             rollback_create(tc, stack_addr, stack_size, false);
             return -1;
         }

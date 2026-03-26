@@ -125,7 +125,7 @@ unsafe fn get_expand_ep() -> Cap {
 ///
 /// # Safety
 /// Must be called with SLOT_LOCK held.
-unsafe fn register_new_segment(base: Cap, count: u64, label: &[u8]) -> bool {
+unsafe fn register_new_segment(base: Cap, count: u64, _label: &[u8]) -> bool {
     unsafe {
         let state = &mut *(&raw mut SLOT_ALLOC);
         if state.seg_count >= MAX_SEGMENTS {
@@ -140,19 +140,17 @@ unsafe fn register_new_segment(base: Cap, count: u64, label: &[u8]) -> bool {
         state.expand_state = ExpandState::Idle;
         update_expansion_depth(state);
 
-        {
-            let mut lb = serial::LineBuf::new();
-            lb.str(b"[SLOT] expand(");
-            lb.str(label);
-            lb.str(b"): base=");
-            lb.hex(base);
-            lb.str(b" count=");
-            lb.hex(count);
-            lb.str(b" (seg ");
-            lb.hex(si as u64);
-            lb.str(b")\n");
-            lb.flush();
-        }
+        crate::udebug!(|_lb| {
+            _lb.str(b"[SLOT] expand(");
+            _lb.str(_label);
+            _lb.str(b"): base=");
+            _lb.hex(base);
+            _lb.str(b" count=");
+            _lb.hex(count);
+            _lb.str(b" (seg ");
+            _lb.hex(si as u64);
+            _lb.str(b")\n");
+        });
         true
     }
 }
@@ -349,17 +347,15 @@ unsafe fn slot_alloc_async_inner() -> SlotResult {
                         state.expanded_depth = expanded_depth;
                     }
 
-                    {
-                        let mut lb = serial::LineBuf::new();
-                        lb.str(b"[SLOT] cspace-expand: probed base=");
-                        lb.hex(base);
-                        lb.str(b" count=");
-                        lb.hex(count);
-                        lb.str(b" (seg ");
-                        lb.hex(si as u64);
-                        lb.str(b")\n");
-                        lb.flush();
-                    }
+                    crate::udebug!(|_lb| {
+                        _lb.str(b"[SLOT] cspace-expand: probed base=");
+                        _lb.hex(base);
+                        _lb.str(b" count=");
+                        _lb.hex(count);
+                        _lb.str(b" (seg ");
+                        _lb.hex(si as u64);
+                        _lb.str(b")\n");
+                    });
 
                     // Allocate from the new segment
                     let seg = &mut state.segments[si];

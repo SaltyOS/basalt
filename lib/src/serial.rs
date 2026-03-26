@@ -186,3 +186,75 @@ impl LineBuf {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Compile-time-gated userland log macros
+// ---------------------------------------------------------------------------
+
+/// Debug-level log. Compiled out unless `ulog_debug` cfg is set.
+///
+/// The body receives `_lb: &mut LineBuf`, already initialized.
+/// The buffer is flushed automatically when the block exits.
+///
+/// ```rust
+/// udebug!({
+///     _lb.str(b"[PROCMGR] fork PID=");
+///     _lb.hex(pid as u64);
+///     _lb.str(b"\n");
+/// });
+/// ```
+#[macro_export]
+macro_rules! udebug {
+    (|$lb:ident| { $($body:tt)* }) => {
+        #[cfg(ulog_debug)]
+        {
+            let mut $lb = $crate::serial::LineBuf::new();
+            $($body)*
+            $lb.flush();
+        }
+    };
+}
+
+/// Info-level log. Compiled out unless `ulog_info` cfg is set (default at `info` level).
+///
+/// Same usage as `udebug!`.
+#[macro_export]
+macro_rules! uinfo {
+    (|$lb:ident| { $($body:tt)* }) => {
+        #[cfg(ulog_info)]
+        {
+            let mut $lb = $crate::serial::LineBuf::new();
+            $($body)*
+            $lb.flush();
+        }
+    };
+}
+
+/// Warning-level log. Compiled out unless `ulog_warn` cfg is set.
+///
+/// Same usage as `udebug!`.
+#[macro_export]
+macro_rules! uwarn {
+    (|$lb:ident| { $($body:tt)* }) => {
+        #[cfg(ulog_warn)]
+        {
+            let mut $lb = $crate::serial::LineBuf::new();
+            $($body)*
+            $lb.flush();
+        }
+    };
+}
+
+/// Error-level log. Always unconditional — errors must never be silenced.
+///
+/// Same usage as `udebug!`.
+#[macro_export]
+macro_rules! uerror {
+    (|$lb:ident| { $($body:tt)* }) => {
+        {
+            let mut $lb = $crate::serial::LineBuf::new();
+            $($body)*
+            $lb.flush();
+        }
+    };
+}

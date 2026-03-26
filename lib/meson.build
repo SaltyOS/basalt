@@ -18,6 +18,9 @@ rust_userland_args = [
   '--extern', 'compiler_builtins=' + rust_build_dir / 'libcompiler_builtins.rmeta',
   '-L', rust_build_dir,
 ]
+if get_option('debug_symbols')
+  rust_userland_args += ['-C', 'debuginfo=2']
+endif
 
 # SSE2-accelerated saltyc routines — auto-enabled on x86_64 (ISA baseline).
 if arch == 'x86_64'
@@ -29,6 +32,24 @@ endif
 if arch == 'aarch64'
   rust_userland_args += ['--cfg=saltyc_neon']
 endif
+
+# Compile-time log-level cfg flags for userland.
+# These enable the uinfo!/udebug!/uwarn! macros in serial.rs at zero runtime cost when off.
+ulog_level = get_option('userland_log_level')
+if ulog_level == 'trace'
+  rust_userland_args += ['--cfg', 'ulog_trace', '--cfg', 'ulog_debug', '--cfg', 'ulog_info', '--cfg', 'ulog_warn']
+elif ulog_level == 'debug'
+  rust_userland_args += ['--cfg', 'ulog_debug', '--cfg', 'ulog_info', '--cfg', 'ulog_warn']
+elif ulog_level == 'info'
+  rust_userland_args += ['--cfg', 'ulog_info', '--cfg', 'ulog_warn']
+elif ulog_level == 'warn'
+  rust_userland_args += ['--cfg', 'ulog_warn']
+# else: 'error' — no cfgs, all gated output compiled out
+endif
+
+# Per-program debug override list. Programs in this list get ulog_debug
+# enabled even when the global userland_log_level is below 'debug'.
+userland_debug_list = get_option('userland_debug_programs').split(',')
 
 # fork.S compile-time feature flags
 fork_asm_args = []
