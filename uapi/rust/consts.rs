@@ -34,6 +34,12 @@ pub const SYS_GETRANDOM: u64 = 19;
 pub const SYS_SHUTDOWN: u64 = 20;
 pub const SYS_SEND_TIMED: u64 = 21;
 pub const SYS_RECV_TIMED: u64 = 22;
+pub const SYS_RECV_ANY: u64 = 23;
+pub const SYS_REPLY_RECV_ANY: u64 = 24;
+pub const SYS_RECV_ANY_TIMED: u64 = 25;
+pub const SYS_REPLY_RECV_ANY_TIMED: u64 = 26;
+
+pub const IPC_RECV_SOURCE_NOTIFICATION: u64 = u64::MAX;
 
 /// Futex operation codes (arg1 of SYS_FUTEX)
 pub const FUTEX_WAIT: u64 = 0;
@@ -41,8 +47,8 @@ pub const FUTEX_WAKE: u64 = 1;
 pub const FUTEX_WAIT_TIMEOUT: u64 = 2;
 
 /// Clock IDs for `SYS_CLOCK_GETTIME`.
-pub const CLOCK_MONOTONIC: i32 = 0;
-pub const CLOCK_REALTIME: i32 = 1;
+pub const CLOCK_REALTIME: i32 = 0;
+pub const CLOCK_MONOTONIC: i32 = 1;
 
 /// CNode invoke labels (0x10-0x18): copy, mint, move, mutate, delete, revoke, save_caller, set_guard, get_info.
 pub const CNODE_COPY: u64 = 0x10;
@@ -244,6 +250,7 @@ pub const BESALT_OUT_OF_RANGE: u64 = 11;
 pub const BESALT_CANCELLED: u64 = 12;
 pub const BESALT_RESTART: u64 = 13;
 pub const BESALT_DEADLOCK: u64 = 14;
+pub const BESALT_IN_PROGRESS: u64 = 15;
 pub const BESALT_PENDING: u64 = 0x80;
 
 /// VSpace page mapping flags (passed to `vspace_map`).
@@ -334,6 +341,10 @@ pub const POSIX_VFS_PREAD: u64 = 62;
 pub const POSIX_VFS_PWRITE: u64 = 63;
 pub const POSIX_VFS_BULK_SETUP: u64 = 64;
 pub const POSIX_VFS_BULK_READ: u64 = 65;
+pub const POSIX_VFS_GETSOCKNAME: u64 = 66;
+pub const POSIX_VFS_GETPEERNAME: u64 = 67;
+pub const POSIX_VFS_SETSOCKOPT: u64 = 68;
+pub const POSIX_VFS_GETSOCKOPT: u64 = 69;
 
 /// Per-client bulk SHM size for VFS I/O (1MB = 256 pages).
 pub const BULK_SHM_PAGES: u64 = 256;
@@ -457,6 +468,8 @@ pub const POSIX_PM_GET_PROC_INFO: u64 = 28;
 pub const POSIX_PM_RESUME: u64 = 29;
 pub const POSIX_PM_UMASK: u64 = 30;
 pub const POSIX_PM_REQUEST_UNTYPED: u64 = 31;
+pub const POSIX_PM_SETITIMER: u64 = 32;
+pub const POSIX_PM_GETITIMER: u64 = 33;
 // Deterministic CNode slots for CSpace expansion (root slots 1008-1015)
 pub const CSPACE_EXPAND_BASE: u64 = 1008;
 pub const MAX_CSPACE_EXPANSIONS: usize = 8;
@@ -618,11 +631,31 @@ pub const SOCK_STREAM: i32 = 1;
 pub const SOCK_DGRAM: i32 = 2;
 pub const IPPROTO_TCP: i32 = 6;
 pub const IPPROTO_UDP: i32 = 17;
+pub const SOCK_RAW: i32 = 3;
+pub const IPPROTO_ICMP: i32 = 1;
+pub const IPPROTO_IP: i32 = 0;
 pub const SCM_RIGHTS: i32 = 1;
+pub const SCM_TIMESTAMP: i32 = 2;
 pub const SOL_SOCKET: i32 = 1;
+pub const SO_REUSEADDR: i32 = 2;
+pub const SO_TYPE: i32 = 3;
+pub const SO_ERROR: i32 = 4;
+pub const SO_BROADCAST: i32 = 6;
+pub const SO_SNDBUF: i32 = 7;
+pub const SO_RCVBUF: i32 = 8;
+pub const SO_TIMESTAMP: i32 = 0x0000_0400;
+pub const SO_PROTOCOL: i32 = 38;
+pub const SO_DOMAIN: i32 = 39;
+pub const SO_TS_CLOCK: i32 = 0x1017;
+pub const SO_TS_MONOTONIC: i32 = 3;
+pub const IP_TTL: i32 = 2;
 pub const SHUT_RD: i32 = 0;
 pub const SHUT_WR: i32 = 1;
 pub const SHUT_RDWR: i32 = 2;
+
+/// Default search PATH for program execution.
+pub const DEFAULT_PATH: &[u8] = b"/bin:/sbin:/usr/bin:/usr/sbin";
+pub const DEFAULT_PATH_NUL: &[u8] = b"/bin:/sbin:/usr/bin:/usr/sbin\0";
 
 /// Network stack IPC labels (netsrv protocol).
 pub const NET_SOCKET: u64 = 0xA0;
@@ -645,6 +678,14 @@ pub const NET_REGISTER_VFS: u64 = 0xB0;
 pub const NET_COMPLETE: u64 = 0xB1;
 pub const NET_DNS_RESOLVE: u64 = 0xB2;
 pub const NET_DNS_RESOLVE_PTR: u64 = 0xB3;
+pub const NET_GET_CONFIG: u64 = 0xB4;
+pub const NET_GET_ARP_ENTRY: u64 = 0xB5;
+
+/// Runtime network configuration states returned by `NET_GET_CONFIG`.
+pub const NETCFG_STATE_DOWN: u64 = 0;
+pub const NETCFG_STATE_CONFIGURING: u64 = 1;
+pub const NETCFG_STATE_READY: u64 = 2;
+pub const NETCFG_STATE_FALLBACK: u64 = 3;
 
 /// DNS service IPC labels (dnssrv client protocol).
 pub const DNS_RESOLVE: u64 = 1;
@@ -660,12 +701,23 @@ pub const BESALT_CONN_REFUSED: u64 = 21;
 pub const BESALT_TIMED_OUT: u64 = 22;
 pub const BESALT_DNS_NXDOMAIN: u64 = 23;
 pub const BESALT_DNS_SERVER_FAIL: u64 = 24;
+pub const BESALT_PROTO_NOT_SUPPORTED: u64 = 25;
+pub const BESALT_HOST_UNREACHABLE: u64 = 26;
+pub const BESALT_NET_UNREACHABLE: u64 = 27;
+pub const BESALT_NO_BUFS: u64 = 28;
+pub const BESALT_CONN_RESET: u64 = 29;
+pub const BESALT_NOT_CONNECTED: u64 = 30;
+pub const BESALT_IS_CONNECTED: u64 = 31;
+pub const BESALT_ADDR_IN_USE: u64 = 32;
 
 /// Async operation type codes (used in NET_COMPLETE callbacks).
 pub const INET_OP_CONNECT: u8 = 1;
 pub const INET_OP_RECV: u8 = 2;
 pub const INET_OP_ACCEPT: u8 = 3;
 pub const INET_OP_RECVFROM: u8 = 4;
+pub const INET_RECVMSG_WANT_ADDR: u32 = 1 << 0;
+pub const INET_RECVMSG_WANT_TIMESTAMP: u32 = 1 << 1;
+pub const INET_RECV_TIMESTAMP_NONE: u64 = u64::MAX;
 
 /// Poll event flags (POLLIN, POLLOUT, POLLERR, POLLHUP, POLLNVAL).
 pub const POLLIN: i16 = 0x001;

@@ -46,6 +46,7 @@ enum besalt_error {
     BESALT_BUSY = 7,
     BESALT_ALREADY_EXISTS = 8,
     BESALT_WOULD_BLOCK = 9,
+    BESALT_IN_PROGRESS = 15,
 };
 
 #ifdef __cplusplus
