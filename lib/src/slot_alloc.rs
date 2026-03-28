@@ -13,7 +13,6 @@
 use crate::consts::*;
 use crate::invoke;
 use crate::ipc;
-use crate::serial;
 use crate::syscall::syscall;
 use crate::types::Cap;
 

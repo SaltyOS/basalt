@@ -1,7 +1,10 @@
 //! Thread-Local Storage (TLS) block layout and accessors
 //!
-//! Each thread has a `ThreadLocalBlock` at the address pointed to by FS_BASE.
-//! The x86_64 TLS ABI requires `%fs:0` to hold a self-pointer (`self_ptr`).
+//! The runtime keeps a `ThreadLocalBlock` per thread, but the hardware thread
+//! pointer layout is architecture-specific:
+//!
+//! - x86_64 uses Variant II: TP points directly at the runtime TCB.
+//! - aarch64 uses an ABI header at TP and places ELF TLS at positive offsets.
 //!
 //! ## ELF TLS (Variant II) Layout
 //!
@@ -26,9 +29,8 @@
 use crate::types::IpcContext;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-/// Set to `true` after `init_main_thread_tls()` has configured FS_BASE.
-/// Prevents `current_tls()` from reading `fs:[0]` when FS_BASE is 0,
-/// which would fault on the unmapped zero page.
+/// Set to `true` after `init_main_thread_tls()` has configured the hardware
+/// thread pointer. Prevents `current_tls()` from reading an unmapped TP.
 static TLS_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Maximum static TLS data size across the executable and loaded DSOs.
@@ -59,6 +61,23 @@ impl StaticTlsModule {
             filesz: 0,
             memsz: 0,
             tp_offset: 0,
+        }
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+#[repr(C)]
+struct AbiThreadPointerBlock {
+    runtime_tcb: *mut ThreadLocalBlock,
+    reserved: u64,
+}
+
+#[cfg(target_arch = "aarch64")]
+impl AbiThreadPointerBlock {
+    const fn zeroed() -> Self {
+        AbiThreadPointerBlock {
+            runtime_tcb: core::ptr::null_mut(),
+            reserved: 0,
         }
     }
 }
@@ -135,24 +154,50 @@ impl ThreadLocalBlock {
     }
 }
 
-/// Combined ELF TLS area + TCB for a single thread.
+/// Combined static TLS storage for the main thread.
 ///
-/// Variant II layout: ELF TLS data is placed immediately before the TCB
-/// in memory. FS_BASE (thread pointer) points to `tcb`, and ELF TLS
-/// variables are accessed at negative offsets from TP.
+/// x86_64 uses Variant II (`[elf_tls][tcb]`, TP = `tcb`), while aarch64 uses
+/// an ABI header followed by ELF TLS (`[abi_tcb][elf_tls][tcb]`, TP = `abi_tcb`).
+#[cfg(target_arch = "x86_64")]
 #[repr(C, align(64))]
 struct MainTlsBlock {
-    /// Static TLS area reserved for the executable and all loaded DSOs.
     elf_tls: [u8; MAX_ELF_TLS_SIZE],
-    /// Thread control block (TP points here).
     tcb: ThreadLocalBlock,
 }
 
-/// Static TLS block for the main thread (ELF TLS area + TCB).
+#[cfg(target_arch = "aarch64")]
+#[repr(C, align(64))]
+struct MainTlsBlock {
+    abi_tcb: AbiThreadPointerBlock,
+    elf_tls: [u8; MAX_ELF_TLS_SIZE],
+    tcb: ThreadLocalBlock,
+}
+
+/// Static TLS block for the main thread.
+#[cfg(target_arch = "x86_64")]
 static mut MAIN_TLS_BLOCK: MainTlsBlock = MainTlsBlock {
     elf_tls: [0u8; MAX_ELF_TLS_SIZE],
     tcb: ThreadLocalBlock::zeroed(),
 };
+
+#[cfg(target_arch = "aarch64")]
+static mut MAIN_TLS_BLOCK: MainTlsBlock = MainTlsBlock {
+    abi_tcb: AbiThreadPointerBlock::zeroed(),
+    elf_tls: [0u8; MAX_ELF_TLS_SIZE],
+    tcb: ThreadLocalBlock::zeroed(),
+};
+
+#[inline]
+pub const fn abi_tcb_size() -> u64 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        0
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        core::mem::size_of::<AbiThreadPointerBlock>() as u64
+    }
+}
 
 #[inline]
 pub fn static_tls_total_memsz() -> u64 {
@@ -202,6 +247,48 @@ unsafe fn current_tp_value() -> u64 {
     ptr
 }
 
+#[inline]
+fn default_tls_base_from_tp(tp: u64) -> u64 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        tp.wrapping_sub(static_tls_total_memsz())
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        tp.wrapping_add(abi_tcb_size())
+    }
+}
+
+#[inline]
+unsafe fn runtime_tcb_from_tp(tp: u64) -> *mut ThreadLocalBlock {
+    #[cfg(target_arch = "x86_64")]
+    {
+        tp as *mut ThreadLocalBlock
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        if tp == 0 {
+            core::ptr::null_mut()
+        } else {
+            unsafe { (*(tp as *const AbiThreadPointerBlock)).runtime_tcb }
+        }
+    }
+}
+
+pub unsafe fn install_runtime_tcb_anchor(tp: u64, tcb: *mut ThreadLocalBlock) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        let _ = tp;
+        let _ = tcb;
+    }
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        let abi = tp as *mut AbiThreadPointerBlock;
+        (*abi).runtime_tcb = tcb;
+        (*abi).reserved = 0;
+    }
+}
+
 pub(crate) unsafe fn initialize_static_tls_for_tp(tp: u64) {
     let tls_memsz = static_tls_total_memsz();
     if tls_memsz == 0 || tls_memsz > MAX_ELF_TLS_SIZE as u64 {
@@ -209,7 +296,7 @@ pub(crate) unsafe fn initialize_static_tls_for_tp(tp: u64) {
     }
 
     unsafe {
-        let tls_base = tp.wrapping_sub(tls_memsz);
+        let tls_base = default_tls_base_from_tp(tp);
         core::ptr::write_bytes(tls_base as *mut u8, 0, tls_memsz as usize);
 
         let module_count = static_tls_module_count();
@@ -259,14 +346,14 @@ unsafe fn tls_addr_from_tp(tp: u64, module_id: u64, offset: u64) -> *mut u8 {
         }
     }
 
-    tp.wrapping_sub(static_tls_total_memsz()).wrapping_add(offset) as *mut u8
+    default_tls_base_from_tp(tp).wrapping_add(offset) as *mut u8
 }
 
 pub unsafe fn tls_addr(module_id: u64, offset: u64) -> *mut u8 {
     unsafe { tls_addr_from_tp(current_tp_value(), module_id, offset) }
 }
 
-/// Read the current thread's TLS block pointer from `%fs:0`.
+/// Read the current thread's runtime TLS block pointer from the active TP.
 ///
 /// Returns `None` if TLS has not been initialized for this process
 /// (avoids faulting on the unmapped zero page when FS_BASE is 0).
@@ -279,7 +366,8 @@ pub fn current_tls() -> Option<*mut ThreadLocalBlock> {
     if ptr == 0 {
         None
     } else {
-        Some(ptr as *mut ThreadLocalBlock)
+        let tls = unsafe { runtime_tcb_from_tp(ptr) };
+        if tls.is_null() { None } else { Some(tls) }
     }
 }
 
@@ -316,7 +404,7 @@ static mut GLOBAL_ERRNO: i32 = 0;
 ///
 /// Called during process startup (from CRT or `_start`). Sets up the ELF
 /// TLS data area (if present) by copying `.tdata` and zeroing `.tbss`,
-/// then configures FS_BASE to point to the TCB.
+/// then configures the hardware thread pointer for the architecture ABI.
 ///
 /// # Safety
 /// Must be called exactly once during process initialization, before
@@ -324,7 +412,13 @@ static mut GLOBAL_ERRNO: i32 = 0;
 pub unsafe fn init_main_thread_tls() {
     unsafe {
         let tls = &raw mut MAIN_TLS_BLOCK.tcb;
-        initialize_static_tls_for_tp(tls as u64);
+        #[cfg(target_arch = "x86_64")]
+        let tp = tls as u64;
+        #[cfg(target_arch = "aarch64")]
+        let tp = (&raw mut MAIN_TLS_BLOCK.abi_tcb) as u64;
+
+        initialize_static_tls_for_tp(tp);
+        install_runtime_tcb_anchor(tp, tls);
 
         // Set self-pointer (x86_64 TLS ABI)
         (*tls).self_ptr = tls;
@@ -336,9 +430,8 @@ pub unsafe fn init_main_thread_tls() {
         // Main thread is thread 0
         (*tls).thread_id = 0;
 
-        // Set FS_BASE via kernel invoke
-        let tls_addr = tls as u64;
-        let err = crate::invoke::tcb_set_tls_base(0, tls_addr); // CAP_SELF_TCB = 0
+        // Set the architecture thread pointer via kernel invoke.
+        let err = crate::invoke::tcb_set_tls_base(0, tp); // CAP_SELF_TCB = 0
 
         // Only mark TLS as initialized if the kernel accepted the base address.
         // If err != 0, TLS stays uninitialized — fallback to globals still works.

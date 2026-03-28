@@ -13,6 +13,130 @@ struct IoctlWinsize {
     ws_ypixel: u16,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct IoctlSockAddr {
+    sa_family: u16,
+    sa_data: [u8; 14],
+}
+
+#[repr(C)]
+union IoctlIfreqUnion {
+    addr: IoctlSockAddr,
+    flags: i16,
+    ifindex: i32,
+}
+
+#[repr(C)]
+struct IoctlIfreq {
+    name: [u8; 16],
+    data: IoctlIfreqUnion,
+}
+
+#[repr(C)]
+union IoctlIfconfBuf {
+    buf: *mut u8,
+    req: *mut IoctlIfreq,
+}
+
+#[repr(C)]
+struct IoctlIfconf {
+    len: i32,
+    data: IoctlIfconfBuf,
+}
+
+const SIOCGIFCONF: u64 = 0x8912;
+const SIOCGIFNAME: u64 = 0x8910;
+const SIOCGIFFLAGS: u64 = 0x8913;
+const SIOCGIFADDR: u64 = 0x8915;
+const SIOCGIFBRDADDR: u64 = 0x8919;
+const SIOCGIFNETMASK: u64 = 0x891B;
+const SIOCGIFINDEX: u64 = 0x8933;
+const AF_INET: u16 = 2;
+const IFF_UP: i16 = 0x1;
+const IFF_BROADCAST: i16 = 0x2;
+const IFF_RUNNING: i16 = 0x40;
+const IFF_MULTICAST: i16 = 0x1000;
+
+fn is_net_ioctl(request: u64) -> bool {
+    matches!(
+        request,
+        SIOCGIFNAME
+            | SIOCGIFCONF
+            | SIOCGIFFLAGS
+            | SIOCGIFADDR
+            | SIOCGIFBRDADDR
+            | SIOCGIFNETMASK
+            | SIOCGIFINDEX
+    )
+}
+
+unsafe fn read_ifreq_name(arg: u64) -> Option<[u8; 16]> {
+    if arg == 0 {
+        return None;
+    }
+    let mut out = [0u8; 16];
+    let src = arg as *const u8;
+    let mut i = 0usize;
+    while i < 16 {
+        out[i] = unsafe { *src.add(i) };
+        if out[i] == 0 {
+            break;
+        }
+        i += 1;
+    }
+    Some(out)
+}
+
+fn ifreq_name_is_eth0(name: &[u8; 16]) -> bool {
+    name[0] == b'e'
+        && name[1] == b't'
+        && name[2] == b'h'
+        && name[3] == b'0'
+}
+
+unsafe fn write_sockaddr_in(addr: *mut IoctlSockAddr, ip: u32) {
+    unsafe {
+        (*addr).sa_family = AF_INET;
+        (*addr).sa_data.fill(0);
+        let be = ip.to_be_bytes();
+        (*addr).sa_data[2] = be[0];
+        (*addr).sa_data[3] = be[1];
+        (*addr).sa_data[4] = be[2];
+        (*addr).sa_data[5] = be[3];
+    }
+}
+
+pub unsafe fn posix_net_get_config(result: *mut [u64; 9]) -> i32 {
+    unsafe {
+        if result.is_null() {
+            return -22;
+        }
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
+        msg.label = NET_GET_CONFIG;
+        let err = crate::ipc::call_ctx(
+            crate::tls::current_ipc_ctx(),
+            CAP_VFS_EP,
+            &raw const msg,
+            &raw mut reply,
+        );
+        if err != 0 {
+            return -5;
+        }
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
+        }
+        let out = &mut *result;
+        let mut i = 0usize;
+        while i < 9 {
+            out[i] = reply.regs[i];
+            i += 1;
+        }
+        0
+    }
+}
+
 /// File control operations (F_GETFL, F_SETFL, F_DUPFD, etc.).
 /// Returns the result value on success, -1 on error.
 pub unsafe fn posix_fcntl(fd: i32, cmd: i32, arg: i64) -> i32 {
@@ -88,6 +212,67 @@ pub unsafe fn posix_ioctl(fd: i32, request: u64, arg: u64) -> i32 {
         }
 
         match request {
+            SIOCGIFNAME => {
+                if arg == 0 {
+                    return -22;
+                }
+                let ifr = arg as *mut IoctlIfreq;
+                if (*ifr).data.ifindex != 1 {
+                    return -19;
+                }
+                (*ifr).name = [0; 16];
+                (*ifr).name[0] = b'e';
+                (*ifr).name[1] = b't';
+                (*ifr).name[2] = b'h';
+                (*ifr).name[3] = b'0';
+                return 0;
+            }
+            SIOCGIFCONF => {
+                if arg == 0 {
+                    return -22;
+                }
+                let ifc = arg as *mut IoctlIfconf;
+                if (*ifc).len < core::mem::size_of::<IoctlIfreq>() as i32 {
+                    (*ifc).len = core::mem::size_of::<IoctlIfreq>() as i32;
+                    return 0;
+                }
+                let dst = (*ifc).data.req;
+                if dst.is_null() {
+                    (*ifc).len = core::mem::size_of::<IoctlIfreq>() as i32;
+                    return 0;
+                }
+                (*dst).name = [0; 16];
+                (*dst).name[0] = b'e';
+                (*dst).name[1] = b't';
+                (*dst).name[2] = b'h';
+                (*dst).name[3] = b'0';
+                write_sockaddr_in(&mut (*dst).data.addr, reply.regs[0] as u32);
+                (*ifc).len = core::mem::size_of::<IoctlIfreq>() as i32;
+                return 0;
+            }
+            SIOCGIFFLAGS | SIOCGIFADDR | SIOCGIFBRDADDR | SIOCGIFNETMASK | SIOCGIFINDEX => {
+                let ifr_name = match read_ifreq_name(arg) {
+                    Some(name) => name,
+                    None => return -22,
+                };
+                if !ifreq_name_is_eth0(&ifr_name) {
+                    return -19;
+                }
+                let ifr = arg as *mut IoctlIfreq;
+                match request {
+                    SIOCGIFFLAGS => {
+                        (*ifr).data.flags = reply.regs[0] as i16;
+                    }
+                    SIOCGIFINDEX => {
+                        (*ifr).data.ifindex = reply.regs[0] as i32;
+                    }
+                    SIOCGIFADDR | SIOCGIFBRDADDR | SIOCGIFNETMASK => {
+                        write_sockaddr_in(&mut (*ifr).data.addr, reply.regs[0] as u32);
+                    }
+                    _ => {}
+                }
+                return 0;
+            }
             TIOCGPGRP => {
                 if arg != 0 {
                     let pgrp_p = arg as *mut i32;

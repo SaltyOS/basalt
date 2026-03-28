@@ -132,6 +132,28 @@ unsafe fn write_overflow_ctx(ctx: *mut IpcContext, msg: *const BesaltMsg) {
     }
 }
 
+unsafe fn stage_recv_any_endpoints_ctx(
+    ctx: *mut IpcContext,
+    endpoints: *const Cap,
+    endpoint_count: usize,
+) -> bool {
+    unsafe {
+        if ctx.is_null() || endpoints.is_null() || endpoint_count == 0 {
+            return false;
+        }
+        let c = &mut *ctx;
+        if c.ipc_buffer.is_null() || endpoint_count > IPC_BUFFER_RESERVED_WORDS {
+            return false;
+        }
+        let mut idx = 0usize;
+        while idx < endpoint_count {
+            (*c.ipc_buffer).reserved[idx] = *endpoints.add(idx);
+            idx += 1;
+        }
+        true
+    }
+}
+
 /// Blocking send on an endpoint. Blocks until a receiver is ready.
 /// Transfers `msg` and any staged capabilities. Returns 0 on success.
 pub unsafe fn send_ctx(ctx: *mut IpcContext, ep: Cap, msg: *const BesaltMsg) -> i32 {
@@ -203,6 +225,69 @@ pub unsafe fn recv_timed_ctx(
     r.error as i32
 }
 
+pub unsafe fn recv_any_ctx(
+    ctx: *mut IpcContext,
+    endpoints: *const Cap,
+    endpoint_count: usize,
+    msg: *mut BesaltMsg,
+    badge: *mut u64,
+    source: *mut u64,
+) -> i32 {
+    unsafe {
+        if !stage_recv_any_endpoints_ctx(ctx, endpoints, endpoint_count) {
+            return BESALT_INVALID_ARGUMENT as i32;
+        }
+        let r = syscall(SYS_RECV_ANY, endpoint_count as u64, 0, 0, 0, 0, 0);
+        if r.error == 0 {
+            if !source.is_null() {
+                *source = r.value;
+            }
+            if !ctx.is_null() && !(*ctx).ipc_buffer.is_null() {
+                if !badge.is_null() {
+                    *badge = (*(*ctx).ipc_buffer).badge;
+                }
+                if !msg.is_null() {
+                    let buf = (*ctx).ipc_buffer as *const BesaltMsg;
+                    *msg = *buf;
+                }
+            }
+        }
+        r.error as i32
+    }
+}
+
+pub unsafe fn recv_any_timed_ctx(
+    ctx: *mut IpcContext,
+    endpoints: *const Cap,
+    endpoint_count: usize,
+    timeout_ns: u64,
+    msg: *mut BesaltMsg,
+    badge: *mut u64,
+    source: *mut u64,
+) -> i32 {
+    unsafe {
+        if !stage_recv_any_endpoints_ctx(ctx, endpoints, endpoint_count) {
+            return BESALT_INVALID_ARGUMENT as i32;
+        }
+        let r = syscall(SYS_RECV_ANY_TIMED, endpoint_count as u64, timeout_ns, 0, 0, 0, 0);
+        if r.error == 0 {
+            if !source.is_null() {
+                *source = r.value;
+            }
+            if !ctx.is_null() && !(*ctx).ipc_buffer.is_null() {
+                if !badge.is_null() {
+                    *badge = (*(*ctx).ipc_buffer).badge;
+                }
+                if !msg.is_null() {
+                    let buf = (*ctx).ipc_buffer as *const BesaltMsg;
+                    *msg = *buf;
+                }
+            }
+        }
+        r.error as i32
+    }
+}
+
 /// Blocking call (send + receive): sends `msg` on `ep`, then blocks
 /// waiting for the server's reply. The reply message is written to `*reply`.
 /// This is the standard client RPC pattern. Returns 0 on success.
@@ -272,6 +357,102 @@ pub unsafe fn reply_recv_ctx(
             if !out_msg.is_null() && !ctx.is_null() && !(*ctx).ipc_buffer.is_null() {
                 let buf = (*ctx).ipc_buffer as *const BesaltMsg;
                 *out_msg = *buf;
+            }
+        }
+        r.error as i32
+    }
+}
+
+pub unsafe fn reply_recv_any_ctx(
+    ctx: *mut IpcContext,
+    endpoints: *const Cap,
+    endpoint_count: usize,
+    reply: *const BesaltMsg,
+    out_msg: *mut BesaltMsg,
+    badge: *mut u64,
+    source: *mut u64,
+) -> i32 {
+    unsafe {
+        if !stage_recv_any_endpoints_ctx(ctx, endpoints, endpoint_count) {
+            return BESALT_INVALID_ARGUMENT as i32;
+        }
+        let caps = if ctx.is_null() { 0 } else { (*ctx).send_cap_count };
+        let info = msginfo((*reply).label, (*reply).length, caps as u64);
+        write_overflow_ctx(ctx, reply);
+        let r = syscall(
+            SYS_REPLY_RECV_ANY,
+            endpoint_count as u64,
+            info,
+            (*reply).regs[0],
+            (*reply).regs[1],
+            (*reply).regs[2],
+            (*reply).regs[3],
+        );
+        if caps > 0 && !ctx.is_null() {
+            clear_send_caps_ctx(ctx);
+        }
+        if r.error == 0 {
+            if !source.is_null() {
+                *source = r.value;
+            }
+            if !ctx.is_null() && !(*ctx).ipc_buffer.is_null() {
+                if !badge.is_null() {
+                    *badge = (*(*ctx).ipc_buffer).badge;
+                }
+                if !out_msg.is_null() {
+                    let buf = (*ctx).ipc_buffer as *const BesaltMsg;
+                    *out_msg = *buf;
+                }
+            }
+        }
+        r.error as i32
+    }
+}
+
+pub unsafe fn reply_recv_any_timed_ctx(
+    ctx: *mut IpcContext,
+    endpoints: *const Cap,
+    endpoint_count: usize,
+    timeout_ns: u64,
+    reply: *const BesaltMsg,
+    out_msg: *mut BesaltMsg,
+    badge: *mut u64,
+    source: *mut u64,
+) -> i32 {
+    unsafe {
+        if !stage_recv_any_endpoints_ctx(ctx, endpoints, endpoint_count) {
+            return BESALT_INVALID_ARGUMENT as i32;
+        }
+        if !ctx.is_null() && !(*ctx).ipc_buffer.is_null() {
+            (*(*ctx).ipc_buffer).reserved[endpoint_count] = timeout_ns;
+        }
+        let caps = if ctx.is_null() { 0 } else { (*ctx).send_cap_count };
+        let info = msginfo((*reply).label, (*reply).length, caps as u64);
+        write_overflow_ctx(ctx, reply);
+        let r = syscall(
+            SYS_REPLY_RECV_ANY_TIMED,
+            endpoint_count as u64,
+            info,
+            (*reply).regs[0],
+            (*reply).regs[1],
+            (*reply).regs[2],
+            (*reply).regs[3],
+        );
+        if caps > 0 && !ctx.is_null() {
+            clear_send_caps_ctx(ctx);
+        }
+        if r.error == 0 {
+            if !source.is_null() {
+                *source = r.value;
+            }
+            if !ctx.is_null() && !(*ctx).ipc_buffer.is_null() {
+                if !badge.is_null() {
+                    *badge = (*(*ctx).ipc_buffer).badge;
+                }
+                if !out_msg.is_null() {
+                    let buf = (*ctx).ipc_buffer as *const BesaltMsg;
+                    *out_msg = *buf;
+                }
             }
         }
         r.error as i32

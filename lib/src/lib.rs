@@ -53,9 +53,6 @@ pub mod types;
 pub use consts::*;
 pub use types::*;
 
-// Standard child CSpace layout
-const CAP_PROCMGR_EP: u64 = 3;
-
 // ---------------------------------------------------------------------------
 // Global state
 // ---------------------------------------------------------------------------
@@ -523,8 +520,8 @@ pub extern "C" fn besalt_serial_hex(val: u64) {
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn besalt_socket(domain: i32, sock_type: i32) -> i32 {
-    unsafe { posix::posix_socket(domain, sock_type) }
+pub extern "C" fn besalt_socket(domain: i32, sock_type: i32, protocol: i32) -> i32 {
+    unsafe { posix::posix_socket(domain, sock_type, protocol) }
 }
 
 #[unsafe(no_mangle)]

@@ -25,7 +25,7 @@ endif
 # SSE2-accelerated saltyc routines — auto-enabled on x86_64 (ISA baseline).
 if arch == 'x86_64'
   rust_userland_args += ['--cfg=saltyc_sse2',
-    '-C', 'target-feature=+sse,+sse2,-soft-float']
+    '-C', 'target-feature=+sse,+sse2']
 endif
 
 # NEON/FPU — auto-enabled on aarch64 (NEON is mandatory in ARMv8-A).

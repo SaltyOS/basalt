@@ -55,6 +55,7 @@ pub(crate) fn besalt_err_to_posix(label: u64) -> i32 {
         BESALT_OUT_OF_MEMORY => -12,            // ENOMEM
         BESALT_BUSY => -16,                     // EBUSY
         BESALT_WOULD_BLOCK => -11,              // EAGAIN
+        BESALT_IN_PROGRESS => -115,            // EINPROGRESS
         BESALT_BAD_ADDRESS => -14,              // EFAULT
         BESALT_INSUFFICIENT_RIGHTS => -13,      // EACCES
         BESALT_INVALID_CAPABILITY => -9,        // EBADF
@@ -64,6 +65,16 @@ pub(crate) fn besalt_err_to_posix(label: u64) -> i32 {
         BESALT_CANCELLED => -125,               // ECANCELED
         BESALT_CONN_REFUSED => -111,            // ECONNREFUSED
         BESALT_TIMED_OUT => -110,               // ETIMEDOUT
+        BESALT_PROTO_NOT_SUPPORTED => -93,      // EPROTONOSUPPORT
+        BESALT_HOST_UNREACHABLE => -113,        // EHOSTUNREACH
+        BESALT_NET_UNREACHABLE => -101,         // ENETUNREACH
+        BESALT_NO_BUFS => -105,                 // ENOBUFS
+        BESALT_CONN_RESET => -104,              // ECONNRESET
+        BESALT_NOT_CONNECTED => -107,           // ENOTCONN
+        BESALT_IS_CONNECTED => -106,            // EISCONN
+        BESALT_ADDR_IN_USE => -98,              // EADDRINUSE
+        BESALT_DNS_NXDOMAIN => -2,              // ENOENT
+        BESALT_DNS_SERVER_FAIL => -5,           // EIO
         _ => -5,                               // EIO (generic)
     }
 }

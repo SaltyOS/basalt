@@ -2,89 +2,79 @@
 //! DNS client API for BesaltOS.
 //!
 //! Provides hostname resolution by communicating with the dnssrv service.
-//! The dnssrv endpoint must be available at the cap slot specified by
-//! the caller (typically injected via NeedEP in the process's .service file).
+//! The default path resolves dnssrv lazily via nameserv and caches the
+//! resulting endpoint capability for subsequent lookups.
 
 use crate::consts::*;
+use crate::invoke;
 use crate::ipc;
+use crate::slot_alloc;
 use crate::tls;
 use crate::types::*;
 
-/// Default cap slot for dnssrv endpoint (injected via NeedEP=dnssrv:64).
-const CAP_DNSSRV_DEFAULT: u64 = 64;
+const CAP_SELF_CSPACE: u64 = 2;
 
-/// Resolve a hostname to IPv4 address(es).
-///
-/// `hostname` is a byte slice (NOT null-terminated) of the hostname to resolve.
-/// `dnssrv_ep` is the capability slot of the dnssrv endpoint.
-///
-/// On success, returns the primary resolved IPv4 address (host byte order).
-/// On failure, returns 0.
-///
-/// # Safety
-///
-/// Caller must ensure the IPC context is initialized and `dnssrv_ep` is a
-/// valid endpoint capability slot connected to the dnssrv service.
-pub unsafe fn dns_resolve_with_ep(hostname: &[u8], dnssrv_ep: u64) -> u32 {
+/// Cached dnssrv endpoint resolved lazily through nameserv.
+static mut DNSSRV_EP: Cap = 0;
+/// Dedicated receive slot reused for dnssrv endpoint lookup.
+static mut DNSSRV_LOOKUP_SLOT: Cap = 0;
+
+unsafe fn resolve_dnssrv_ep() -> Result<Cap, u64> {
     unsafe {
-        if hostname.is_empty() || hostname.len() > 120 {
-            return 0;
+        let cached = *(&raw const DNSSRV_EP);
+        if cached != 0 {
+            return Ok(cached);
         }
 
+        let ep_slot = {
+            let slot = *(&raw const DNSSRV_LOOKUP_SLOT);
+            if slot != 0 {
+                slot
+            } else {
+                let slot = match slot_alloc::slot_alloc() {
+                    Some(slot) => slot,
+                    None => return Err(BESALT_OUT_OF_MEMORY),
+                };
+                *(&raw mut DNSSRV_LOOKUP_SLOT) = slot;
+                slot
+            }
+        };
+
+        let _ = invoke::cnode_delete(CAP_SELF_CSPACE, ep_slot);
+        ipc::set_receive_slot_ctx(tls::current_ipc_ctx(), CAP_SELF_CSPACE, ep_slot, 0);
+
+        let name = b"dnssrv";
         let mut msg = BesaltMsg::zeroed();
         let mut reply = BesaltMsg::zeroed();
+        msg.label = POSIX_NS_LOOKUP;
+        msg.regs[0] = name.len() as u64;
+        msg.length = 1 + (name.len() as u64 + 7) / 8;
 
-        msg.label = DNS_RESOLVE;
-        msg.regs[0] = hostname.len() as u64;
-
-        // SAFETY: Pack hostname bytes into regs[1..]. The BesaltMsg regs array
-        // has 20 entries (160 bytes), and hostname is at most 120 bytes, so
-        // this copy stays within bounds.
         let dst = &raw mut msg.regs[1] as *mut u8;
-        core::ptr::copy_nonoverlapping(hostname.as_ptr(), dst, hostname.len());
-        msg.length = 1 + ((hostname.len() as u64 + 7) / 8);
+        core::ptr::copy_nonoverlapping(name.as_ptr(), dst, name.len());
 
         let err = ipc::call_ctx(
             tls::current_ipc_ctx(),
-            dnssrv_ep,
+            CAP_NAMESERV_EP,
             &raw const msg,
             &raw mut reply,
         );
-        if err != 0 || reply.label != BESALT_OK {
-            return 0;
+        if err != 0 {
+            return Err(err as u64);
+        }
+        if reply.label != BESALT_OK {
+            return Err(reply.label);
         }
 
-        // reply.regs[0] = ip_count, reply.regs[1] = ttl, reply.regs[2] = primary IP
-        if reply.regs[0] == 0 {
-            return 0;
-        }
-        reply.regs[2] as u32
+        *(&raw mut DNSSRV_EP) = ep_slot;
+        Ok(ep_slot)
     }
 }
 
-/// Resolve a hostname using the default dnssrv endpoint (slot 64).
-///
-/// # Safety
-///
-/// Caller must ensure the IPC context is initialized and the dnssrv endpoint
-/// is available at capability slot 64.
-pub unsafe fn dns_resolve(hostname: &[u8]) -> u32 {
-    unsafe { dns_resolve_with_ep(hostname, CAP_DNSSRV_DEFAULT) }
-}
-
-/// Resolve a hostname to up to 4 IPv4 addresses.
-///
-/// Returns a `DnsResult` with `count > 0` on success.
-/// Addresses are in host byte order.
-///
-/// # Safety
-///
-/// Caller must ensure the IPC context is initialized and `dnssrv_ep` is a
-/// valid endpoint capability slot connected to the dnssrv service.
-pub unsafe fn dns_resolve_multi_with_ep(hostname: &[u8], dnssrv_ep: u64) -> DnsResult {
+unsafe fn dns_resolve_multi_result_with_ep(hostname: &[u8], dnssrv_ep: u64) -> Result<DnsResult, u64> {
     unsafe {
         if hostname.is_empty() || hostname.len() > 120 {
-            return DnsResult::zeroed();
+            return Err(BESALT_INVALID_ARGUMENT);
         }
 
         let mut msg = BesaltMsg::zeroed();
@@ -106,13 +96,16 @@ pub unsafe fn dns_resolve_multi_with_ep(hostname: &[u8], dnssrv_ep: u64) -> DnsR
             &raw const msg,
             &raw mut reply,
         );
-        if err != 0 || reply.label != BESALT_OK {
-            return DnsResult::zeroed();
+        if err != 0 {
+            return Err(err as u64);
+        }
+        if reply.label != BESALT_OK {
+            return Err(reply.label);
         }
 
         let ip_count = reply.regs[0] as u32;
         if ip_count == 0 {
-            return DnsResult::zeroed();
+            return Err(BESALT_NOT_FOUND);
         }
 
         let count = if ip_count > DNS_MAX_RESULTS as u32 {
@@ -128,19 +121,94 @@ pub unsafe fn dns_resolve_multi_with_ep(hostname: &[u8], dnssrv_ep: u64) -> DnsR
         for i in 0..count as usize {
             result.addrs[i] = reply.regs[2 + i] as u32;
         }
-        result
+        Ok(result)
     }
 }
 
-/// Resolve a hostname to up to 4 IPv4 addresses using the default dnssrv
-/// endpoint (slot 64).
+pub unsafe fn dns_resolve_multi_result(hostname: &[u8]) -> Result<DnsResult, u64> {
+    unsafe {
+        let ep = resolve_dnssrv_ep()?;
+        dns_resolve_multi_result_with_ep(hostname, ep)
+    }
+}
+
+/// Resolve a hostname to IPv4 address(es).
+///
+/// `hostname` is a byte slice (NOT null-terminated) of the hostname to resolve.
+/// `dnssrv_ep` is the capability slot of the dnssrv endpoint.
+///
+/// On success, returns the primary resolved IPv4 address (host byte order).
+/// On failure, returns 0.
 ///
 /// # Safety
 ///
-/// Caller must ensure the IPC context is initialized and the dnssrv endpoint
-/// is available at capability slot 64.
+/// Caller must ensure the IPC context is initialized and `dnssrv_ep` is a
+/// valid endpoint capability slot connected to the dnssrv service.
+pub unsafe fn dns_resolve_with_ep(hostname: &[u8], dnssrv_ep: u64) -> u32 {
+    unsafe {
+        match dns_resolve_multi_result_with_ep(hostname, dnssrv_ep) {
+            Ok(result) if result.count > 0 => result.addrs[0],
+            _ => 0,
+        }
+    }
+}
+
+/// Resolve a hostname using the default dnssrv endpoint.
+///
+/// # Safety
+///
+/// Caller must ensure the IPC context is initialized.
+pub unsafe fn dns_resolve(hostname: &[u8]) -> u32 {
+    unsafe {
+        match resolve_dnssrv_ep() {
+            Ok(ep) => dns_resolve_with_ep(hostname, ep),
+            Err(_) => 0,
+        }
+    }
+}
+
+/// Resolve a hostname to up to 4 IPv4 addresses.
+///
+/// Returns a `DnsResult` with `count > 0` on success.
+/// Addresses are in host byte order.
+///
+/// # Safety
+///
+/// Caller must ensure the IPC context is initialized and `dnssrv_ep` is a
+/// valid endpoint capability slot connected to the dnssrv service.
+pub unsafe fn dns_resolve_multi_with_ep(hostname: &[u8], dnssrv_ep: u64) -> DnsResult {
+    unsafe { dns_resolve_multi_result_with_ep(hostname, dnssrv_ep).unwrap_or_else(|_| DnsResult::zeroed()) }
+}
+
+/// Resolve a hostname to up to 4 IPv4 addresses using the default dnssrv
+/// endpoint.
+///
+/// # Safety
+///
+/// Caller must ensure the IPC context is initialized.
 pub unsafe fn dns_resolve_multi(hostname: &[u8]) -> DnsResult {
-    unsafe { dns_resolve_multi_with_ep(hostname, CAP_DNSSRV_DEFAULT) }
+    unsafe {
+        match resolve_dnssrv_ep() {
+            Ok(ep) => dns_resolve_multi_with_ep(hostname, ep),
+            Err(_) => DnsResult::zeroed(),
+        }
+    }
+}
+
+unsafe fn hostname_from_cstr<'a>(name: *const u8) -> Option<&'a [u8]> {
+    unsafe {
+        if name.is_null() {
+            return None;
+        }
+        let mut len = 0usize;
+        while *name.add(len) != 0 && len < 120 {
+            len += 1;
+        }
+        if len == 0 || len >= 120 {
+            return None;
+        }
+        Some(core::slice::from_raw_parts(name, len))
+    }
 }
 
 /// Parse a dotted-decimal IPv4 string into a `u32` in host byte order.
@@ -233,19 +301,21 @@ pub unsafe fn posix_getaddrinfo(node: *const u8, result: *mut DnsAddrInfo) -> i3
 ///
 /// `name` must point to a valid null-terminated byte string.
 pub unsafe fn posix_gethostbyname(name: *const u8) -> u32 {
+    unsafe { posix_gethostbyname_result(name).unwrap_or(0) }
+}
+
+pub unsafe fn posix_gethostbyname_result(name: *const u8) -> Result<u32, u64> {
     unsafe {
-        if name.is_null() {
-            return 0;
+        let hostname = match hostname_from_cstr(name) {
+            Some(hostname) => hostname,
+            None => return Err(BESALT_INVALID_ARGUMENT),
+        };
+        let result = dns_resolve_multi_result(hostname)?;
+        if result.count == 0 {
+            Err(BESALT_NOT_FOUND)
+        } else {
+            Ok(result.addrs[0])
         }
-        let mut len = 0usize;
-        while *name.add(len) != 0 && len < 120 {
-            len += 1;
-        }
-        if len == 0 || len >= 120 {
-            return 0;
-        }
-        let hostname = core::slice::from_raw_parts(name, len);
-        dns_resolve(hostname)
     }
 }
 
@@ -261,6 +331,11 @@ pub unsafe fn posix_gethostbyname(name: *const u8) -> u32 {
 /// `hostname_out` must point to a writable buffer of at least `hostname_max` bytes.
 pub unsafe fn dns_reverse_lookup(ip: u32, hostname_out: *mut u8, hostname_max: usize) -> usize {
     unsafe {
+        let ep = match resolve_dnssrv_ep() {
+            Ok(ep) => ep,
+            Err(_) => return 0,
+        };
+
         let mut msg = BesaltMsg::zeroed();
         let mut reply = BesaltMsg::zeroed();
 
@@ -270,7 +345,7 @@ pub unsafe fn dns_reverse_lookup(ip: u32, hostname_out: *mut u8, hostname_max: u
 
         let err = ipc::call_ctx(
             tls::current_ipc_ctx(),
-            CAP_DNSSRV_DEFAULT,
+            ep,
             &raw const msg,
             &raw mut reply,
         );
@@ -296,10 +371,14 @@ pub unsafe fn dns_reverse_lookup(ip: u32, hostname_out: *mut u8, hostname_max: u
 ///
 /// # Safety
 ///
-/// Caller must ensure the IPC context is initialized and the dnssrv endpoint
-/// is available at capability slot 64.
+/// Caller must ensure the IPC context is initialized.
 pub unsafe fn dns_cache_flush() {
     unsafe {
+        let ep = match resolve_dnssrv_ep() {
+            Ok(ep) => ep,
+            Err(_) => return,
+        };
+
         let mut msg = BesaltMsg::zeroed();
         let mut reply = BesaltMsg::zeroed();
 
@@ -308,7 +387,7 @@ pub unsafe fn dns_cache_flush() {
 
         let _ = ipc::call_ctx(
             tls::current_ipc_ctx(),
-            CAP_DNSSRV_DEFAULT,
+            ep,
             &raw const msg,
             &raw mut reply,
         );

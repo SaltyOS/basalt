@@ -7,6 +7,22 @@ use super::CAP_PROCMGR_EP;
 
 const EXEC_MSG_MIN_SLOWPATH_LEN: usize = 5;
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Itimerval {
+    pub it_interval: Timeval,
+    pub it_value: Timeval,
+}
+
+impl Itimerval {
+    pub const fn zeroed() -> Self {
+        Itimerval {
+            it_interval: Timeval::zeroed(),
+            it_value: Timeval::zeroed(),
+        }
+    }
+}
+
 /// Terminate the current process with `status`.
 ///
 /// Sends `PM_EXIT` to the process manager via blocking Call. The procmgr
@@ -285,9 +301,9 @@ pub unsafe fn posix_kill(pid: i32, sig: i32) -> i32 {
     }
 }
 
-/// Fork the current process, returning the child PID to the parent and 0
-/// to the child. Defined in `fork.S` (assembly trampoline that issues the
-/// PM_FORK IPC and re-initializes the child's IPC context).
+// Fork the current process, returning the child PID to the parent and 0
+// to the child. Defined in `fork.S` (assembly trampoline that issues the
+// PM_FORK IPC and re-initializes the child's IPC context).
 unsafe extern "C" {
     pub safe fn posix_fork() -> i32;
 }
@@ -513,6 +529,83 @@ pub unsafe fn posix_getgroups(size: i32, _list: *mut i32) -> i32 {
             return super::besalt_err_to_posix(reply.label);
         }
         reply.regs[0] as i32
+    }
+}
+
+pub unsafe fn posix_setitimer(
+    which: i32,
+    new_value: *const Itimerval,
+    old_value: *mut Itimerval,
+) -> i32 {
+    unsafe {
+        if new_value.is_null() {
+            return -14; // EFAULT
+        }
+
+        let new_value = &*new_value;
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
+        msg.label = POSIX_PM_SETITIMER;
+        msg.length = 5;
+        msg.regs[0] = which as u64;
+        msg.regs[1] = new_value.it_value.tv_sec;
+        msg.regs[2] = new_value.it_value.tv_usec;
+        msg.regs[3] = new_value.it_interval.tv_sec;
+        msg.regs[4] = new_value.it_interval.tv_usec;
+
+        let err = crate::ipc::call_ctx(
+            crate::tls::current_ipc_ctx(),
+            CAP_PROCMGR_EP,
+            &raw const msg,
+            &raw mut reply,
+        );
+        if err != 0 {
+            return -5; // EIO
+        }
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
+        }
+
+        if !old_value.is_null() {
+            (*old_value).it_value.tv_sec = reply.regs[0];
+            (*old_value).it_value.tv_usec = reply.regs[1];
+            (*old_value).it_interval.tv_sec = reply.regs[2];
+            (*old_value).it_interval.tv_usec = reply.regs[3];
+        }
+        0
+    }
+}
+
+pub unsafe fn posix_getitimer(which: i32, curr_value: *mut Itimerval) -> i32 {
+    unsafe {
+        if curr_value.is_null() {
+            return -14; // EFAULT
+        }
+
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
+        msg.label = POSIX_PM_GETITIMER;
+        msg.length = 1;
+        msg.regs[0] = which as u64;
+
+        let err = crate::ipc::call_ctx(
+            crate::tls::current_ipc_ctx(),
+            CAP_PROCMGR_EP,
+            &raw const msg,
+            &raw mut reply,
+        );
+        if err != 0 {
+            return -5; // EIO
+        }
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
+        }
+
+        (*curr_value).it_value.tv_sec = reply.regs[0];
+        (*curr_value).it_value.tv_usec = reply.regs[1];
+        (*curr_value).it_interval.tv_sec = reply.regs[2];
+        (*curr_value).it_interval.tv_usec = reply.regs[3];
+        0
     }
 }
 

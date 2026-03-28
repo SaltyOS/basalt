@@ -51,6 +51,20 @@ const DEFAULT_STACK_SIZE: u64 = 2 * 1024 * 1024;
 /// Hint for next free thread pool slot — avoids O(N) linear scan.
 static NEXT_FREE_HINT: AtomicUsize = AtomicUsize::new(1);
 
+#[inline]
+fn align_up(value: u64, align: u64) -> u64 {
+    if align <= 1 {
+        value
+    } else {
+        value.saturating_add(align - 1) & !(align - 1)
+    }
+}
+
+#[inline]
+fn align_down(value: u64, align: u64) -> u64 {
+    if align <= 1 { value } else { value & !(align - 1) }
+}
+
 /// Thread attributes for pthread_create.
 #[repr(C)]
 pub struct PthreadAttr {
@@ -363,31 +377,63 @@ pub unsafe fn pthread_create(
             (*tc).state.store(TC_DETACHED, Ordering::Release);
         }
 
-        // 4. Place TLS block at the top of the stack (ELF TLS area + TCB)
-        //
-        // Variant II layout (high to low address):
-        //   [TCB: ThreadLocalBlock]    ← TP (fs:0)
-        //   [ELF TLS: memsz bytes]    ← TP - memsz
-        //   [stack ...]
+        // 4. Place the per-thread TLS block at the top of the stack.
         let stack_top = stack_base + stack_size;
         let tls_memsz = tls::static_tls_total_memsz();
-        let tcb_align = core::cmp::max(tls::static_tls_align(), 16);
+        let tls_align = core::cmp::max(tls::static_tls_align(), 16);
         let tcb_size = core::mem::size_of::<ThreadLocalBlock>() as u64;
-        let tcb_addr = stack_top.saturating_sub(tcb_size) & !(tcb_align - 1);
-        let tls_addr = tcb_addr.saturating_sub(tls_memsz);
-        let total_tls = (tcb_addr + tcb_size).saturating_sub(tls_addr);
-        let tls = tcb_addr as *mut ThreadLocalBlock;
+        let runtime_tcb_align = core::mem::align_of::<ThreadLocalBlock>() as u64;
 
-        core::ptr::write_bytes(tls_addr as *mut u8, 0, total_tls as usize);
-        tls::initialize_static_tls_for_tp(tcb_addr);
+        #[cfg(target_arch = "x86_64")]
+        let (tp, tls_block_base, tls_block_end, tls) = {
+            let tcb_addr = align_down(
+                stack_top.saturating_sub(tcb_size),
+                core::cmp::max(tls_align, runtime_tcb_align),
+            );
+            let tls_block_base = tcb_addr.saturating_sub(tls_memsz);
+            (
+                tcb_addr,
+                tls_block_base,
+                tcb_addr.saturating_add(tcb_size),
+                tcb_addr as *mut ThreadLocalBlock,
+            )
+        };
+
+        #[cfg(target_arch = "aarch64")]
+        let (tp, tls_block_base, tls_block_end, tls) = {
+            let abi_size = tls::abi_tcb_size();
+            let total_hint = abi_size
+                .saturating_add(tls_memsz)
+                .saturating_add(runtime_tcb_align.saturating_sub(1))
+                .saturating_add(tcb_size);
+            let tp = align_down(stack_top.saturating_sub(total_hint), tls_align);
+            let tcb_addr = align_up(
+                tp.saturating_add(abi_size).saturating_add(tls_memsz),
+                runtime_tcb_align,
+            );
+            (
+                tp,
+                tp,
+                tcb_addr.saturating_add(tcb_size),
+                tcb_addr as *mut ThreadLocalBlock,
+            )
+        };
+
+        core::ptr::write_bytes(
+            tls_block_base as *mut u8,
+            0,
+            tls_block_end.saturating_sub(tls_block_base) as usize,
+        );
+        tls::initialize_static_tls_for_tp(tp);
+        tls::install_runtime_tcb_anchor(tp, tls);
         (*tls).self_ptr = tls;
         (*tls).thread_id = tid;
         (*tls).control = tc as *mut u8; // back-pointer to ThreadControl
 
         (*tc).tls_ptr = tls;
 
-        // Effective stack pointer (below TLS block, 16-byte aligned)
-        let user_rsp = tls_addr & !0xF;
+        // Effective stack pointer (below the entire TLS block, 16-byte aligned)
+        let user_rsp = tls_block_base & !0xF;
 
         // 5. Allocate 3 consecutive CNode slots for TCB, SchedContext, IPC buffer frame
         let base_slot = match slot_alloc::slot_alloc_consecutive(3) {
@@ -479,8 +525,8 @@ pub unsafe fn pthread_create(
         (*tls).ipc_ctx.ipc_buffer = ipc_buf_vaddr as *mut IpcBuffer;
         (*tls).ipc_ctx.send_cap_count = 0;
 
-        // 9. Set TLS base for the new thread (TP = TCB address, not ELF TLS start)
-        let err = invoke::tcb_set_tls_base(tcb_slot, tcb_addr);
+        // 9. Set the architecture thread pointer for the new thread.
+        let err = invoke::tcb_set_tls_base(tcb_slot, tp);
         if err != 0 {
             serial::serial_puts(b"[PTHREAD] tcb_set_tls_base failed\n");
             rollback_create(tc, stack_addr, stack_size, true);

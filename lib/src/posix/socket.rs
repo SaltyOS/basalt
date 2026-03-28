@@ -7,16 +7,49 @@ use crate::consts::*;
 use crate::types::*;
 use super::{pack_path, CAP_VFS_EP};
 
-/// Create a socket. `domain` is AF_UNIX or AF_INET, `sock_type` is SOCK_STREAM/DGRAM.
+#[inline]
+unsafe fn sockaddr_in_to_host(addr: *const u8) -> (u32, u16) {
+    let sa = unsafe { &*(addr as *const SockAddrIn) };
+    (u32::from_be(sa.addr), u16::from_be(sa.port))
+}
+
+#[inline]
+unsafe fn sockaddr_in_from_host(addr: *mut u8, ip: u32, port: u16) {
+    let sa = unsafe { &mut *(addr as *mut SockAddrIn) };
+    sa.family = AF_INET as u16;
+    sa.port = port.to_be();
+    sa.addr = ip.to_be();
+}
+
+#[inline]
+unsafe fn pack_sockopt_value(optval: *const u8, optlen: u32) -> Result<u64, i32> {
+    if optval.is_null() {
+        return Err(-14); // EFAULT
+    }
+    if optlen == 0 || optlen > 8 {
+        return Err(-22); // EINVAL
+    }
+    let mut value = 0u64;
+    let dst = &raw mut value as *mut u64 as *mut u8;
+    // SAFETY: `optval` is caller-provided and validated non-null. We cap copies
+    // to 8 bytes and write into a local `u64` buffer.
+    unsafe {
+        core::ptr::copy_nonoverlapping(optval, dst, optlen as usize);
+    }
+    Ok(value)
+}
+
+/// Create a socket. `domain` is AF_UNIX or AF_INET.
 /// Returns the socket fd on success, -1 on error.
-pub unsafe fn posix_socket(domain: i32, sock_type: i32) -> i32 {
+pub unsafe fn posix_socket(domain: i32, sock_type: i32, protocol: i32) -> i32 {
     unsafe {
         let mut msg = BesaltMsg::zeroed();
         let mut reply = BesaltMsg::zeroed();
         msg.label = POSIX_VFS_SOCKET;
-        msg.length = 2;
+        msg.length = 3;
         msg.regs[0] = domain as u64;
         msg.regs[1] = sock_type as u64;
+        msg.regs[2] = protocol as u64;
 
         let err = crate::ipc::call_ctx(
             crate::tls::current_ipc_ctx(),
@@ -57,10 +90,10 @@ pub unsafe fn posix_bind(fd: i32, addr: *const u8, addr_len: u32) -> i32 {
             if addr_len < 8 {
                 return -22; // EINVAL
             }
-            let sa = &*(addr as *const SockAddrIn);
+            let (ip, port) = sockaddr_in_to_host(addr);
             msg.regs[1] = AF_INET as u64;
-            msg.regs[2] = sa.addr as u64;
-            msg.regs[3] = sa.port as u64;
+            msg.regs[2] = ip as u64;
+            msg.regs[3] = port as u64;
             msg.length = 4;
         } else {
             // AF_UNIX: pack path from SockAddrUn.sun_path (offset 2 in struct)
@@ -162,9 +195,9 @@ pub unsafe fn posix_connect(fd: i32, addr: *const u8, addr_len: u32) -> i32 {
             if addr_len < 8 {
                 return -22; // EINVAL
             }
-            let sa = &*(addr as *const SockAddrIn);
-            msg.regs[1] = sa.addr as u64;
-            msg.regs[2] = sa.port as u64;
+            let (ip, port) = sockaddr_in_to_host(addr);
+            msg.regs[1] = ip as u64;
+            msg.regs[2] = port as u64;
             msg.length = 3;
         } else {
             // AF_UNIX: pack path from SockAddrUn.sun_path (offset 2 in struct)
@@ -213,6 +246,166 @@ pub unsafe fn posix_shutdown(fd: i32, how: i32) -> i32 {
         if reply.label != BESALT_OK {
             return super::besalt_err_to_posix(reply.label);
         }
+        0
+    }
+}
+
+/// Return the local address of a socket into a host-order `SockAddrIn`.
+pub unsafe fn posix_getsockname(fd: i32, addr: *mut u8, addr_len: *mut u32) -> i32 {
+    unsafe {
+        if addr.is_null() || addr_len.is_null() {
+            return -14; // EFAULT
+        }
+        if *addr_len < core::mem::size_of::<SockAddrIn>() as u32 {
+            return -22; // EINVAL
+        }
+
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
+        msg.label = POSIX_VFS_GETSOCKNAME;
+        msg.length = 1;
+        msg.regs[0] = fd as u64;
+
+        let err = crate::ipc::call_ctx(
+            crate::tls::current_ipc_ctx(),
+            CAP_VFS_EP,
+            &raw const msg,
+            &raw mut reply,
+        );
+        if err != 0 {
+            return -5; // EIO
+        }
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
+        }
+
+        let sa = &mut *(addr as *mut SockAddrIn);
+        sa.family = AF_INET as u16;
+        sa.port = reply.regs[1] as u16;
+        sa.addr = reply.regs[0] as u32;
+        *addr_len = core::mem::size_of::<SockAddrIn>() as u32;
+        0
+    }
+}
+
+/// Return the peer address of a connected socket into a host-order `SockAddrIn`.
+pub unsafe fn posix_getpeername(fd: i32, addr: *mut u8, addr_len: *mut u32) -> i32 {
+    unsafe {
+        if addr.is_null() || addr_len.is_null() {
+            return -14; // EFAULT
+        }
+        if *addr_len < core::mem::size_of::<SockAddrIn>() as u32 {
+            return -22; // EINVAL
+        }
+
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
+        msg.label = POSIX_VFS_GETPEERNAME;
+        msg.length = 1;
+        msg.regs[0] = fd as u64;
+
+        let err = crate::ipc::call_ctx(
+            crate::tls::current_ipc_ctx(),
+            CAP_VFS_EP,
+            &raw const msg,
+            &raw mut reply,
+        );
+        if err != 0 {
+            return -5; // EIO
+        }
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
+        }
+
+        let sa = &mut *(addr as *mut SockAddrIn);
+        sa.family = AF_INET as u16;
+        sa.port = reply.regs[1] as u16;
+        sa.addr = reply.regs[0] as u32;
+        *addr_len = core::mem::size_of::<SockAddrIn>() as u32;
+        0
+    }
+}
+
+/// Set a socket option on an inet socket.
+pub unsafe fn posix_setsockopt(
+    fd: i32,
+    level: i32,
+    optname: i32,
+    optval: *const u8,
+    optlen: u32,
+) -> i32 {
+    unsafe {
+        let value = match pack_sockopt_value(optval, optlen) {
+            Ok(value) => value,
+            Err(err) => return err,
+        };
+
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
+        msg.label = POSIX_VFS_SETSOCKOPT;
+        msg.length = 5;
+        msg.regs[0] = fd as u64;
+        msg.regs[1] = level as u64;
+        msg.regs[2] = optname as u64;
+        msg.regs[3] = value;
+        msg.regs[4] = optlen as u64;
+
+        let err = crate::ipc::call_ctx(
+            crate::tls::current_ipc_ctx(),
+            CAP_VFS_EP,
+            &raw const msg,
+            &raw mut reply,
+        );
+        if err != 0 {
+            return -5; // EIO
+        }
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
+        }
+        0
+    }
+}
+
+/// Get a socket option from an inet socket.
+pub unsafe fn posix_getsockopt(
+    fd: i32,
+    level: i32,
+    optname: i32,
+    optval: *mut u8,
+    optlen: *mut u32,
+) -> i32 {
+    unsafe {
+        if optval.is_null() || optlen.is_null() {
+            return -14; // EFAULT
+        }
+
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
+        msg.label = POSIX_VFS_GETSOCKOPT;
+        msg.length = 3;
+        msg.regs[0] = fd as u64;
+        msg.regs[1] = level as u64;
+        msg.regs[2] = optname as u64;
+
+        let err = crate::ipc::call_ctx(
+            crate::tls::current_ipc_ctx(),
+            CAP_VFS_EP,
+            &raw const msg,
+            &raw mut reply,
+        );
+        if err != 0 {
+            return -5; // EIO
+        }
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label);
+        }
+
+        let value = reply.regs[0];
+        let actual_len = reply.regs[1] as u32;
+        let copy_len = core::cmp::min(*optlen, actual_len) as usize;
+        let src = &raw const value as *const u64 as *const u8;
+        core::ptr::copy_nonoverlapping(src, optval, copy_len);
+        *optlen = actual_len;
         0
     }
 }
@@ -376,10 +569,10 @@ pub unsafe fn posix_sendto(
         if !addr.is_null() && addr_len >= 8 {
             let family = *(addr as *const u16);
             if family == AF_INET as u16 {
-                let sa = &*(addr as *const SockAddrIn);
+                let (ip, port) = sockaddr_in_to_host(addr);
                 // Pack: regs[3]=dst_ip, regs[4]=dst_port, regs[5..]=data
-                msg.regs[3] = sa.addr as u64;
-                msg.regs[4] = sa.port as u64;
+                msg.regs[3] = ip as u64;
+                msg.regs[4] = port as u64;
                 let dst = &mut msg.regs[5] as *mut u64 as *mut u8;
                 for i in 0..actual {
                     *dst.add(i) = *data.add(i);
@@ -464,8 +657,8 @@ pub unsafe fn posix_recvfrom(
         let src_ip = reply.regs[1] as u32;
         let src_port = reply.regs[2] as u16;
 
-        // Unpack data from regs[3..]
-        let src = &reply.regs[3] as *const u64 as *const u8;
+        // Unpack data from regs[4..]; regs[3] carries timestamp metadata.
+        let src = &reply.regs[4] as *const u64 as *const u8;
         let copy_len = if actual_data < data_len { actual_data } else { data_len };
         for i in 0..copy_len {
             *data.add(i) = *src.add(i);
@@ -473,10 +666,69 @@ pub unsafe fn posix_recvfrom(
 
         // Fill in sender address if requested
         if !addr.is_null() && !addr_len.is_null() && *addr_len >= 8 {
-            let sa = &mut *(addr as *mut SockAddrIn);
-            sa.family = AF_INET as u16;
-            sa.port = src_port;
-            sa.addr = src_ip;
+            sockaddr_in_from_host(addr, src_ip, src_port);
+            *addr_len = 8;
+        }
+
+        actual_data as i64
+    }
+}
+
+/// Receive data, optional sender address, and optional packet timestamp from
+/// an inet socket via the VFS recvmsg path.
+pub unsafe fn posix_recvmsg_inet(
+    fd: i32,
+    data: *mut u8,
+    data_len: u64,
+    addr: *mut u8,
+    addr_len: *mut u32,
+    timestamp_ns: *mut u64,
+) -> i64 {
+    unsafe {
+        let mut msg = BesaltMsg::zeroed();
+        let mut reply = BesaltMsg::zeroed();
+        let mut flags = 0u32;
+        if !addr.is_null() {
+            flags |= INET_RECVMSG_WANT_ADDR;
+        }
+        if !timestamp_ns.is_null() {
+            flags |= INET_RECVMSG_WANT_TIMESTAMP;
+        }
+
+        msg.label = POSIX_VFS_RECVMSG;
+        msg.length = 3;
+        msg.regs[0] = fd as u64;
+        msg.regs[1] = data_len;
+        msg.regs[2] = flags as u64;
+
+        let err = crate::ipc::call_ctx(
+            crate::tls::current_ipc_ctx(),
+            CAP_VFS_EP,
+            &raw const msg,
+            &raw mut reply,
+        );
+        if err != 0 {
+            return -5;
+        }
+        if reply.label != BESALT_OK {
+            return super::besalt_err_to_posix(reply.label) as i64;
+        }
+
+        let actual_data = reply.regs[0] as usize;
+        let src_ip = reply.regs[1] as u32;
+        let src_port = reply.regs[2] as u16;
+        if !timestamp_ns.is_null() {
+            *timestamp_ns = reply.regs[3];
+        }
+
+        let src = &reply.regs[4] as *const u64 as *const u8;
+        let copy_len = core::cmp::min(actual_data, data_len as usize);
+        for i in 0..copy_len {
+            *data.add(i) = *src.add(i);
+        }
+
+        if !addr.is_null() && !addr_len.is_null() && *addr_len >= 8 {
+            sockaddr_in_from_host(addr, src_ip, src_port);
             *addr_len = 8;
         }
 
