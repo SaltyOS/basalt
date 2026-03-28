@@ -61,6 +61,7 @@ extern int *__errno_location(void);
 #define EOPNOTSUPP      95
 #define ENOTSUP         EOPNOTSUPP
 #define EAFNOSUPPORT    97
+#define ECONNABORTED    103
 #define ECONNRESET      104
 #define ENOBUFS         105
 #define EISCONN         106
@@ -71,6 +72,19 @@ extern int *__errno_location(void);
 #define ECANCELED       125
 #define EOWNERDEAD      130
 #define ENOTRECOVERABLE 131
+
+/* Network errors */
+#define EADDRNOTAVAIL   99
+#define ENETDOWN        100
+#define ENETUNREACH     101
+#define ENETRESET       102
+#define EHOSTUNREACH    113
+#define EHOSTDOWN       112
+
+/* BSD extensions */
+#define EFTYPE          79
+#define EAUTH           80
+#define ENEEDAUTH       81
 
 __END_DECLS
 

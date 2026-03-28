@@ -18,6 +18,7 @@
 #define RLIMIT_NOFILE  7
 #define RLIMIT_MEMLOCK 8
 #define RLIMIT_AS      9
+#define RLIM_NLIMITS   10
 
 #define RUSAGE_SELF     0
 #define RUSAGE_CHILDREN (-1)

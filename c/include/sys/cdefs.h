@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-/* FreeBSD sys/cdefs.h compatibility */
+/* BSD-flavored sys/cdefs.h compatibility for SaltyOS */
 #ifndef __SYS_CDEFS_H__
 #define __SYS_CDEFS_H__
 
@@ -46,12 +46,12 @@
 #define __restrict restrict
 #endif
 
-/* FreeBSD version macros */
-#ifndef __FreeBSD__
-#define __FreeBSD__ 14
+/* SaltyOS identity macros */
+#ifndef __saltyos__
+#define __saltyos__ 1
 #endif
-#ifndef __FreeBSD_version
-#define __FreeBSD_version 1402000
+#ifndef __SALTYOS__
+#define __SALTYOS__ 1
 #endif
 
 /* Visibility */

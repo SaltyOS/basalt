@@ -27,6 +27,8 @@ struct tm {
     int tm_wday;
     int tm_yday;
     int tm_isdst;
+    long tm_gmtoff;
+    const char *tm_zone;
 };
 
 __BEGIN_DECLS
@@ -51,6 +53,7 @@ extern size_t    strftime(char *s, size_t max, const char *format,
 
 extern int       clock_gettime(clockid_t clk_id, struct timespec *tp);
 extern int       clock_settime(clockid_t clk_id, const struct timespec *tp);
+extern int       clock_getres(clockid_t clk_id, struct timespec *res);
 extern int       nanosleep(const struct timespec *req, struct timespec *rem);
 extern void      tzset(void);
 extern char     *tzname[2];

@@ -8,6 +8,176 @@
 //! All functions delegate to `salty::posix::*` or `salty::dns::*`.
 
 use crate::errno;
+use salty::consts::SOL_SOCKET;
+
+static mut LOGGED_SOCKET_META_CALLS: u8 = 0;
+static mut LOGGED_RECVMSG_INET_RESULTS: u8 = 0;
+const BSD_SOL_SOCKET: i32 = 0xFFFF;
+
+#[inline]
+fn cmsg_sol_socket_level() -> i32 {
+    BSD_SOL_SOCKET
+}
+
+#[inline]
+fn is_sol_socket_level(level: i32) -> bool {
+    level == SOL_SOCKET || level == BSD_SOL_SOCKET
+}
+
+fn log_socket_meta(op: &[u8], fd: i32, a: i32, b: i32) {
+    unsafe {
+        if *(&raw const LOGGED_SOCKET_META_CALLS) >= 24 {
+            return;
+        }
+        *(&raw mut LOGGED_SOCKET_META_CALLS) += 1;
+    }
+    salty::udebug!(|_lb| {
+        _lb.str(b"[libc] ");
+        _lb.str(op);
+        _lb.str(b" fd=");
+        _lb.dec(fd as u64);
+        if a >= 0 {
+            _lb.str(b" a=");
+            _lb.dec(a as u64);
+        }
+        if b >= 0 {
+            _lb.str(b" b=");
+            _lb.dec(b as u64);
+        }
+        _lb.putc(b'\n');
+    });
+}
+
+fn log_recvmsg_inet_result(fd: i32, ret: isize, data: &[u8], user_data: Option<&[u8]>) {
+    unsafe {
+        if *(&raw const LOGGED_RECVMSG_INET_RESULTS) >= 24 {
+            return;
+        }
+        *(&raw mut LOGGED_RECVMSG_INET_RESULTS) += 1;
+    }
+    salty::udebug!(|_lb| {
+        _lb.str(b"[libc] recvmsg inet fd=");
+        _lb.dec(fd as u64);
+        _lb.str(b" ret=");
+        if ret >= 0 {
+            _lb.dec(ret as u64);
+        } else {
+            _lb.str(b"-");
+            _lb.dec((-ret) as u64);
+        }
+        let preview_len = core::cmp::min(data.len(), 8);
+        if preview_len > 0 {
+            _lb.str(b" bytes=");
+            let mut i = 0;
+            while i < preview_len {
+                if i != 0 {
+                    _lb.putc(b':');
+                }
+                _lb.hex(data[i] as u64);
+                i += 1;
+            }
+        }
+        if data.len() >= 28 {
+            let icmp_type = data[20];
+            let icmp_code = data[21];
+            let icmp_id_lo = data[24];
+            let icmp_id_hi = data[25];
+            let icmp_seq_lo = data[26];
+            let icmp_seq_hi = data[27];
+            _lb.str(b" icmp=");
+            _lb.hex(icmp_type as u64);
+            _lb.putc(b'/');
+            _lb.hex(icmp_code as u64);
+            _lb.str(b" id_bytes=");
+            _lb.hex(icmp_id_lo as u64);
+            _lb.putc(b':');
+            _lb.hex(icmp_id_hi as u64);
+            _lb.str(b" seq_bytes=");
+            _lb.hex(icmp_seq_lo as u64);
+            _lb.putc(b':');
+            _lb.hex(icmp_seq_hi as u64);
+        }
+        if let Some(user) = user_data {
+            let user_preview_len = core::cmp::min(user.len(), 8);
+            if user_preview_len > 0 {
+                _lb.str(b" user=");
+                let mut i = 0;
+                while i < user_preview_len {
+                    if i != 0 {
+                        _lb.putc(b':');
+                    }
+                    _lb.hex(user[i] as u64);
+                    i += 1;
+                }
+            }
+        }
+        _lb.putc(b'\n');
+    });
+}
+
+unsafe fn decode_sockaddr_in(addr: *const u8, addrlen: u32) -> Option<(u32, u16)> {
+    if addr.is_null() || addrlen < 8 {
+        return None;
+    }
+
+    let family = unsafe { core::ptr::read_unaligned(addr as *const u16) };
+    if family == AF_INET as u16 {
+        let port = unsafe { u16::from_be(core::ptr::read_unaligned(addr.add(2) as *const u16)) };
+        let ip = unsafe { u32::from_be(core::ptr::read_unaligned(addr.add(4) as *const u32)) };
+        return Some((ip, port));
+    }
+
+    let sa_len = unsafe { *addr };
+    let sa_family = unsafe { *addr.add(1) };
+    if sa_family == AF_INET as u8 && sa_len as u32 >= 8 {
+        let port = unsafe { u16::from_be(core::ptr::read_unaligned(addr.add(2) as *const u16)) };
+        let ip = unsafe { u32::from_be(core::ptr::read_unaligned(addr.add(4) as *const u32)) };
+        return Some((ip, port));
+    }
+
+    None
+}
+
+unsafe fn decode_posix_sockaddr_in(addr: *const u8, addrlen: u32) -> Option<salty::types::SockAddrIn> {
+    if addr.is_null() || addrlen < 8 {
+        return None;
+    }
+
+    let family = unsafe { core::ptr::read_unaligned(addr as *const u16) };
+    if family == AF_INET as u16 {
+        let mut posix = salty::types::SockAddrIn::zeroed();
+        posix.family = AF_INET as u16;
+        posix.port = unsafe { core::ptr::read_unaligned(addr.add(2) as *const u16) };
+        posix.addr = unsafe { core::ptr::read_unaligned(addr.add(4) as *const u32) };
+        return Some(posix);
+    }
+
+    let sa_len = unsafe { *addr };
+    let sa_family = unsafe { *addr.add(1) };
+    if sa_family == AF_INET as u8 && sa_len as u32 >= 8 {
+        let mut posix = salty::types::SockAddrIn::zeroed();
+        posix.family = AF_INET as u16;
+        posix.port = unsafe { core::ptr::read_unaligned(addr.add(2) as *const u16) };
+        posix.addr = unsafe { core::ptr::read_unaligned(addr.add(4) as *const u32) };
+        return Some(posix);
+    }
+
+    None
+}
+
+unsafe fn fill_sockaddr_in(addr: *mut u8, ip: u32, port: u16) {
+    if addr.is_null() {
+        return;
+    }
+
+    unsafe {
+        *addr = core::mem::size_of::<SockAddrIn>() as u8;
+        *addr.add(1) = AF_INET as u8;
+        core::ptr::write_unaligned(addr.add(2) as *mut u16, port.to_be());
+        core::ptr::write_unaligned(addr.add(4) as *mut u32, ip.to_be());
+        core::ptr::write_bytes(addr.add(8), 0, core::mem::size_of::<SockAddrIn>() - 8);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // C-compatible structures
@@ -19,17 +189,29 @@ pub struct MsgHdr {
     pub msg_namelen: u32,
     _pad0: u32,
     pub msg_iov: *mut IoVec,
-    pub msg_iovlen: usize,
+    pub msg_iovlen: i32,
     pub msg_control: *mut u8,
-    pub msg_controllen: usize,
+    pub msg_controllen: u32,
     pub msg_flags: i32,
-    _pad1: i32,
 }
 
 #[repr(C)]
 pub struct IoVec {
     pub iov_base: *mut u8,
     pub iov_len: usize,
+}
+
+#[repr(C)]
+pub struct CmsgHdr {
+    pub cmsg_len: u32,
+    pub cmsg_level: i32,
+    pub cmsg_type: i32,
+}
+
+#[repr(C)]
+struct TimeSpec {
+    tv_sec: i64,
+    tv_nsec: i64,
 }
 
 #[repr(C)]
@@ -67,6 +249,80 @@ pub struct EpollEvent {
     pub data: u64,
 }
 
+#[inline]
+const fn cmsg_align(len: usize) -> usize {
+    let align = core::mem::size_of::<isize>();
+    (len + align - 1) & !(align - 1)
+}
+
+#[inline]
+const fn cmsg_header_len() -> usize {
+    cmsg_align(core::mem::size_of::<CmsgHdr>())
+}
+
+#[inline]
+const fn cmsg_len(payload_len: usize) -> usize {
+    cmsg_header_len() + payload_len
+}
+
+unsafe fn socket_domain(fd: i32) -> Option<i32> {
+    unsafe {
+        let mut domain = 0u32;
+        let mut domain_len = core::mem::size_of::<u32>() as u32;
+        let ret = salty::posix::posix_getsockopt(
+            fd,
+            SOL_SOCKET,
+            salty::consts::SO_DOMAIN,
+            &raw mut domain as *mut u32 as *mut u8,
+            &raw mut domain_len,
+        );
+        if ret < 0 || domain_len < core::mem::size_of::<u32>() as u32 {
+            None
+        } else {
+            Some(domain as i32)
+        }
+    }
+}
+
+unsafe fn store_timestamp_cmsg(msg: *mut MsgHdr, timestamp_ns: u64) {
+    if msg.is_null() {
+        return;
+    }
+
+    let hdr = unsafe { &mut *msg };
+    hdr.msg_flags = 0;
+    if hdr.msg_control.is_null()
+        || (hdr.msg_controllen as usize) < cmsg_len(core::mem::size_of::<TimeSpec>())
+    {
+        hdr.msg_controllen = 0;
+        return;
+    }
+
+    if timestamp_ns == salty::consts::INET_RECV_TIMESTAMP_NONE {
+        hdr.msg_controllen = 0;
+        return;
+    }
+
+    let ts = TimeSpec {
+        tv_sec: (timestamp_ns / 1_000_000_000) as i64,
+        tv_nsec: (timestamp_ns % 1_000_000_000) as i64,
+    };
+    let cmsg = CmsgHdr {
+        cmsg_len: cmsg_len(core::mem::size_of::<TimeSpec>()) as u32,
+        cmsg_level: cmsg_sol_socket_level(),
+        cmsg_type: salty::consts::SCM_TIMESTAMP,
+    };
+    unsafe {
+        core::ptr::write_unaligned(hdr.msg_control as *mut CmsgHdr, cmsg);
+        core::ptr::copy_nonoverlapping(
+            &raw const ts as *const TimeSpec as *const u8,
+            hdr.msg_control.add(cmsg_header_len()),
+            core::mem::size_of::<TimeSpec>(),
+        );
+    }
+    hdr.msg_controllen = cmsg_len(core::mem::size_of::<TimeSpec>()) as u32;
+}
+
 // ---------------------------------------------------------------------------
 // EAI error codes (must match netdb.h)
 // ---------------------------------------------------------------------------
@@ -92,8 +348,13 @@ const AF_UNSPEC: i32 = 0;
 const AF_INET: i32 = 2;
 const SOCK_STREAM: i32 = 1;
 const SOCK_DGRAM: i32 = 2;
+const SOCK_NONBLOCK: i32 = 0x800;
+const SOCK_CLOEXEC: i32 = 0x80000;
 const IPPROTO_TCP: i32 = 6;
 const IPPROTO_UDP: i32 = 17;
+const HOST_NOT_FOUND: i32 = 1;
+const TRY_AGAIN: i32 = 2;
+const NO_RECOVERY: i32 = 3;
 
 // Well-known service table: (name, port, preferred socktype)
 const SERVICES: &[(&[u8], u16, i32)] = &[
@@ -108,17 +369,54 @@ const SERVICES: &[(&[u8], u16, i32)] = &[
     (b"ntp", 123, SOCK_DGRAM),
 ];
 
+#[inline]
+fn dns_label_to_eai(label: u64) -> i32 {
+    match label {
+        salty::consts::BESALT_TIMED_OUT => EAI_AGAIN,
+        salty::consts::BESALT_DNS_SERVER_FAIL => EAI_FAIL,
+        salty::consts::BESALT_DNS_NXDOMAIN | salty::consts::BESALT_NOT_FOUND => EAI_NONAME,
+        salty::consts::BESALT_INVALID_OPERATION
+        | salty::consts::BESALT_INVALID_CAPABILITY
+        | salty::consts::BESALT_BUSY
+        | salty::consts::BESALT_CANCELLED => EAI_AGAIN,
+        _ => EAI_AGAIN,
+    }
+}
+
+#[inline]
+unsafe fn set_h_errno_from_dns_label(label: u64) {
+    unsafe {
+        crate::inet::h_errno = match label {
+            salty::consts::BESALT_TIMED_OUT => TRY_AGAIN,
+            salty::consts::BESALT_DNS_SERVER_FAIL => NO_RECOVERY,
+            salty::consts::BESALT_DNS_NXDOMAIN | salty::consts::BESALT_NOT_FOUND => HOST_NOT_FOUND,
+            salty::consts::BESALT_INVALID_OPERATION
+            | salty::consts::BESALT_INVALID_CAPABILITY
+            | salty::consts::BESALT_BUSY
+            | salty::consts::BESALT_CANCELLED => TRY_AGAIN,
+            _ => TRY_AGAIN,
+        };
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Socket creation / connection
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn socket(domain: i32, sock_type: i32, _protocol: i32) -> i32 {
+pub unsafe extern "C" fn socket(domain: i32, sock_type: i32, protocol: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_socket(domain, sock_type);
+        let base_type = sock_type & !(SOCK_NONBLOCK | SOCK_CLOEXEC);
+        let ret = salty::posix::posix_socket(domain, base_type, protocol);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
+        }
+        if (sock_type & SOCK_NONBLOCK) != 0 {
+            let _ = salty::posix::posix_fcntl(ret, 4, salty::O_NONBLOCK as i64);
+        }
+        if (sock_type & SOCK_CLOEXEC) != 0 {
+            let _ = salty::posix::posix_fcntl(ret, 2, 1);
         }
         ret
     }
@@ -127,7 +425,15 @@ pub unsafe extern "C" fn socket(domain: i32, sock_type: i32, _protocol: i32) -> 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn bind(fd: i32, addr: *const u8, addrlen: u32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_bind(fd, addr, addrlen);
+        let ret = if let Some(posix_addr) = decode_posix_sockaddr_in(addr, addrlen) {
+            salty::posix::posix_bind(
+                fd,
+                &raw const posix_addr as *const salty::types::SockAddrIn as *const u8,
+                core::mem::size_of::<salty::types::SockAddrIn>() as u32,
+            )
+        } else {
+            salty::posix::posix_bind(fd, addr, addrlen)
+        };
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -163,7 +469,15 @@ pub unsafe extern "C" fn accept(fd: i32, _addr: *mut u8, _addrlen: *mut u32) -> 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn connect(fd: i32, addr: *const u8, addrlen: u32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_connect(fd, addr, addrlen);
+        let ret = if let Some(posix_addr) = decode_posix_sockaddr_in(addr, addrlen) {
+            salty::posix::posix_connect(
+                fd,
+                &raw const posix_addr as *const salty::types::SockAddrIn as *const u8,
+                core::mem::size_of::<salty::types::SockAddrIn>() as u32,
+            )
+        } else {
+            salty::posix::posix_connect(fd, addr, addrlen)
+        };
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -208,13 +522,7 @@ pub unsafe extern "C" fn socketpair(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn send(fd: i32, buf: *const u8, len: usize, _flags: i32) -> isize {
     unsafe {
-        let ret = salty::posix::posix_sendmsg(
-            fd,
-            buf,
-            len as u64,
-            core::ptr::null(),
-            0,
-        );
+        let ret = salty::posix::posix_write(fd, buf, len as u64);
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -226,13 +534,7 @@ pub unsafe extern "C" fn send(fd: i32, buf: *const u8, len: usize, _flags: i32) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn recv(fd: i32, buf: *mut u8, len: usize, _flags: i32) -> isize {
     unsafe {
-        let ret = salty::posix::posix_recvmsg(
-            fd,
-            buf,
-            len as u64,
-            core::ptr::null_mut(),
-            core::ptr::null_mut(),
-        );
+        let ret = salty::posix::posix_read(fd, buf, len as u64);
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -251,7 +553,18 @@ pub unsafe extern "C" fn sendto(
     addrlen: u32,
 ) -> isize {
     unsafe {
-        let ret = salty::posix::posix_sendto(fd, buf, len, flags, addr, addrlen);
+        let ret = if let Some(posix_addr) = decode_posix_sockaddr_in(addr, addrlen) {
+            salty::posix::posix_sendto(
+                fd,
+                buf,
+                len,
+                flags,
+                &raw const posix_addr as *const salty::types::SockAddrIn as *const u8,
+                core::mem::size_of::<salty::types::SockAddrIn>() as u32,
+            )
+        } else {
+            salty::posix::posix_sendto(fd, buf, len, flags, addr, addrlen)
+        };
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -270,7 +583,25 @@ pub unsafe extern "C" fn recvfrom(
     addrlen: *mut u32,
 ) -> isize {
     unsafe {
-        let ret = salty::posix::posix_recvfrom(fd, buf, len, flags, addr, addrlen);
+        let ret = if !addr.is_null() && !addrlen.is_null() && socket_domain(fd) == Some(AF_INET) {
+            let mut host = salty::types::SockAddrIn::zeroed();
+            let mut host_len = core::mem::size_of::<salty::types::SockAddrIn>() as u32;
+            let ret = salty::posix::posix_recvfrom(
+                fd,
+                buf,
+                len,
+                flags,
+                &raw mut host as *mut salty::types::SockAddrIn as *mut u8,
+                &raw mut host_len,
+            );
+            if ret >= 0 {
+                fill_sockaddr_in(addr, u32::from_be(host.addr), u16::from_be(host.port));
+                *addrlen = core::mem::size_of::<SockAddrIn>() as u32;
+            }
+            ret
+        } else {
+            salty::posix::posix_recvfrom(fd, buf, len, flags, addr, addrlen)
+        };
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -286,14 +617,46 @@ pub unsafe extern "C" fn sendmsg(fd: i32, msg: *const MsgHdr, _flags: i32) -> is
         return -1;
     }
     unsafe {
-        // Extract first iov entry for data (simple single-iov path)
-        let (data, data_len) = if (*msg).msg_iov.is_null() || (*msg).msg_iovlen == 0 {
-            (core::ptr::null(), 0u64)
+        let hdr = &*msg;
+        let mut buf = [0u8; 120];
+        let data_len = gather_iovecs(hdr.msg_iov, hdr.msg_iovlen as usize, &mut buf);
+        let ret = if !hdr.msg_name.is_null()
+            && hdr.msg_namelen >= core::mem::size_of::<SockAddrIn>() as u32
+        {
+            if let Some(posix_addr) = decode_posix_sockaddr_in(hdr.msg_name as *const u8, hdr.msg_namelen) {
+                salty::posix::posix_sendto(
+                    fd,
+                    buf.as_ptr(),
+                    data_len,
+                    0,
+                    &raw const posix_addr as *const salty::types::SockAddrIn as *const u8,
+                    core::mem::size_of::<salty::types::SockAddrIn>() as u32,
+                )
+            } else {
+                salty::posix::posix_sendto(
+                    fd,
+                    buf.as_ptr(),
+                    data_len,
+                    0,
+                    hdr.msg_name as *const u8,
+                    hdr.msg_namelen,
+                )
+            }
         } else {
-            let iov = &*(*msg).msg_iov;
-            (iov.iov_base as *const u8, iov.iov_len as u64)
+            let mut rights = [0i32; 4];
+            let rights_count = extract_scm_rights(msg, &mut rights);
+            if rights_count > 0 {
+                salty::posix::posix_sendmsg(
+                    fd,
+                    buf.as_ptr(),
+                    data_len as u64,
+                    rights.as_ptr(),
+                    rights_count as u32,
+                )
+            } else {
+                salty::posix::posix_write(fd, buf.as_ptr(), data_len as u64)
+            }
         };
-        let ret = salty::posix::posix_sendmsg(fd, data, data_len, core::ptr::null(), 0);
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -309,24 +672,132 @@ pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isiz
         return -1;
     }
     unsafe {
-        // Extract first iov entry for data buffer
-        let (data, data_len) = if (*msg).msg_iov.is_null() || (*msg).msg_iovlen == 0 {
-            (core::ptr::null_mut(), 0u64)
+        let hdr = &mut *msg;
+        hdr.msg_flags = 0;
+        if !hdr.msg_control.is_null() && hdr.msg_controllen > 0 {
+            core::ptr::write_bytes(hdr.msg_control, 0, hdr.msg_controllen as usize);
+        }
+        let mut cap = 0usize;
+        if !hdr.msg_iov.is_null() && hdr.msg_iovlen > 0 {
+            for i in 0..hdr.msg_iovlen as usize {
+                let iov = &*hdr.msg_iov.add(i);
+                cap = cap.saturating_add(iov.iov_len);
+            }
+        }
+        let cap = core::cmp::min(cap, 152);
+        let mut buf = [0u8; 152];
+
+        let has_name = !hdr.msg_name.is_null()
+            && hdr.msg_namelen >= core::mem::size_of::<SockAddrIn>() as u32;
+        let has_control = !hdr.msg_control.is_null()
+            && (hdr.msg_controllen as usize) >= cmsg_len(core::mem::size_of::<TimeSpec>());
+        let domain = if has_name || has_control {
+            socket_domain(fd)
         } else {
-            let iov = &mut *(*msg).msg_iov;
-            (iov.iov_base, iov.iov_len as u64)
+            None
         };
-        let ret = salty::posix::posix_recvmsg(
-            fd,
-            data,
-            data_len,
-            core::ptr::null_mut(),
-            core::ptr::null_mut(),
-        );
+
+        let ret = if domain == Some(AF_INET) && (has_name || has_control) {
+            let mut host_name = salty::types::SockAddrIn::zeroed();
+            let mut name_len = core::mem::size_of::<salty::types::SockAddrIn>() as u32;
+            let mut timestamp_ns = salty::consts::INET_RECV_TIMESTAMP_NONE;
+            let ret = salty::posix::posix_recvmsg_inet(
+                fd,
+                buf.as_mut_ptr(),
+                cap as u64,
+                if has_name {
+                    &raw mut host_name as *mut salty::types::SockAddrIn as *mut u8
+                } else {
+                    core::ptr::null_mut()
+                },
+                if has_name { &raw mut name_len } else { core::ptr::null_mut() },
+                if has_control {
+                    &raw mut timestamp_ns
+                } else {
+                    core::ptr::null_mut()
+                },
+            );
+            let preview_len = if ret > 0 {
+                core::cmp::min(ret as usize, buf.len())
+            } else {
+                0
+            };
+            if has_name {
+                fill_sockaddr_in(
+                    hdr.msg_name,
+                    u32::from_be(host_name.addr),
+                    u16::from_be(host_name.port),
+                );
+                hdr.msg_namelen = core::mem::size_of::<SockAddrIn>() as u32;
+            }
+            if has_control {
+                store_timestamp_cmsg(msg, timestamp_ns);
+            } else {
+                hdr.msg_controllen = 0;
+            }
+            let user_preview = if ret > 0 && !hdr.msg_iov.is_null() && hdr.msg_iovlen > 0 {
+                let first_iov = &*hdr.msg_iov;
+                if !first_iov.iov_base.is_null() {
+                    let take = core::cmp::min(preview_len, first_iov.iov_len);
+                    Some(core::slice::from_raw_parts(first_iov.iov_base, take))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            log_recvmsg_inet_result(fd, ret as isize, &buf[..preview_len], user_preview);
+            ret
+        } else if !hdr.msg_name.is_null()
+            && hdr.msg_namelen >= core::mem::size_of::<SockAddrIn>() as u32
+        {
+            let mut host_name = salty::types::SockAddrIn::zeroed();
+            let mut name_len = core::mem::size_of::<salty::types::SockAddrIn>() as u32;
+            let ret = salty::posix::posix_recvfrom(
+                fd,
+                buf.as_mut_ptr(),
+                cap,
+                0,
+                &raw mut host_name as *mut salty::types::SockAddrIn as *mut u8,
+                &raw mut name_len,
+            );
+            if ret >= 0 {
+                fill_sockaddr_in(
+                    hdr.msg_name,
+                    u32::from_be(host_name.addr),
+                    u16::from_be(host_name.port),
+                );
+                hdr.msg_namelen = core::mem::size_of::<SockAddrIn>() as u32;
+            }
+            hdr.msg_controllen = 0;
+            ret
+        } else if !hdr.msg_control.is_null()
+            && (hdr.msg_controllen as usize) >= cmsg_header_len()
+        {
+            let mut rights = [0i32; 4];
+            let mut rights_len = rights.len() as u32;
+            let ret = salty::posix::posix_recvmsg(
+                fd,
+                buf.as_mut_ptr(),
+                cap as u64,
+                rights.as_mut_ptr(),
+                &raw mut rights_len,
+            );
+            if ret >= 0 {
+                store_scm_rights(msg, &rights[..rights_len as usize]);
+            } else {
+                hdr.msg_controllen = 0;
+            }
+            ret
+        } else {
+            hdr.msg_controllen = 0;
+            salty::posix::posix_read(fd, buf.as_mut_ptr(), cap as u64)
+        };
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
         }
+        let _ = scatter_iovecs(hdr.msg_iov, hdr.msg_iovlen as usize, &buf[..ret as usize]);
         ret as isize
     }
 }
@@ -337,46 +808,110 @@ pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isiz
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setsockopt(
-    _fd: i32,
-    _level: i32,
-    _optname: i32,
-    _optval: *const u8,
-    _optlen: u32,
+    fd: i32,
+    level: i32,
+    optname: i32,
+    optval: *const u8,
+    optlen: u32,
 ) -> i32 {
-    // Stub: silently succeed for most socket options
-    0
+    log_socket_meta(b"setsockopt", fd, level, optname);
+    unsafe {
+        let ret = salty::posix::posix_setsockopt(fd, level, optname, optval, optlen);
+        if ret < 0 {
+            errno::set_errno(-ret);
+            return -1;
+        }
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getsockopt(
-    _fd: i32,
-    _level: i32,
-    _optname: i32,
-    _optval: *mut u8,
-    _optlen: *mut u32,
+    fd: i32,
+    level: i32,
+    optname: i32,
+    optval: *mut u8,
+    optlen: *mut u32,
 ) -> i32 {
-    errno::set_errno(errno::ENOSYS);
-    -1
+    log_socket_meta(b"getsockopt", fd, level, optname);
+    unsafe {
+        let ret = salty::posix::posix_getsockopt(fd, level, optname, optval, optlen);
+        if ret < 0 {
+            errno::set_errno(-ret);
+            return -1;
+        }
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getsockname(
-    _fd: i32,
-    _addr: *mut u8,
-    _addrlen: *mut u32,
+    fd: i32,
+    addr: *mut u8,
+    addrlen: *mut u32,
 ) -> i32 {
-    errno::set_errno(errno::ENOSYS);
-    -1
+    log_socket_meta(b"getsockname", fd, -1, -1);
+    unsafe {
+        if addr.is_null() || addrlen.is_null() {
+            errno::set_errno(errno::EFAULT);
+            return -1;
+        }
+        if *addrlen < core::mem::size_of::<SockAddrIn>() as u32 {
+            errno::set_errno(errno::EINVAL);
+            return -1;
+        }
+
+        let mut host = salty::types::SockAddrIn::zeroed();
+        let mut host_len = core::mem::size_of::<salty::types::SockAddrIn>() as u32;
+        let ret = salty::posix::posix_getsockname(
+            fd,
+            &raw mut host as *mut salty::types::SockAddrIn as *mut u8,
+            &raw mut host_len,
+        );
+        if ret < 0 {
+            errno::set_errno(-ret);
+            return -1;
+        }
+
+        fill_sockaddr_in(addr, host.addr, host.port);
+        *addrlen = core::mem::size_of::<SockAddrIn>() as u32;
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getpeername(
-    _fd: i32,
-    _addr: *mut u8,
-    _addrlen: *mut u32,
+    fd: i32,
+    addr: *mut u8,
+    addrlen: *mut u32,
 ) -> i32 {
-    errno::set_errno(errno::ENOSYS);
-    -1
+    log_socket_meta(b"getpeername", fd, -1, -1);
+    unsafe {
+        if addr.is_null() || addrlen.is_null() {
+            errno::set_errno(errno::EFAULT);
+            return -1;
+        }
+        if *addrlen < core::mem::size_of::<SockAddrIn>() as u32 {
+            errno::set_errno(errno::EINVAL);
+            return -1;
+        }
+
+        let mut host = salty::types::SockAddrIn::zeroed();
+        let mut host_len = core::mem::size_of::<salty::types::SockAddrIn>() as u32;
+        let ret = salty::posix::posix_getpeername(
+            fd,
+            &raw mut host as *mut salty::types::SockAddrIn as *mut u8,
+            &raw mut host_len,
+        );
+        if ret < 0 {
+            errno::set_errno(-ret);
+            return -1;
+        }
+
+        fill_sockaddr_in(addr, host.addr, host.port);
+        *addrlen = core::mem::size_of::<SockAddrIn>() as u32;
+        0
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -408,6 +943,138 @@ unsafe fn parse_numeric_port(s: *const u8) -> Option<u16> {
         }
         Some(val as u16)
     }
+}
+
+unsafe fn gather_iovecs(iov: *mut IoVec, iovlen: usize, dst: &mut [u8]) -> usize {
+    if iov.is_null() || iovlen == 0 || dst.is_empty() {
+        return 0;
+    }
+
+    let mut copied = 0usize;
+    for i in 0..iovlen {
+        let ent = unsafe { &*iov.add(i) };
+        if ent.iov_len == 0 || ent.iov_base.is_null() {
+            continue;
+        }
+        let take = core::cmp::min(ent.iov_len, dst.len().saturating_sub(copied));
+        if take == 0 {
+            break;
+        }
+        unsafe {
+            core::ptr::copy_nonoverlapping(ent.iov_base, dst.as_mut_ptr().add(copied), take);
+        }
+        copied += take;
+        if copied == dst.len() {
+            break;
+        }
+    }
+    copied
+}
+
+unsafe fn scatter_iovecs(iov: *mut IoVec, iovlen: usize, src: &[u8]) -> usize {
+    if iov.is_null() || iovlen == 0 || src.is_empty() {
+        return 0;
+    }
+
+    let mut copied = 0usize;
+    for i in 0..iovlen {
+        let ent = unsafe { &mut *iov.add(i) };
+        if ent.iov_len == 0 || ent.iov_base.is_null() {
+            continue;
+        }
+        let take = core::cmp::min(ent.iov_len, src.len().saturating_sub(copied));
+        if take == 0 {
+            break;
+        }
+        unsafe {
+            core::ptr::copy_nonoverlapping(src.as_ptr().add(copied), ent.iov_base, take);
+        }
+        copied += take;
+        if copied == src.len() {
+            break;
+        }
+    }
+    copied
+}
+
+unsafe fn extract_scm_rights(msg: *const MsgHdr, fds: &mut [i32; 4]) -> usize {
+    if msg.is_null() {
+        return 0;
+    }
+
+    let hdr = unsafe { &*msg };
+    if hdr.msg_control.is_null() || (hdr.msg_controllen as usize) < cmsg_header_len() {
+        return 0;
+    }
+
+    let cmsg = unsafe { core::ptr::read_unaligned(hdr.msg_control as *const CmsgHdr) };
+    if !is_sol_socket_level(cmsg.cmsg_level) || cmsg.cmsg_type != salty::consts::SCM_RIGHTS {
+        return 0;
+    }
+
+    let header_len = cmsg_header_len();
+    let total_len = cmsg.cmsg_len as usize;
+    if total_len < header_len {
+        return 0;
+    }
+    let payload_len = core::cmp::min(
+        total_len - header_len,
+        (hdr.msg_controllen as usize) - header_len,
+    );
+    let count = core::cmp::min(payload_len / core::mem::size_of::<i32>(), fds.len());
+    if count == 0 {
+        return 0;
+    }
+
+    let src = unsafe { hdr.msg_control.add(header_len) as *const i32 };
+    for (idx, dst) in fds.iter_mut().take(count).enumerate() {
+        *dst = unsafe { core::ptr::read_unaligned(src.add(idx)) };
+    }
+    count
+}
+
+unsafe fn store_scm_rights(msg: *mut MsgHdr, fds: &[i32]) {
+    if msg.is_null() {
+        return;
+    }
+
+    let hdr = unsafe { &mut *msg };
+    hdr.msg_flags = 0;
+    if hdr.msg_control.is_null()
+        || (hdr.msg_controllen as usize) < cmsg_header_len()
+        || fds.is_empty()
+    {
+        hdr.msg_controllen = 0;
+        return;
+    }
+
+    let header_len = cmsg_header_len();
+    let payload_len = core::cmp::min(
+        fds.len() * core::mem::size_of::<i32>(),
+        (hdr.msg_controllen as usize) - header_len,
+    );
+    let fd_count = payload_len / core::mem::size_of::<i32>();
+    if fd_count == 0 {
+        hdr.msg_controllen = 0;
+        return;
+    }
+
+    let cmsg = CmsgHdr {
+        cmsg_len: (header_len + fd_count * core::mem::size_of::<i32>()) as u32,
+        cmsg_level: cmsg_sol_socket_level(),
+        cmsg_type: salty::consts::SCM_RIGHTS,
+    };
+    unsafe {
+        core::ptr::write_unaligned(hdr.msg_control as *mut CmsgHdr, cmsg);
+    }
+
+    let dst = unsafe { hdr.msg_control.add(header_len) as *mut i32 };
+    for (idx, fd) in fds.iter().take(fd_count).enumerate() {
+        unsafe {
+            core::ptr::write_unaligned(dst.add(idx), *fd);
+        }
+    }
+    hdr.msg_controllen = (header_len + fd_count * core::mem::size_of::<i32>()) as u32;
 }
 
 /// Look up a service name in the built-in table.
@@ -546,7 +1213,10 @@ pub unsafe extern "C" fn getaddrinfo(
                 return EAI_NONAME;
             }
             let hostname = core::slice::from_raw_parts(node, len);
-            let dns = salty::dns::dns_resolve_multi(hostname);
+            let dns = match salty::dns::dns_resolve_multi_result(hostname) {
+                Ok(dns) => dns,
+                Err(label) => return dns_label_to_eai(label),
+            };
             if dns.count == 0 {
                 return EAI_NONAME;
             }
@@ -780,7 +1450,6 @@ pub unsafe extern "C" fn gai_strerror(errcode: i32) -> *const u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn poll(fds: *mut PollFd, nfds: u32, timeout: i32) -> i32 {
     unsafe {
-        // PollFd layout matches salty::PollFd exactly (fd: i32, events: i16, revents: i16)
         let ret = salty::posix::posix_poll(fds as *mut salty::PollFd, nfds, timeout);
         if ret < 0 {
             errno::set_errno(-ret);
@@ -887,4 +1556,98 @@ pub unsafe extern "C" fn epoll_pwait(
     _sigmask: *const u8,
 ) -> i32 {
     unsafe { epoll_wait(epfd, events, maxevents, timeout) }
+}
+
+// ---------------------------------------------------------------------------
+// gethostbyname / getservbyname — legacy BSD name resolution
+// ---------------------------------------------------------------------------
+
+/// Static hostent storage for gethostbyname (single-threaded, non-reentrant).
+static mut HOSTENT_NAME: [u8; 256] = [0u8; 256];
+static mut HOSTENT_ADDR: [u8; 4] = [0u8; 4];
+static mut HOSTENT_ADDR_LIST: [*mut u8; 2] = [core::ptr::null_mut(); 2];
+static mut HOSTENT_ALIASES: [*mut u8; 1] = [core::ptr::null_mut()];
+
+#[repr(C)]
+pub struct Hostent {
+    pub h_name: *mut u8,
+    pub h_aliases: *mut *mut u8,
+    pub h_addrtype: i32,
+    pub h_length: i32,
+    pub h_addr_list: *mut *mut u8,
+}
+
+static mut HOSTENT: Hostent = Hostent {
+    h_name: core::ptr::null_mut(),
+    h_aliases: core::ptr::null_mut(),
+    h_addrtype: 0,
+    h_length: 0,
+    h_addr_list: core::ptr::null_mut(),
+};
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gethostbyname(name: *const u8) -> *mut Hostent {
+    if name.is_null() {
+        unsafe { crate::inet::h_errno = HOST_NOT_FOUND; }
+        return core::ptr::null_mut();
+    }
+    unsafe {
+        let ip = match salty::dns::posix_gethostbyname_result(name) {
+            Ok(ip) => {
+                crate::inet::h_errno = 0;
+                ip
+            }
+            Err(label) => {
+                set_h_errno_from_dns_label(label);
+                return core::ptr::null_mut();
+            }
+        };
+
+        // Fill static storage
+        let bytes = ip.to_be_bytes();
+        let addr = &raw mut HOSTENT_ADDR as *mut u8;
+        *addr = bytes[0];
+        *addr.add(1) = bytes[1];
+        *addr.add(2) = bytes[2];
+        *addr.add(3) = bytes[3];
+
+        let addr_list = &raw mut HOSTENT_ADDR_LIST;
+        (*addr_list)[0] = &raw mut HOSTENT_ADDR as *mut u8;
+        (*addr_list)[1] = core::ptr::null_mut();
+
+        // Copy name
+        let hname = &raw mut HOSTENT_NAME as *mut u8;
+        let mut i = 0usize;
+        while *name.add(i) != 0 && i < 255 {
+            *hname.add(i) = *name.add(i);
+            i += 1;
+        }
+        *hname.add(i) = 0;
+
+        let he = &raw mut HOSTENT;
+        (*he).h_name = hname;
+        (*he).h_aliases = (&raw mut HOSTENT_ALIASES) as *mut *mut u8;
+        (*he).h_addrtype = 2; // AF_INET
+        (*he).h_length = 4;
+        (*he).h_addr_list = (*addr_list).as_mut_ptr();
+
+        he
+    }
+}
+
+#[repr(C)]
+pub struct Servent {
+    pub s_name: *mut u8,
+    pub s_aliases: *mut *mut u8,
+    pub s_port: i32,
+    pub s_proto: *mut u8,
+}
+
+/// getservbyname stub — returns NULL (no /etc/services on SaltyOS).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getservbyname(
+    _name: *const u8,
+    _proto: *const u8,
+) -> *mut Servent {
+    core::ptr::null_mut()
 }

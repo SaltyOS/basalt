@@ -105,6 +105,7 @@ extern int fstat(int fd, struct stat *statbuf);
 extern mode_t umask(mode_t mask);
 extern int chmod(const char *pathname, mode_t mode);
 extern int fchmod(int fd, mode_t mode);
+extern int lchmod(const char *pathname, mode_t mode);
 extern int mkdir(const char *pathname, mode_t mode);
 
 #define UTIME_NOW   ((1 << 30) - 1)

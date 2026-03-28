@@ -11,6 +11,13 @@
 #define TIOCGPGRP   0x540F
 #define TIOCSPGRP   0x5410
 #define TIOCNOTTY   0x5422
+#define SIOCGIFNAME   0x8910
+#define SIOCGIFCONF   0x8912
+#define SIOCGIFFLAGS  0x8913
+#define SIOCGIFADDR   0x8915
+#define SIOCGIFBRDADDR 0x8919
+#define SIOCGIFNETMASK 0x891B
+#define SIOCGIFINDEX  0x8933
 
 struct winsize {
     unsigned short ws_row;

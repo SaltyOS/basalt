@@ -6,7 +6,10 @@
 
 typedef unsigned long wctype_t;
 typedef unsigned long wctrans_t;
-typedef unsigned int  wint_t;
+#ifndef _WINT_T_DEFINED
+#define _WINT_T_DEFINED
+typedef unsigned int wint_t;
+#endif
 
 __BEGIN_DECLS
 

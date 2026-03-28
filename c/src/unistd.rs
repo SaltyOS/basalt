@@ -211,6 +211,13 @@ pub unsafe extern "C" fn pipe2(fds: *mut i32, flags: i32) -> i32 {
 pub unsafe extern "C" fn fcntl(fd: i32, cmd: i32, mut args: ...) -> i32 {
     unsafe {
         let arg: i64 = args.arg();
+        salty::udebug!(|_lb| {
+            _lb.str(b"[libc] fcntl fd=");
+            _lb.dec(fd as u64);
+            _lb.str(b" cmd=");
+            _lb.dec(cmd as u64);
+            _lb.putc(b'\n');
+        });
         let ret = salty::posix::posix_fcntl(fd, cmd, arg);
         if ret < 0 {
             errno::set_errno(-ret);
@@ -581,9 +588,24 @@ pub unsafe extern "C" fn fpathconf(_fd: i32, name: i32) -> i64 {
     unsafe { pathconf(core::ptr::null(), name) }
 }
 
+/// confstr — return system configuration string.
+/// Returns the length needed (including NUL). Writes up to `len` bytes to `buf`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn confstr(_name: i32, _buf: *mut u8, _len: usize) -> usize {
-    0
+pub unsafe extern "C" fn confstr(name: i32, buf: *mut u8, len: usize) -> usize {
+    // _CS_PATH = 0
+    let val: &[u8] = match name {
+        0 => salty::DEFAULT_PATH,
+        _ => b"",
+    };
+    let needed = val.len() + 1; // include NUL
+    if !buf.is_null() && len > 0 {
+        unsafe {
+            let to_copy = if val.len() < len { val.len() } else { len - 1 };
+            core::ptr::copy_nonoverlapping(val.as_ptr(), buf, to_copy);
+            *buf.add(to_copy) = 0;
+        }
+    }
+    needed
 }
 
 // ---------------------------------------------------------------------------
@@ -638,8 +660,38 @@ pub unsafe extern "C" fn nanosleep(req: *const Timespec, rem: *mut Timespec) -> 
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn alarm(_seconds: u32) -> u32 {
-    0
+pub unsafe extern "C" fn alarm(seconds: u32) -> u32 {
+    unsafe {
+        let new_value = crate::time::Itimerval {
+            it_interval: crate::time::Timeval {
+                tv_sec: 0,
+                tv_usec: 0,
+            },
+            it_value: crate::time::Timeval {
+                tv_sec: seconds as i64,
+                tv_usec: 0,
+            },
+        };
+        let mut old_value = crate::time::Itimerval {
+            it_interval: crate::time::Timeval {
+                tv_sec: 0,
+                tv_usec: 0,
+            },
+            it_value: crate::time::Timeval {
+                tv_sec: 0,
+                tv_usec: 0,
+            },
+        };
+        if crate::time::setitimer(0, &raw const new_value, &raw mut old_value) != 0 {
+            return 0;
+        }
+
+        let mut remaining = old_value.it_value.tv_sec;
+        if old_value.it_value.tv_usec > 0 {
+            remaining = remaining.saturating_add(1);
+        }
+        if remaining <= 0 { 0 } else { remaining as u32 }
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -703,6 +755,26 @@ pub unsafe extern "C" fn munmap(addr: *mut u8, length: usize) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn msync(_addr: *mut u8, _length: usize, _flags: i32) -> i32 {
     0 // no-op: SaltyOS has no persistent memory-mapped I/O yet
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mlock(_addr: *const u8, _len: usize) -> i32 {
+    0 // no-op: all memory is effectively locked (no swap)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn munlock(_addr: *const u8, _len: usize) -> i32 {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mlockall(_flags: i32) -> i32 {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn munlockall() -> i32 {
+    0
 }
 
 #[unsafe(no_mangle)]

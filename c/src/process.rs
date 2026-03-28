@@ -70,9 +70,8 @@ pub unsafe extern "C" fn execvp(file: *const u8, argv: *const *const u8) -> i32 
 
         // Get PATH from environment
         let path_env = crate::env::getenv(b"PATH\0".as_ptr());
-        let default_path = b"/bin:/usr/bin\0".as_ptr();
         let path = if path_env.is_null() || *path_env == 0 {
-            default_path
+            salty::DEFAULT_PATH_NUL.as_ptr()
         } else {
             path_env
         };
@@ -406,6 +405,8 @@ struct SpawnAttr {
     pgroup: i32,
     sigdefault: u32,
     sigmask: u32,
+    schedpolicy: i32,
+    schedparam_priority: i32,
 }
 
 /// Core posix_spawn implementation (fork + file_actions + attrp + exec).
@@ -442,9 +443,9 @@ unsafe fn do_posix_spawn(
                 // Set signal mask
                 if (attr.flags & POSIX_SPAWN_SETSIGMASK) != 0 {
                     let mask = attr.sigmask;
-                    crate::signal_impl::sigprocmask(
-                        crate::signal_impl::SIG_SETMASK,
-                        &mask as *const u32 as *const crate::signal_impl::Sigset,
+                    crate::signal::sigprocmask(
+                        crate::signal::SIG_SETMASK,
+                        &mask as *const u32 as *const crate::signal::Sigset,
                         core::ptr::null_mut(),
                     );
                 }
@@ -453,7 +454,7 @@ unsafe fn do_posix_spawn(
                 if (attr.flags & POSIX_SPAWN_SETSIGDEF) != 0 {
                     for sig in 1..32i32 {
                         if (attr.sigdefault & (1u32 << sig)) != 0 {
-                            crate::signal_impl::signal(sig, crate::signal_impl::SIG_DFL);
+                            crate::signal::signal(sig, crate::signal::SIG_DFL);
                         }
                     }
                 }
@@ -547,6 +548,8 @@ pub unsafe extern "C" fn posix_spawnattr_init(attrp: *mut SpawnAttr) -> i32 {
         (*attrp).pgroup = 0;
         (*attrp).sigdefault = 0;
         (*attrp).sigmask = 0;
+        (*attrp).schedpolicy = 0;
+        (*attrp).schedparam_priority = 0;
     }
     0
 }
@@ -656,6 +659,63 @@ pub unsafe extern "C" fn posix_spawnattr_getpgroup(
     unsafe {
         *pgroup = (*attrp).pgroup;
     }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// posix_spawnattr sched — scheduler policy/param (stubs, SaltyOS uses EDF)
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn posix_spawnattr_setschedpolicy(
+    attrp: *mut SpawnAttr,
+    policy: i32,
+) -> i32 {
+    if attrp.is_null() {
+        return errno::EINVAL;
+    }
+    unsafe { (*attrp).schedpolicy = policy; }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn posix_spawnattr_getschedpolicy(
+    attrp: *const SpawnAttr,
+    policy: *mut i32,
+) -> i32 {
+    if attrp.is_null() || policy.is_null() {
+        return errno::EINVAL;
+    }
+    unsafe { *policy = (*attrp).schedpolicy; }
+    0
+}
+
+#[repr(C)]
+pub struct SchedParam {
+    pub sched_priority: i32,
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn posix_spawnattr_setschedparam(
+    attrp: *mut SpawnAttr,
+    param: *const SchedParam,
+) -> i32 {
+    if attrp.is_null() || param.is_null() {
+        return errno::EINVAL;
+    }
+    unsafe { (*attrp).schedparam_priority = (*param).sched_priority; }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn posix_spawnattr_getschedparam(
+    attrp: *const SpawnAttr,
+    param: *mut SchedParam,
+) -> i32 {
+    if attrp.is_null() || param.is_null() {
+        return errno::EINVAL;
+    }
+    unsafe { (*param).sched_priority = (*attrp).schedparam_priority; }
     0
 }
 

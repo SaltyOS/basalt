@@ -213,3 +213,21 @@ pub unsafe extern "C" fn dngettext(
         msgid2
     }
 }
+
+// ---------------------------------------------------------------------------
+// nl_langinfo — locale-specific information
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nl_langinfo(item: i32) -> *const u8 {
+    const ABMON: [&[u8]; 12] = [
+        b"Jan\0", b"Feb\0", b"Mar\0", b"Apr\0", b"May\0", b"Jun\0",
+        b"Jul\0", b"Aug\0", b"Sep\0", b"Oct\0", b"Nov\0", b"Dec\0",
+    ];
+    match item {
+        14 => b"UTF-8\0".as_ptr(), // CODESET
+        33..=44 => ABMON[(item - 33) as usize].as_ptr(),
+        51 => b"md\0".as_ptr(),    // D_MD_ORDER
+        _ => b"\0".as_ptr(),
+    }
+}

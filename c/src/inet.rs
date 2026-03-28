@@ -6,6 +6,10 @@
 
 use crate::errno;
 
+/// Legacy DNS resolver error code (POSIX).
+#[unsafe(no_mangle)]
+pub static mut h_errno: i32 = 0;
+
 const AF_INET: i32 = 2;
 
 // ---------------------------------------------------------------------------
@@ -184,4 +188,135 @@ pub unsafe extern "C" fn inet_addr(cp: *const u8) -> u32 {
         return 0xffff_ffff; // INADDR_NONE
     }
     addr
+}
+
+// ---------------------------------------------------------------------------
+// inet_aton — parse dotted-decimal to in_addr
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn inet_aton(cp: *const u8, inp: *mut u32) -> i32 {
+    if cp.is_null() || inp.is_null() {
+        return 0;
+    }
+    unsafe {
+        let ret = inet_pton(AF_INET, cp, inp as *mut u8);
+        if ret == 1 { 1 } else { 0 }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// inet_ntoa — format in_addr to static string
+// ---------------------------------------------------------------------------
+
+static mut NTOA_BUF: [u8; 16] = [0u8; 16];
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn inet_ntoa(addr: u32) -> *const u8 {
+    unsafe {
+        inet_ntop(AF_INET, &raw const addr as *const u8, (&raw mut NTOA_BUF) as *mut u8, 16);
+        (&raw const NTOA_BUF) as *const u8
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FreeBSD __-prefixed aliases
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __inet_pton(af: i32, src: *const u8, dst: *mut u8) -> i32 {
+    unsafe { inet_pton(af, src, dst) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __inet_aton(cp: *const u8, inp: *mut u32) -> i32 {
+    unsafe { inet_aton(cp, inp) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __inet_ntoa(addr: u32) -> *const u8 {
+    unsafe { inet_ntoa(addr) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __inet_ntop(
+    af: i32,
+    src: *const u8,
+    dst: *mut u8,
+    size: u32,
+) -> *const u8 {
+    unsafe { inet_ntop(af, src, dst, size) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __inet_addr(cp: *const u8) -> u32 {
+    unsafe { inet_addr(cp) }
+}
+
+// ---------------------------------------------------------------------------
+// h_errno, hstrerror, gethostbyname2, gethostbyaddr
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __h_errno() -> *mut i32 {
+    &raw mut h_errno
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hstrerror(err: i32) -> *const u8 {
+    match err {
+        1 => b"Host not found\0".as_ptr(),
+        2 => b"Try again\0".as_ptr(),
+        3 => b"Non-recoverable error\0".as_ptr(),
+        4 => b"No address associated with hostname\0".as_ptr(),
+        _ => b"Unknown resolver error\0".as_ptr(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gethostbyname2(
+    name: *const u8,
+    af: i32,
+) -> *mut crate::socket::Hostent {
+    if af != AF_INET {
+        return core::ptr::null_mut();
+    }
+    unsafe { crate::socket::gethostbyname(name) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gethostbyaddr(
+    addr: *const u8,
+    _len: u32,
+    _type_: i32,
+) -> *mut crate::socket::Hostent {
+    // Reverse lookup not supported — return NULL
+    let _ = addr;
+    core::ptr::null_mut()
+}
+
+// ---------------------------------------------------------------------------
+// bcmp — BSD byte comparison (same as memcmp)
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bcmp(s1: *const u8, s2: *const u8, n: usize) -> i32 {
+    unsafe { crate::mem::memcmp(s1, s2, n) }
+}
+
+// ---------------------------------------------------------------------------
+// sysctl — stub (SaltyOS does not expose kernel state via sysctl)
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sysctl(
+    _name: *const i32,
+    _namelen: u32,
+    _oldp: *mut u8,
+    _oldlenp: *mut usize,
+    _newp: *const u8,
+    _newlen: usize,
+) -> i32 {
+    crate::errno::set_errno(crate::errno::ENOSYS);
+    -1
 }

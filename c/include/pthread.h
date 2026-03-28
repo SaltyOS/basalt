@@ -23,41 +23,51 @@ typedef void *pthread_t;
  * pthread_mutex_t — 32 bytes, 8-byte aligned.
  * First 24 bytes: mutex state (TypedMutex / Mutex).
  * Byte 24: kind (0=NORMAL, 1=RECURSIVE, 2=ERRORCHECK).
+ *
+ * Use a union with an explicit 64-bit member rather than relying on
+ * `__attribute__((aligned))` on an opaque typedef. Some consumers embed these
+ * opaque pthread types inside other structs, and AArch64 atomic instructions
+ * require naturally aligned addresses.
  */
-typedef struct {
+typedef union {
     unsigned char __opaque[32];
-} __attribute__((aligned(8))) pthread_mutex_t;
+    unsigned long long __align;
+} pthread_mutex_t;
 
 /**
- * pthread_cond_t — 8 bytes.
+ * pthread_cond_t — 8 bytes, 8-byte aligned.
  * Wraps sync::Condvar (single AtomicU32, padded to 8 bytes).
  */
-typedef struct {
+typedef union {
     unsigned char __opaque[8];
+    unsigned long long __align;
 } pthread_cond_t;
 
 /**
- * pthread_rwlock_t — 16 bytes.
- * Wraps sync::RWLock (two AtomicU32 = 8 bytes, padded to 16).
+ * pthread_rwlock_t — 16 bytes, 8-byte aligned.
+ * Wraps sync::RWLock (three AtomicU32 = 12 bytes, padded to 16).
  */
-typedef struct {
+typedef union {
     unsigned char __opaque[16];
+    unsigned long long __align;
 } pthread_rwlock_t;
 
 /**
- * pthread_barrier_t — 16 bytes.
+ * pthread_barrier_t — 16 bytes, 8-byte aligned.
  * Wraps sync::Barrier (u32 + 2×AtomicU32 = 12 bytes, padded to 16).
  */
-typedef struct {
+typedef union {
     unsigned char __opaque[16];
+    unsigned long long __align;
 } pthread_barrier_t;
 
 /**
- * pthread_once_t — 8 bytes.
+ * pthread_once_t — 8 bytes, 8-byte aligned.
  * Wraps sync::Once (single AtomicU32, padded to 8 bytes).
  */
-typedef struct {
+typedef union {
     unsigned char __opaque[8];
+    unsigned long long __align;
 } pthread_once_t;
 
 /**

@@ -3,6 +3,7 @@
 #define __UNISTD_H__
 
 #include <sys/types.h>
+#include <sys/select.h>
 #include <stddef.h>
 #include <sys/cdefs.h>
 
@@ -33,6 +34,7 @@
 #define _SC_NPROCESSORS_CONF    83
 #define _SC_NPROCESSORS_ONLN    84
 #define _SC_PHYS_PAGES          85
+#define _SC_TTY_NAME_MAX        72
 
 #define _PC_LINK_MAX    0
 #define _PC_MAX_CANON   1
@@ -41,10 +43,14 @@
 #define _PC_PATH_MAX    4
 #define _PC_PIPE_BUF    5
 
+#define _CS_PATH        0
+
 __BEGIN_DECLS
 
 extern ssize_t read(int fd, void *buf, size_t count);
 extern ssize_t write(int fd, const void *buf, size_t count);
+extern ssize_t pread(int fd, void *buf, size_t count, off_t offset);
+extern ssize_t pwrite(int fd, const void *buf, size_t count, off_t offset);
 
 /* scatter/gather I/O */
 struct iovec;
@@ -58,6 +64,7 @@ extern int     pipe(int pipefd[2]);
 extern int     pipe2(int pipefd[2], int flags);
 
 extern pid_t   fork(void);
+extern pid_t   vfork(void);
 extern int     execve(const char *pathname, char *const argv[],
                       char *const envp[]);
 extern int     execv(const char *pathname, char *const argv[]);
@@ -96,8 +103,12 @@ extern pid_t   tcgetpgrp(int fd);
 
 extern int     chdir(const char *path);
 extern int     fchdir(int fd);
+extern int     chroot(const char *path);
 extern char   *getcwd(char *buf, size_t size);
 extern int     access(const char *pathname, int mode);
+extern int     eaccess(const char *pathname, int mode);
+extern char   *getlogin(void);
+extern size_t  confstr(int name, char *buf, size_t len);
 extern int     unlink(const char *pathname);
 extern int     rmdir(const char *pathname);
 extern int     mkdir(const char *pathname, mode_t mode);

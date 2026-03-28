@@ -6,7 +6,6 @@
 
 typedef int nl_item;
 
-#define CODESET     14
 #define D_T_FMT     0
 #define D_FMT       1
 #define T_FMT       2
@@ -21,26 +20,44 @@ typedef int nl_item;
 #define DAY_6       11
 #define DAY_7       12
 #define ABDAY_1     13
-#define MON_1       21
-#define ABMON_1     33
-#define ABMON_2     34
-#define ABMON_3     35
-#define ABMON_4     36
-#define ABMON_5     37
-#define ABMON_6     38
-#define ABMON_7     39
-#define ABMON_8     40
-#define ABMON_9     41
-#define ABMON_10    42
-#define ABMON_11    43
-#define ABMON_12    44
-#define RADIXCHAR   45
-#define THOUSEP     46
-#define YESEXPR     47
-#define NOEXPR      48
-#define CRNCYSTR    49
-#define ERA         50
-#define D_MD_ORDER  51
+#define ABDAY_2     14
+#define ABDAY_3     15
+#define ABDAY_4     16
+#define ABDAY_5     17
+#define ABDAY_6     18
+#define ABDAY_7     19
+#define MON_1       20
+#define MON_2       21
+#define MON_3       22
+#define MON_4       23
+#define MON_5       24
+#define MON_6       25
+#define MON_7       26
+#define MON_8       27
+#define MON_9       28
+#define MON_10      29
+#define MON_11      30
+#define MON_12      31
+#define ABMON_1     44
+#define ABMON_2     45
+#define ABMON_3     46
+#define ABMON_4     47
+#define ABMON_5     48
+#define ABMON_6     49
+#define ABMON_7     50
+#define ABMON_8     51
+#define ABMON_9     52
+#define ABMON_10    53
+#define ABMON_11    54
+#define ABMON_12    55
+#define RADIXCHAR   56
+#define THOUSEP     57
+#define YESEXPR     58
+#define NOEXPR      59
+#define CRNCYSTR    60
+#define ERA         61
+#define D_MD_ORDER  62
+#define CODESET     63
 
 __BEGIN_DECLS
 

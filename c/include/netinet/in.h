@@ -34,8 +34,12 @@ struct sockaddr_in6 {
 
 /* Protocol numbers */
 #define IPPROTO_IP   0
+#define IPPROTO_ICMP 1
 #define IPPROTO_TCP  6
 #define IPPROTO_UDP  17
+
+/* IP-level socket options */
+#define IP_TTL       2
 
 /* Special addresses */
 #define INADDR_ANY       ((in_addr_t)0x00000000)

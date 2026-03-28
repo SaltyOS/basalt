@@ -4,6 +4,13 @@
 
 #include <sys/cdefs.h>
 
+#ifndef __sched_param_defined
+#define __sched_param_defined
+struct sched_param {
+    int sched_priority;
+};
+#endif
+
 __BEGIN_DECLS
 
 extern int sched_yield(void);

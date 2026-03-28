@@ -8,7 +8,10 @@
 #include <time.h>       /* struct tm — required by POSIX for wcsftime */
 
 typedef int          wchar_t_saltyc;  /* actual wchar_t from stddef.h */
+#ifndef _WINT_T_DEFINED
+#define _WINT_T_DEFINED
 typedef unsigned int wint_t;
+#endif
 typedef unsigned int mbstate_t;
 
 #define WEOF ((wint_t)0xFFFFFFFF)
@@ -49,6 +52,7 @@ extern wchar_t *wcspbrk(const wchar_t *ws, const wchar_t *charset);
 extern wchar_t *wcsstr(const wchar_t *haystack, const wchar_t *needle);
 extern int      wcscoll(const wchar_t *s1, const wchar_t *s2);
 extern size_t   wcsxfrm(wchar_t *dst, const wchar_t *src, size_t n);
+extern wchar_t *wcstok(wchar_t *str, const wchar_t *delim, wchar_t **saveptr);
 
 /* Wide memory operations */
 extern wchar_t *wmemcpy(wchar_t *dst, const wchar_t *src, size_t n);

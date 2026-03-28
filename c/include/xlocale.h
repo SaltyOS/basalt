@@ -11,7 +11,9 @@
 #define __XLOCALE_H__
 
 #include <locale.h>
-#include <stdlib.h>
+/* NOTE: stdlib.h is NOT included here — xlocale.h is included at the end of
+   stdlib.h, so all stdlib declarations are already visible at that point.
+   Other headers that xlocale.h needs are included explicitly. */
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>

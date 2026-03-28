@@ -3,6 +3,7 @@
 #define __STDLIB_H__
 
 #include <stddef.h>
+#include <stdint.h>
 #include <sys/types.h>
 #include <sys/cdefs.h>
 
@@ -34,6 +35,7 @@ extern void *realloc(void *ptr, size_t size);
 extern void *calloc(size_t nmemb, size_t size);
 extern int   posix_memalign(void **memptr, size_t alignment, size_t size);
 extern void *aligned_alloc(size_t alignment, size_t size);
+extern void *reallocarray(void *ptr, size_t nmemb, size_t size);
 
 extern void  exit(int status);
 extern void  _exit(int status);
@@ -44,6 +46,7 @@ extern int   atexit(void (*function)(void));
 extern int       atoi(const char *nptr);
 extern long      atol(const char *nptr);
 extern long long atoll(const char *nptr);
+extern double    atof(const char *nptr);
 
 extern long          strtol(const char *nptr, char **endptr, int base);
 extern unsigned long strtoul(const char *nptr, char **endptr, int base);
@@ -66,6 +69,10 @@ extern void srand(unsigned int seed);
 extern int  rand_r(unsigned int *seedp);
 extern long random(void);
 extern void srandom(unsigned int seed);
+
+extern uint32_t arc4random(void);
+extern void     arc4random_buf(void *buf, size_t n);
+extern uint32_t arc4random_uniform(uint32_t upper_bound);
 
 extern char *getenv(const char *name);
 extern int   setenv(const char *name, const char *value, int overwrite);
@@ -108,5 +115,8 @@ extern char       *fflagstostr(unsigned long flags);
 extern int         getloadavg(double loadavg[], int nelem);
 
 __END_DECLS
+
+/* _l (locale) variants */
+#include <xlocale.h>
 
 #endif /* __STDLIB_H__ */

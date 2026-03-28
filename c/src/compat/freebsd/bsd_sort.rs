@@ -203,7 +203,7 @@ pub unsafe extern "C" fn strtonum(
             return 0;
         }
         let mut endptr: *mut u8 = core::ptr::null_mut();
-        let val = crate::stdlib_impl::strtoll(numstr, &raw mut endptr, 10);
+        let val = crate::stdlib::strtoll(numstr, &raw mut endptr, 10);
         if !endptr.is_null() && *endptr != 0 {
             if !errstrp.is_null() {
                 *errstrp = INVALID.as_ptr();

@@ -13,6 +13,8 @@ extern void *memset(void *s, int c, size_t n);
 extern int   memcmp(const void *s1, const void *s2, size_t n);
 extern void *memchr(const void *s, int c, size_t n);
 extern void *memrchr(const void *s, int c, size_t n);
+extern void *memmem(const void *haystack, size_t haystacklen,
+                    const void *needle, size_t needlelen);
 extern void *mempcpy(void *dest, const void *src, size_t n);
 
 extern size_t strlen(const char *s);
@@ -60,6 +62,7 @@ extern void  explicit_bzero(void *s, size_t n);
 /* BSD extensions */
 extern size_t strlcpy(char *dst, const char *src, size_t dstsize);
 extern size_t strlcat(char *dst, const char *src, size_t dstsize);
+extern char  *strsep(char **stringp, const char *delim);
 extern int    strverscmp(const char *s1, const char *s2);
 
 __END_DECLS

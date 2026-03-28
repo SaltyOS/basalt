@@ -66,6 +66,7 @@ typedef unsigned char cc_t;
 #define CSTOPB  0000100
 #define CREAD   0000200
 #define PARENB  0000400
+#define PARODD  0001000
 #define HUPCL   0002000
 #define CLOCAL  0004000
 

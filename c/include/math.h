@@ -79,6 +79,12 @@ extern float  atan2f(float y, float x);
 extern double sinh(double x);
 extern double cosh(double x);
 extern double tanh(double x);
+extern double acosh(double x);
+extern float  acoshf(float x);
+extern double asinh(double x);
+extern float  asinhf(float x);
+extern double atanh(double x);
+extern float  atanhf(float x);
 
 /* Exponential / logarithmic */
 extern double exp(double x);
@@ -111,6 +117,8 @@ extern double fabs(double x);
 extern float  fabsf(float x);
 extern double copysign(double x, double y);
 extern float  copysignf(float x, float y);
+extern double nextafter(double x, double y);
+extern float  nextafterf(float x, float y);
 
 /* Rounding */
 extern double floor(double x);

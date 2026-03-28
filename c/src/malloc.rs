@@ -319,3 +319,18 @@ pub unsafe extern "C" fn posix_memalign(
         0
     }
 }
+
+// ---------------------------------------------------------------------------
+// reallocarray — overflow-checked realloc
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn reallocarray(ptr: *mut u8, nmemb: usize, size: usize) -> *mut u8 {
+    match nmemb.checked_mul(size) {
+        Some(total) => unsafe { realloc(ptr, total) },
+        None => {
+            crate::errno::set_errno(crate::errno::ENOMEM);
+            core::ptr::null_mut()
+        }
+    }
+}

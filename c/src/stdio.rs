@@ -28,11 +28,17 @@ const _IONBF: i32 = 2;
 
 pub const EOF: i32 = -1;
 
+/// funopen callback types (BSD extension).
+type FunopenReadFn = unsafe extern "C" fn(*mut u8, *mut u8, i32) -> i32;
+type FunopenWriteFn = unsafe extern "C" fn(*mut u8, *const u8, i32) -> i32;
+type FunopenSeekFn = unsafe extern "C" fn(*mut u8, i64, i32) -> i64;
+type FunopenCloseFn = unsafe extern "C" fn(*mut u8) -> i32;
+
 /// A buffered I/O stream wrapping a POSIX file descriptor.
 #[repr(C)]
 pub struct FILE {
     /// Underlying POSIX file descriptor (-1 when closed).
-    fd: i32,
+    _file: i32,
     /// Bitmask of FILE_READ, FILE_WRITE, FILE_APPEND, FILE_EOF, FILE_ERROR.
     flags: u32,
     /// Internal I/O buffer (1024 bytes).
@@ -45,18 +51,33 @@ pub struct FILE {
     ungetc_char: i32,
     /// Buffer mode: `_IOFBF` (full), `_IOLBF` (line), `_IONBF` (unbuffered).
     buf_mode: i32,
+    /// funopen cookie (opaque user pointer).
+    cookie: *mut u8,
+    /// funopen read callback.
+    read_fn: Option<FunopenReadFn>,
+    /// funopen write callback.
+    write_fn: Option<FunopenWriteFn>,
+    /// funopen seek callback.
+    seek_fn: Option<FunopenSeekFn>,
+    /// funopen close callback.
+    close_fn: Option<FunopenCloseFn>,
 }
 
 impl FILE {
     const fn new(fd: i32, flags: u32, buf_mode: i32) -> Self {
         FILE {
-            fd,
+            _file: fd,
             flags,
             buf: [0; BUF_SIZE],
             buf_pos: 0,
             buf_len: 0,
             ungetc_char: -1,
             buf_mode,
+            cookie: core::ptr::null_mut(),
+            read_fn: None,
+            write_fn: None,
+            seek_fn: None,
+            close_fn: None,
         }
     }
 }
@@ -96,7 +117,7 @@ static mut OPEN_FILES: [FILE; MAX_OPEN_FILES] = {
 unsafe fn alloc_file(fd: i32, flags: u32) -> *mut FILE {
     unsafe {
         for i in 0..MAX_OPEN_FILES {
-            if OPEN_FILES[i].fd == -1 {
+            if OPEN_FILES[i]._file == -1 {
                 OPEN_FILES[i] = FILE::new(fd, flags, _IOFBF);
                 return &raw mut OPEN_FILES[i];
             }
@@ -188,9 +209,20 @@ pub unsafe extern "C" fn fclose(f: *mut FILE) -> i32 {
     }
     unsafe {
         fflush(f);
-        let ret = salty::posix::posix_close((*f).fd);
-        (*f).fd = -1;
+        let ret = if let Some(cfn) = (*f).close_fn {
+            cfn((*f).cookie)
+        } else if (*f)._file >= 0 {
+            salty::posix::posix_close((*f)._file) as i32
+        } else {
+            0
+        };
+        (*f)._file = -1;
         (*f).flags = 0;
+        (*f).cookie = core::ptr::null_mut();
+        (*f).read_fn = None;
+        (*f).write_fn = None;
+        (*f).seek_fn = None;
+        (*f).close_fn = None;
         if ret < 0 { EOF } else { 0 }
     }
 }
@@ -206,15 +238,15 @@ pub unsafe extern "C" fn freopen(
     }
     unsafe {
         fflush(f);
-        salty::posix::posix_close((*f).fd);
+        salty::posix::posix_close((*f)._file);
         let (flags, oflags) = parse_mode(mode);
         let open_mode: u32 = if (oflags & salty::O_CREAT as i32) != 0 { 0o644 } else { 0 };
         let fd = salty::posix::posix_open(path, oflags, open_mode);
         if fd < 0 {
-            (*f).fd = -1;
+            (*f)._file = -1;
             return core::ptr::null_mut();
         }
-        (*f).fd = fd;
+        (*f)._file = fd;
         (*f).flags = flags;
         (*f).buf_pos = 0;
         (*f).buf_len = 0;
@@ -232,7 +264,11 @@ pub unsafe extern "C" fn fflush(f: *mut FILE) -> i32 {
     }
     unsafe {
         if (*f).flags & FILE_WRITE != 0 && (*f).buf_pos > 0 {
-            let n = salty::posix::posix_write((*f).fd, (*f).buf.as_ptr(), (*f).buf_pos as u64);
+            let n = if let Some(wfn) = (*f).write_fn {
+                wfn((*f).cookie, (*f).buf.as_ptr(), (*f).buf_pos as i32) as i64
+            } else {
+                salty::posix::posix_write((*f)._file, (*f).buf.as_ptr(), (*f).buf_pos as u64)
+            };
             if n < 0 {
                 (*f).flags |= FILE_ERROR;
                 return EOF;
@@ -249,7 +285,7 @@ pub unsafe fn fflush_all() {
         fflush(&raw mut STDOUT_FILE);
         fflush(&raw mut STDERR_FILE);
         for i in 0..MAX_OPEN_FILES {
-            if OPEN_FILES[i].fd >= 0 {
+            if OPEN_FILES[i]._file >= 0 {
                 fflush(&raw mut OPEN_FILES[i]);
             }
         }
@@ -273,7 +309,11 @@ pub unsafe extern "C" fn fgetc(f: *mut FILE) -> i32 {
             if !stdout.is_null() && f == stdin {
                 fflush(stdout);
             }
-            let n = salty::posix::posix_read((*f).fd, (*f).buf.as_mut_ptr(), BUF_SIZE as u64);
+            let n = if let Some(rfn) = (*f).read_fn {
+                rfn((*f).cookie, (*f).buf.as_mut_ptr(), BUF_SIZE as i32) as i64
+            } else {
+                salty::posix::posix_read((*f)._file, (*f).buf.as_mut_ptr(), BUF_SIZE as u64)
+            };
             if n <= 0 {
                 (*f).flags |= if n == 0 { FILE_EOF } else { FILE_ERROR };
                 return EOF;
@@ -318,7 +358,11 @@ pub unsafe extern "C" fn fputc(c: i32, f: *mut FILE) -> i32 {
     unsafe {
         let byte = c as u8;
         if (*f).buf_mode == _IONBF {
-            let n = salty::posix::posix_write((*f).fd, &byte, 1);
+            let n = if let Some(wfn) = (*f).write_fn {
+                wfn((*f).cookie, &byte, 1) as i64
+            } else {
+                salty::posix::posix_write((*f)._file, &byte, 1)
+            };
             return if n == 1 { c } else { EOF };
         }
         (*f).buf[(*f).buf_pos] = byte;
@@ -459,7 +503,11 @@ pub unsafe extern "C" fn fseek(f: *mut FILE, offset: i64, whence: i32) -> i32 {
         (*f).buf_len = 0;
         (*f).ungetc_char = -1;
         (*f).flags &= !FILE_EOF;
-        let ret = salty::posix::posix_lseek((*f).fd, offset, whence);
+        let ret = if let Some(sfn) = (*f).seek_fn {
+            sfn((*f).cookie, offset, whence)
+        } else {
+            salty::posix::posix_lseek((*f)._file, offset, whence)
+        };
         if ret < 0 { -1 } else { 0 }
     }
 }
@@ -471,7 +519,7 @@ pub unsafe extern "C" fn ftell(f: *mut FILE) -> i64 {
     }
     unsafe {
         fflush(f);
-        salty::posix::posix_lseek((*f).fd, 0, salty::SEEK_CUR as i32)
+        salty::posix::posix_lseek((*f)._file, 0, salty::SEEK_CUR as i32)
     }
 }
 
@@ -490,7 +538,7 @@ pub unsafe extern "C" fn fileno(f: *mut FILE) -> i32 {
     if f.is_null() {
         return -1;
     }
-    unsafe { (*f).fd }
+    unsafe { (*f)._file }
 }
 
 #[unsafe(no_mangle)]
@@ -2080,4 +2128,257 @@ fn format_double_sci(val: f64, prec: usize, plus: bool, space: bool, upper: bool
     }
 
     pos
+}
+
+// ---------------------------------------------------------------------------
+// popen / pclose — pipe to process via fork+exec
+// ---------------------------------------------------------------------------
+
+const MAX_POPEN_ENTRIES: usize = 8;
+
+struct PopenEntry {
+    fp: *mut FILE,
+    pid: i32,
+}
+
+static mut POPEN_TABLE: [PopenEntry; MAX_POPEN_ENTRIES] = {
+    const EMPTY: PopenEntry = PopenEntry {
+        fp: core::ptr::null_mut(),
+        pid: 0,
+    };
+    [EMPTY; MAX_POPEN_ENTRIES]
+};
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn popen(cmd: *const u8, mode: *const u8) -> *mut FILE {
+    unsafe {
+        if cmd.is_null() || mode.is_null() {
+            crate::errno::set_errno(crate::errno::EINVAL);
+            return core::ptr::null_mut();
+        }
+
+        let m = *mode;
+        let is_read = m == b'r';
+        let is_write = m == b'w';
+        if !is_read && !is_write {
+            crate::errno::set_errno(crate::errno::EINVAL);
+            return core::ptr::null_mut();
+        }
+
+        let mut fds = [0i32; 2];
+        if crate::unistd::pipe(fds.as_mut_ptr()) < 0 {
+            return core::ptr::null_mut();
+        }
+
+        let pid = crate::process::fork();
+        if pid < 0 {
+            salty::posix::posix_close(fds[0]);
+            salty::posix::posix_close(fds[1]);
+            return core::ptr::null_mut();
+        }
+
+        if pid == 0 {
+            if is_read {
+                salty::posix::posix_close(fds[0]);
+                crate::unistd::dup2(fds[1], 1);
+                salty::posix::posix_close(fds[1]);
+            } else {
+                salty::posix::posix_close(fds[1]);
+                crate::unistd::dup2(fds[0], 0);
+                salty::posix::posix_close(fds[0]);
+            }
+            crate::process::execl(
+                b"/bin/sh\0".as_ptr(),
+                b"sh\0".as_ptr(),
+                b"-c\0".as_ptr(),
+                cmd,
+                core::ptr::null::<u8>(),
+            );
+            crate::crt::_exit(127);
+        }
+
+        let (parent_fd, close_fd) = if is_read {
+            (fds[0], fds[1])
+        } else {
+            (fds[1], fds[0])
+        };
+        salty::posix::posix_close(close_fd);
+
+        let mode_str = if is_read {
+            b"r\0".as_ptr()
+        } else {
+            b"w\0".as_ptr()
+        };
+        let fp = fdopen(parent_fd, mode_str);
+        if fp.is_null() {
+            salty::posix::posix_close(parent_fd);
+            return core::ptr::null_mut();
+        }
+
+        for entry in &mut *core::ptr::addr_of_mut!(POPEN_TABLE) {
+            if entry.fp.is_null() {
+                entry.fp = fp;
+                entry.pid = pid;
+                break;
+            }
+        }
+
+        fp
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pclose(stream: *mut FILE) -> i32 {
+    unsafe {
+        if stream.is_null() {
+            crate::errno::set_errno(crate::errno::EINVAL);
+            return -1;
+        }
+
+        let mut pid: i32 = -1;
+        for entry in &mut *core::ptr::addr_of_mut!(POPEN_TABLE) {
+            if entry.fp == stream {
+                pid = entry.pid;
+                entry.fp = core::ptr::null_mut();
+                entry.pid = 0;
+                break;
+            }
+        }
+
+        fclose(stream);
+
+        if pid < 0 {
+            crate::errno::set_errno(crate::errno::ECHILD);
+            return -1;
+        }
+
+        let mut status: i32 = 0;
+        crate::process::waitpid(pid, &mut status, 0);
+        status
+    }
+}
+
+// ---------------------------------------------------------------------------
+// funopen — BSD extension: FILE* with custom read/write/seek/close callbacks
+// ---------------------------------------------------------------------------
+
+/// Create a FILE stream backed by user-supplied callback functions.
+///
+/// At least one of `readfn` or `writefn` must be non-null.
+/// The `cookie` is passed as the first argument to each callback.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn funopen(
+    cookie: *mut u8,
+    readfn: Option<FunopenReadFn>,
+    writefn: Option<FunopenWriteFn>,
+    seekfn: Option<FunopenSeekFn>,
+    closefn: Option<FunopenCloseFn>,
+) -> *mut FILE {
+    if readfn.is_none() && writefn.is_none() {
+        return core::ptr::null_mut();
+    }
+
+    let mut flags: u32 = 0;
+    if readfn.is_some() {
+        flags |= FILE_READ;
+    }
+    if writefn.is_some() {
+        flags |= FILE_WRITE;
+    }
+
+    unsafe {
+        // fd = -1 since I/O goes through callbacks, not a file descriptor
+        let f = alloc_file(-1, flags);
+        if f.is_null() {
+            return core::ptr::null_mut();
+        }
+        (*f).cookie = cookie;
+        (*f).read_fn = readfn;
+        (*f).write_fn = writefn;
+        (*f).seek_fn = seekfn;
+        (*f).close_fn = closefn;
+        (*f).buf_mode = _IOFBF;
+        f
+    }
+}
+
+// ---------------------------------------------------------------------------
+// stdio_ext — GNU/musl-compatible stdio extension functions
+// ---------------------------------------------------------------------------
+
+/// Returns non-zero if the stream is read-only or last operation was a read.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __freading(f: *mut FILE) -> i32 {
+    if f.is_null() {
+        return 0;
+    }
+    unsafe {
+        let flags = (*f).flags;
+        // Read-only (no write flag), or has read flag without write flag
+        if flags & FILE_WRITE == 0 && flags & FILE_READ != 0 {
+            return 1;
+        }
+        0
+    }
+}
+
+/// Returns non-zero if the stream is write-only or last operation was a write.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __fwriting(f: *mut FILE) -> i32 {
+    if f.is_null() {
+        return 0;
+    }
+    unsafe {
+        let flags = (*f).flags;
+        if flags & FILE_READ == 0 && flags & FILE_WRITE != 0 {
+            return 1;
+        }
+        0
+    }
+}
+
+/// Discard the contents of the stream's buffer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __fpurge(f: *mut FILE) {
+    if f.is_null() {
+        return;
+    }
+    unsafe {
+        (*f).buf_pos = 0;
+        (*f).buf_len = 0;
+        (*f).ungetc_char = -1;
+    }
+}
+
+/// Return the buffer size of the stream.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __fbufsize(f: *mut FILE) -> usize {
+    if f.is_null() {
+        return 0;
+    }
+    BUF_SIZE
+}
+
+/// Return non-zero if the stream is line-buffered.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __flbf(f: *mut FILE) -> i32 {
+    if f.is_null() {
+        return 0;
+    }
+    unsafe { ((*f).buf_mode == _IOLBF) as i32 }
+}
+
+/// Return the number of pending (buffered, not yet written) bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __fpending(f: *mut FILE) -> usize {
+    if f.is_null() {
+        return 0;
+    }
+    unsafe {
+        if (*f).flags & FILE_WRITE != 0 {
+            (*f).buf_pos
+        } else {
+            0
+        }
+    }
 }

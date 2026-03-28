@@ -1060,23 +1060,7 @@ pub unsafe extern "C" fn wcsrtombs(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Locale / codeset helpers
-// ---------------------------------------------------------------------------
-
-#[unsafe(no_mangle)]
-pub extern "C" fn nl_langinfo(item: i32) -> *const u8 {
-    const ABMON: [&[u8]; 12] = [
-        b"Jan\0", b"Feb\0", b"Mar\0", b"Apr\0", b"May\0", b"Jun\0",
-        b"Jul\0", b"Aug\0", b"Sep\0", b"Oct\0", b"Nov\0", b"Dec\0",
-    ];
-    match item {
-        14 => b"UTF-8\0".as_ptr(), // CODESET
-        33..=44 => ABMON[(item - 33) as usize].as_ptr(),
-        51 => b"md\0".as_ptr(),    // D_MD_ORDER
-        _ => b"\0".as_ptr(),
-    }
-}
+// nl_langinfo moved to locale.rs
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __ctype_get_mb_cur_max() -> usize {
@@ -1803,5 +1787,66 @@ pub unsafe extern "C" fn wmemmove(
             }
         }
         dst
+    }
+}
+
+// ---------------------------------------------------------------------------
+// wcstok — tokenize wide string
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wcstok(
+    mut s: *mut i32,
+    delim: *const i32,
+    saveptr: *mut *mut i32,
+) -> *mut i32 {
+    unsafe {
+        if s.is_null() {
+            s = *saveptr;
+            if s.is_null() {
+                return core::ptr::null_mut();
+            }
+        }
+
+        // Skip leading delimiters
+        while *s != 0 {
+            let mut is_delim = false;
+            let mut d = delim;
+            while *d != 0 {
+                if *s == *d {
+                    is_delim = true;
+                    break;
+                }
+                d = d.add(1);
+            }
+            if !is_delim {
+                break;
+            }
+            s = s.add(1);
+        }
+
+        if *s == 0 {
+            *saveptr = core::ptr::null_mut();
+            return core::ptr::null_mut();
+        }
+
+        let token = s;
+
+        // Find end of token
+        while *s != 0 {
+            let mut d = delim;
+            while *d != 0 {
+                if *s == *d {
+                    *s = 0;
+                    *saveptr = s.add(1);
+                    return token;
+                }
+                d = d.add(1);
+            }
+            s = s.add(1);
+        }
+
+        *saveptr = core::ptr::null_mut();
+        token
     }
 }

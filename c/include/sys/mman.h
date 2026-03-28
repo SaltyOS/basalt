@@ -38,6 +38,10 @@ extern int   munmap(void *addr, size_t length);
 extern int   madvise(void *addr, size_t length, int advice);
 extern int   mprotect(void *addr, size_t len, int prot);
 extern int   msync(void *addr, size_t length, int flags);
+extern int   mlock(const void *addr, size_t len);
+extern int   munlock(const void *addr, size_t len);
+extern int   mlockall(int flags);
+extern int   munlockall(void);
 extern int   shm_open(const char *name, int oflag, mode_t mode);
 extern int   shm_unlink(const char *name);
 

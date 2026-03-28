@@ -12,6 +12,8 @@ __BEGIN_DECLS
 extern const char *inet_ntop(int af, const void *src, char *dst, socklen_t size);
 extern int         inet_pton(int af, const char *src, void *dst);
 extern in_addr_t   inet_addr(const char *cp);
+extern int         inet_aton(const char *cp, struct in_addr *inp);
+extern char       *inet_ntoa(struct in_addr in);
 
 __END_DECLS
 

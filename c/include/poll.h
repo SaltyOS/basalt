@@ -10,6 +10,7 @@
 #define POLLERR  0x008
 #define POLLHUP  0x010
 #define POLLNVAL 0x020
+#define INFTIM   (-1)
 
 struct pollfd {
     int   fd;

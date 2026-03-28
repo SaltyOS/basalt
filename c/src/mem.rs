@@ -60,6 +60,38 @@ pub unsafe extern "C" fn memrchr(s: *const u8, c: i32, n: usize) -> *mut u8 {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn memmem(
+    haystack: *const u8,
+    haystacklen: usize,
+    needle: *const u8,
+    needlelen: usize,
+) -> *mut u8 {
+    unsafe {
+        if needlelen == 0 {
+            return haystack as *mut u8;
+        }
+        if haystacklen < needlelen {
+            return core::ptr::null_mut();
+        }
+
+        let last = haystacklen - needlelen;
+        let first = *needle;
+        let mut i = 0;
+
+        while i <= last {
+            if *haystack.add(i) == first
+                && memcmp(haystack.add(i), needle, needlelen) == 0
+            {
+                return haystack.add(i) as *mut u8;
+            }
+            i += 1;
+        }
+
+        core::ptr::null_mut()
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn bzero(s: *mut u8, n: usize) {
     unsafe {
         memset(s, 0, n);

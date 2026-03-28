@@ -42,6 +42,32 @@ struct addrinfo {
     struct addrinfo *ai_next;
 };
 
+struct hostent {
+    char  *h_name;
+    char **h_aliases;
+    int    h_addrtype;
+    int    h_length;
+    char **h_addr_list;
+};
+#define h_addr h_addr_list[0]
+
+struct servent {
+    char  *s_name;
+    char **s_aliases;
+    int    s_port;
+    char  *s_proto;
+};
+
+/* h_errno — legacy resolver error code */
+extern int h_errno;
+extern int *__h_errno(void);
+
+#define HOST_NOT_FOUND  1
+#define TRY_AGAIN       2
+#define NO_RECOVERY     3
+#define NO_DATA         4
+#define NO_ADDRESS      NO_DATA
+
 __BEGIN_DECLS
 
 extern int   getaddrinfo(const char *node, const char *service,
@@ -51,6 +77,8 @@ extern const char *gai_strerror(int errcode);
 extern int   getnameinfo(const struct sockaddr *sa, socklen_t salen,
                          char *host, socklen_t hostlen,
                          char *serv, socklen_t servlen, int flags);
+extern struct hostent *gethostbyname(const char *name);
+extern struct servent *getservbyname(const char *name, const char *proto);
 
 __END_DECLS
 

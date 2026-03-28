@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <sched.h>
 #include <sys/cdefs.h>
 
 /*
@@ -67,6 +68,10 @@ extern int posix_spawnattr_setsigdefault(posix_spawnattr_t *attrp, const sigset_
 extern int posix_spawnattr_getsigdefault(const posix_spawnattr_t *attrp, sigset_t *sigdefault);
 extern int posix_spawnattr_setpgroup(posix_spawnattr_t *attrp, pid_t pgroup);
 extern int posix_spawnattr_getpgroup(const posix_spawnattr_t *attrp, pid_t *pgroup);
+extern int posix_spawnattr_setschedpolicy(posix_spawnattr_t *attrp, int policy);
+extern int posix_spawnattr_getschedpolicy(const posix_spawnattr_t *attrp, int *policy);
+extern int posix_spawnattr_setschedparam(posix_spawnattr_t *attrp, const struct sched_param *param);
+extern int posix_spawnattr_getschedparam(const posix_spawnattr_t *attrp, struct sched_param *param);
 
 /* File actions */
 extern int posix_spawn_file_actions_init(posix_spawn_file_actions_t *fact);

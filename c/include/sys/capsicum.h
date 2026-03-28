@@ -10,6 +10,7 @@ typedef struct cap_rights { uint64_t cr_rights[2]; } cap_rights_t;
 
 #define cap_rights_init(rights, ...) __cap_rights_init(0, rights, 0ULL)
 #define cap_rights_set(rights, ...) (rights)
+#define cap_rights_clear(rights, ...) (rights)
 
 static inline cap_rights_t *
 __cap_rights_init(int version, cap_rights_t *rights, ...)

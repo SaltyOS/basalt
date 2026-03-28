@@ -12,6 +12,10 @@ use crate::errno;
 
 static mut PROGNAME: *const u8 = b"\0".as_ptr();
 
+/// BSD `__progname` global — alias for getprogname() result.
+#[unsafe(no_mangle)]
+pub static mut __progname: *const u8 = core::ptr::null();
+
 #[unsafe(no_mangle)]
 pub extern "C" fn getprogname() -> *const u8 {
     // SAFETY: PROGNAME is only written via setprogname and during startup.
@@ -38,6 +42,7 @@ pub unsafe extern "C" fn setprogname(name: *const u8) {
         } else {
             *(&raw mut PROGNAME) = name;
         }
+        __progname = *(&raw const PROGNAME);
     }
 }
 

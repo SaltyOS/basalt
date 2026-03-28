@@ -7,14 +7,6 @@
 #include <sys/types.h>
 #include <sys/cdefs.h>
 
-typedef struct FILE FILE;
-
-__BEGIN_DECLS
-
-extern FILE *stdin;
-extern FILE *stdout;
-extern FILE *stderr;
-
 #define EOF     (-1)
 #define BUFSIZ  1024
 #define SEEK_SET 0
@@ -30,6 +22,33 @@ extern FILE *stderr;
 #define TMP_MAX      10000
 #define L_tmpnam     20
 #define P_tmpdir     "/tmp"
+
+/* BSD extension: FILE with custom callbacks */
+typedef int  (*funopen_readfn)(void *, char *, int);
+typedef int  (*funopen_writefn)(void *, const char *, int);
+typedef long long (*funopen_seekfn)(void *, long long, int);
+typedef int  (*funopen_closefn)(void *);
+
+typedef struct FILE {
+    int _file;
+    unsigned int flags;
+    unsigned char buf[BUFSIZ];
+    size_t buf_pos;
+    size_t buf_len;
+    int ungetc_char;
+    int buf_mode;
+    void *cookie;
+    funopen_readfn read_fn;
+    funopen_writefn write_fn;
+    funopen_seekfn seek_fn;
+    funopen_closefn close_fn;
+} FILE;
+
+__BEGIN_DECLS
+
+extern FILE *stdin;
+extern FILE *stdout;
+extern FILE *stderr;
 
 extern FILE *fopen(const char *path, const char *mode);
 extern FILE *fdopen(int fd, const char *mode);
@@ -102,6 +121,12 @@ extern ssize_t getdelim(char **lineptr, size_t *n, int delim, FILE *stream);
 
 extern FILE *popen(const char *command, const char *type);
 extern int   pclose(FILE *stream);
+
+extern FILE *funopen(const void *cookie,
+                     funopen_readfn readfn,
+                     funopen_writefn writefn,
+                     funopen_seekfn seekfn,
+                     funopen_closefn closefn);
 
 __END_DECLS
 

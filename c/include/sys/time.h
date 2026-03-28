@@ -21,6 +21,7 @@ struct timezone {
 __BEGIN_DECLS
 
 extern int gettimeofday(struct timeval *tv, void *tz);
+extern int utimes(const char *filename, const struct timeval times[2]);
 
 #define ITIMER_REAL    0
 #define ITIMER_VIRTUAL 1
