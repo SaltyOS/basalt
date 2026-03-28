@@ -6,18 +6,20 @@
 # in-place; no vendoring is required.
 #
 # SaltyOS configuration (matches former toolchain-build-runtimes CMake invocation):
-#   -fno-exceptions -fno-rtti
+#   -fno-rtti (exceptions enabled for C++ port support)
 #   LIBCXX_ENABLE_FILESYSTEM=OFF  LIBCXX_ENABLE_LOCALIZATION=ON
 #   LIBCXX_ENABLE_WIDE_CHARACTERS=ON  LIBCXX_ENABLE_RANDOM_DEVICE=ON
 #   LIBCXX_ENABLE_UNICODE=OFF  LIBCXX_ENABLE_TIME_ZONE_DATABASE=OFF
 #   LIBCXX_CXX_ABI=libcxxabi  LIBCXX_STATICALLY_LINK_ABI_IN_SHARED_LIBRARY=ON
 #   LIBCXXABI_BAREMETAL=ON  LIBCXXABI_SILENT_TERMINATE=ON
 
-_llvm_src     = meson.project_source_root() / 'toolchain' / 'llvm-project'
-_libcxx_src   = _llvm_src / 'libcxx'   / 'src'
+_llvm_src      = meson.project_source_root() / 'toolchain' / 'llvm-project'
+_libcxx_src    = _llvm_src / 'libcxx'    / 'src'
 _libcxxabi_src = _llvm_src / 'libcxxabi' / 'src'
-_libcxx_inc   = _llvm_src / 'libcxx'   / 'include'
+_libunwind_src = _llvm_src / 'libunwind' / 'src'
+_libcxx_inc    = _llvm_src / 'libcxx'    / 'include'
 _libcxxabi_inc = _llvm_src / 'libcxxabi' / 'include'
+_libunwind_inc = _llvm_src / 'libunwind' / 'include'
 _config_site  = meson.current_source_dir() / '__config_site'
 
 # Clang resource directory provides freestanding compiler headers
@@ -26,13 +28,13 @@ _clang_resource_dir = run_command(
   cc_cmd[0], '--print-resource-dir', capture: true, check: true,
 ).stdout().strip()
 
-# C++ compile flags: freestanding, PIC, no exceptions, no RTTI
+# C++ compile flags: freestanding, PIC, no RTTI, exceptions enabled
 _cxx_flags = [
   '--target=' + c_target,
   '-std=c++23',
   '-fPIC',
-  '-fno-exceptions',
   '-fno-rtti',
+  '-funwind-tables',
   '-ffreestanding',
   '-nostdinc',         # block ALL host system headers (not just C++)
   '-nostdlib',
@@ -67,6 +69,7 @@ foreach f : _cxx_flags
     _cxxabi_flags += f
   endif
 endforeach
+_cxxabi_flags += ['-isystem', _libunwind_inc]
 
 # libcxx source files
 # Excluded: fstream.cpp, strstream.cpp (not needed)
@@ -125,16 +128,16 @@ _cxx_srcs = [
 ]
 
 # libcxxabi source files
-# Excluded: cxa_exception.cpp, cxa_personality.cpp (LIBCXXABI_ENABLE_EXCEPTIONS=OFF)
 _cxxabi_srcs = [
   'abort_message.cpp',
   'cxa_aux_runtime.cpp',
   'cxa_default_handlers.cpp',
   'cxa_demangle.cpp',
+  'cxa_exception.cpp',
   'cxa_exception_storage.cpp',
   'cxa_guard.cpp',
   'cxa_handlers.cpp',
-  'cxa_noexception.cpp',
+  'cxa_personality.cpp',
   'cxa_thread_atexit.cpp',
   'cxa_vector.cpp',
   'cxa_virtual.cpp',
@@ -173,6 +176,96 @@ foreach src : _cxxabi_srcs
       _cxxabi_flags,
       '-MMD', '-MF', '@DEPFILE@',
       '-c', _libcxxabi_src / src,
+      '-o', '@OUTPUT@',
+    ],
+    build_by_default: true,
+  )
+endforeach
+
+# libunwind — DWARF-based stack unwinding for C++ exceptions
+_libunwind_flags = [
+  '--target=' + c_target,
+  '-std=c++23',
+  '-fPIC',
+  '-fno-exceptions',
+  '-funwind-tables',
+  '-ffreestanding',
+  '-nostdinc',
+  '-nostdlib',
+  '-D_LIBUNWIND_IS_NATIVE_ONLY',
+  '-isystem', meson.current_source_dir(),
+  '-isystem', _libcxx_inc,
+  '-isystem', _libcxxabi_inc,
+  '-isystem', _libunwind_inc,
+  '-isystem', _clang_resource_dir / 'include',
+  '-isystem', besaltc_inc_dir,
+  '-I', _libunwind_src,
+  '-include', _config_site,
+]
+
+_libunwind_cpp_srcs = [
+  'libunwind.cpp',
+  'Unwind-EHABI.cpp',
+]
+
+_libunwind_c_srcs = [
+  'UnwindLevel1.c',
+  'UnwindLevel1-gcc-ext.c',
+]
+
+_libunwind_asm_srcs = [
+  'UnwindRegistersRestore.S',
+  'UnwindRegistersSave.S',
+]
+
+foreach src : _libunwind_cpp_srcs
+  _name = 'unwind_' + src.replace('.cpp', '')
+  _all_objs += custom_target(_name,
+    output: _name + '.o',
+    depfile: _name + '.d',
+    command: [cc_cmd,
+      _libunwind_flags,
+      '-MMD', '-MF', '@DEPFILE@',
+      '-c', _libunwind_src / src,
+      '-o', '@OUTPUT@',
+    ],
+    build_by_default: true,
+  )
+endforeach
+
+# C sources use C flags (no -std=c++23)
+_libunwind_c_flags = []
+foreach f : _libunwind_flags
+  if f != '-std=c++23'
+    _libunwind_c_flags += f
+  endif
+endforeach
+_libunwind_c_flags += ['-std=c11']
+
+foreach src : _libunwind_c_srcs
+  _name = 'unwind_' + src.replace('.c', '')
+  _all_objs += custom_target(_name,
+    output: _name + '.o',
+    depfile: _name + '.d',
+    command: [cc_cmd,
+      _libunwind_c_flags,
+      '-MMD', '-MF', '@DEPFILE@',
+      '-c', _libunwind_src / src,
+      '-o', '@OUTPUT@',
+    ],
+    build_by_default: true,
+  )
+endforeach
+
+# Assembly sources
+foreach src : _libunwind_asm_srcs
+  _name = 'unwind_' + src.replace('.S', '')
+  _all_objs += custom_target(_name,
+    output: _name + '.o',
+    command: [cc_cmd,
+      '--target=' + c_target,
+      '-fPIC',
+      '-c', _libunwind_src / src,
       '-o', '@OUTPUT@',
     ],
     build_by_default: true,
