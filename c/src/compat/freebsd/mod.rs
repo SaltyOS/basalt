@@ -23,3 +23,7 @@ pub mod bsd_stdio;
 pub mod mntent;
 pub mod statvfs;
 pub mod umtx;
+pub mod cap_fileargs;
+pub mod xo;
+pub mod md5;
+pub mod libutil;

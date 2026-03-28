@@ -1,0 +1,525 @@
+//! Miscellaneous POSIX functions
+//! SPDX-License-Identifier: GPL-2.0-only
+//!
+//! Functions that don't fit in a specific POSIX header category:
+//! `dirname`/`basename` (path decomposition), `sched_yield`, `getpagesize`,
+//! `fsync`/`fdatasync` (no-ops for ramfs), `utime`/`utimes`,
+//! `copy_file_range`, syslog stubs, and `pdfork`.
+//!
+//! BSD/FreeBSD-specific functions live in `compat::freebsd`.
+
+use crate::errno;
+use core::ptr::addr_of_mut;
+
+// ---------------------------------------------------------------------------
+// dirname / basename — POSIX string manipulation
+// ---------------------------------------------------------------------------
+
+static mut DIRNAME_BUF: [u8; 4096] = [0; 4096];
+static mut BASENAME_DOT: [u8; 2] = [b'.', 0];
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dirname(path: *mut u8) -> *mut u8 {
+    unsafe {
+        let buf = addr_of_mut!(DIRNAME_BUF) as *mut u8;
+
+        // NULL or empty → "."
+        if path.is_null() || *path == 0 {
+            *buf.add(0) = b'.';
+            *buf.add(1) = 0;
+            return buf;
+        }
+
+        // Measure length
+        let mut len = 0usize;
+        while *path.add(len) != 0 {
+            len += 1;
+        }
+
+        // Strip trailing slashes
+        while len > 1 && *path.add(len - 1) == b'/' {
+            len -= 1;
+        }
+
+        // Find last slash
+        let mut last_slash: isize = -1;
+        for i in (0..len).rev() {
+            if *path.add(i) == b'/' {
+                last_slash = i as isize;
+                break;
+            }
+        }
+
+        if last_slash < 0 {
+            // No slash → "."
+            *buf.add(0) = b'.';
+            *buf.add(1) = 0;
+            return buf;
+        }
+
+        if last_slash == 0 {
+            // Only root slash → "/"
+            *buf.add(0) = b'/';
+            *buf.add(1) = 0;
+            return buf;
+        }
+
+        // Strip trailing slashes from parent
+        let mut end = last_slash as usize;
+        while end > 1 && *path.add(end - 1) == b'/' {
+            end -= 1;
+        }
+
+        let copy_len = if end < 4095 { end } else { 4095 };
+        for i in 0..copy_len {
+            *buf.add(i) = *path.add(i);
+        }
+        *buf.add(copy_len) = 0;
+        buf
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn basename(path: *mut u8) -> *mut u8 {
+    unsafe {
+        let dot = addr_of_mut!(BASENAME_DOT) as *mut u8;
+
+        // NULL or empty → "."
+        if path.is_null() || *path == 0 {
+            *dot.add(0) = b'.';
+            *dot.add(1) = 0;
+            return dot;
+        }
+
+        let mut len = 0usize;
+        while *path.add(len) != 0 {
+            len += 1;
+        }
+
+        // Strip trailing slashes
+        while len > 1 && *path.add(len - 1) == b'/' {
+            len -= 1;
+        }
+
+        // All slashes → "/"
+        if len == 1 && *path == b'/' {
+            return path;
+        }
+
+        // Find last slash
+        let mut last_slash: isize = -1;
+        for i in (0..len).rev() {
+            if *path.add(i) == b'/' {
+                last_slash = i as isize;
+                break;
+            }
+        }
+
+        if last_slash < 0 {
+            // Null-terminate at len (strip trailing slashes)
+            *path.add(len) = 0;
+            return path;
+        }
+
+        let start = (last_slash + 1) as usize;
+        *path.add(len) = 0;
+        path.add(start)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// chroot — not supported
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn chroot(_path: *const u8) -> i32 {
+    errno::set_errno(38); // ENOSYS
+    -1
+}
+
+// ---------------------------------------------------------------------------
+// sched_yield — maps to SYS_YIELD (syscall 8)
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sched_yield() -> i32 {
+    salty::syscall::syscall(salty::consts::SYS_YIELD, 0, 0, 0, 0, 0, 0);
+    0
+}
+
+// ---------------------------------------------------------------------------
+// getpagesize — always 4096
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getpagesize() -> i32 {
+    4096
+}
+
+// ---------------------------------------------------------------------------
+// fsync / fdatasync — correct no-ops for ramfs
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fsync(_fd: i32) -> i32 {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fdatasync(_fd: i32) -> i32 {
+    0
+}
+
+// ---------------------------------------------------------------------------
+// utime / utimes — thin wrappers over utimensat
+// ---------------------------------------------------------------------------
+
+#[repr(C)]
+pub struct Utimbuf {
+    pub actime: i64,
+    pub modtime: i64,
+}
+
+#[repr(C)]
+pub struct CTimeval {
+    pub tv_sec: i64,
+    pub tv_usec: i64,
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn utime(filename: *const u8, times: *const Utimbuf) -> i32 {
+    unsafe {
+        if filename.is_null() {
+            errno::set_errno(errno::EINVAL);
+            return -1;
+        }
+        let (atime_sec, atime_nsec, mtime_sec, mtime_nsec) = if times.is_null() {
+            // NULL → set both to current time
+            let utime_now: i64 = (1 << 30) - 1;
+            (0i64, utime_now, 0i64, utime_now)
+        } else {
+            // Utimbuf has seconds only, nsec = 0
+            ((*times).actime, 0i64, (*times).modtime, 0i64)
+        };
+        let ret = salty::posix::posix_utimensat(
+            salty::consts::AT_FDCWD,
+            filename,
+            atime_sec,
+            atime_nsec,
+            mtime_sec,
+            mtime_nsec,
+            0,
+        );
+        if ret < 0 {
+            errno::set_errno(-ret);
+            return -1;
+        }
+        ret
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn utimes(filename: *const u8, times: *const CTimeval) -> i32 {
+    unsafe {
+        if filename.is_null() {
+            errno::set_errno(errno::EINVAL);
+            return -1;
+        }
+        let (atime_sec, atime_nsec, mtime_sec, mtime_nsec) = if times.is_null() {
+            let utime_now: i64 = (1 << 30) - 1;
+            (0i64, utime_now, 0i64, utime_now)
+        } else {
+            // CTimeval has sec + usec, convert usec → nsec
+            (
+                (*times).tv_sec,
+                (*times).tv_usec * 1000,
+                (*times.add(1)).tv_sec,
+                (*times.add(1)).tv_usec * 1000,
+            )
+        };
+        let ret = salty::posix::posix_utimensat(
+            salty::consts::AT_FDCWD,
+            filename,
+            atime_sec,
+            atime_nsec,
+            mtime_sec,
+            mtime_nsec,
+            0,
+        );
+        if ret < 0 {
+            errno::set_errno(-ret);
+            return -1;
+        }
+        ret
+    }
+}
+
+// ---------------------------------------------------------------------------
+// copy_file_range — copy data between file descriptors
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn copy_file_range(
+    fd_in: i32,
+    off_in: *mut i64,
+    fd_out: i32,
+    off_out: *mut i64,
+    len: usize,
+    _flags: u32,
+) -> isize {
+    unsafe {
+        // If off_in is provided, seek to that offset (saving current pos)
+        let saved_in: i64 = if !off_in.is_null() {
+            let cur = salty::posix::posix_lseek(fd_in, 0, salty::consts::SEEK_CUR as i32);
+            if cur < 0 {
+                errno::set_errno(errno::EBADF);
+                return -1;
+            }
+            let ret = salty::posix::posix_lseek(fd_in, *off_in, salty::consts::SEEK_SET as i32);
+            if ret < 0 {
+                errno::set_errno(errno::EINVAL);
+                return -1;
+            }
+            cur
+        } else {
+            -1
+        };
+
+        let saved_out: i64 = if !off_out.is_null() {
+            let cur = salty::posix::posix_lseek(fd_out, 0, salty::consts::SEEK_CUR as i32);
+            if cur < 0 {
+                if !off_in.is_null() {
+                    salty::posix::posix_lseek(fd_in, saved_in, salty::consts::SEEK_SET as i32);
+                }
+                errno::set_errno(errno::EBADF);
+                return -1;
+            }
+            let ret = salty::posix::posix_lseek(fd_out, *off_out, salty::consts::SEEK_SET as i32);
+            if ret < 0 {
+                if !off_in.is_null() {
+                    salty::posix::posix_lseek(fd_in, saved_in, salty::consts::SEEK_SET as i32);
+                }
+                errno::set_errno(errno::EINVAL);
+                return -1;
+            }
+            cur
+        } else {
+            -1
+        };
+
+        // Read/write loop with stack buffer
+        let mut buf = [0u8; 4096];
+        let mut total: usize = 0;
+
+        while total < len {
+            let chunk = if len - total < 4096 {
+                len - total
+            } else {
+                4096
+            };
+            let nr = salty::posix::posix_read(fd_in, buf.as_mut_ptr(), chunk as u64);
+            if nr < 0 {
+                if total == 0 {
+                    if !off_in.is_null() {
+                        salty::posix::posix_lseek(fd_in, saved_in, salty::consts::SEEK_SET as i32);
+                    }
+                    if !off_out.is_null() {
+                        salty::posix::posix_lseek(
+                            fd_out,
+                            saved_out,
+                            salty::consts::SEEK_SET as i32,
+                        );
+                    }
+                    errno::set_errno(errno::EIO);
+                    return -1;
+                }
+                break;
+            }
+            if nr == 0 {
+                break; // EOF
+            }
+
+            let mut written: usize = 0;
+            while written < nr as usize {
+                let nw = salty::posix::posix_write(
+                    fd_out,
+                    buf.as_ptr().add(written),
+                    (nr as usize - written) as u64,
+                );
+                if nw < 0 {
+                    if total == 0 && written == 0 {
+                        if !off_in.is_null() {
+                            salty::posix::posix_lseek(
+                                fd_in,
+                                saved_in,
+                                salty::consts::SEEK_SET as i32,
+                            );
+                        }
+                        if !off_out.is_null() {
+                            salty::posix::posix_lseek(
+                                fd_out,
+                                saved_out,
+                                salty::consts::SEEK_SET as i32,
+                            );
+                        }
+                        errno::set_errno(errno::EIO);
+                        return -1;
+                    }
+                    total += written;
+                    if !off_in.is_null() {
+                        *off_in += total as i64;
+                        salty::posix::posix_lseek(fd_in, saved_in, salty::consts::SEEK_SET as i32);
+                    }
+                    if !off_out.is_null() {
+                        *off_out += total as i64;
+                        salty::posix::posix_lseek(
+                            fd_out,
+                            saved_out,
+                            salty::consts::SEEK_SET as i32,
+                        );
+                    }
+                    return total as isize;
+                }
+                if nw == 0 {
+                    break;
+                }
+                written += nw as usize;
+            }
+            total += written;
+        }
+
+        // Update offset pointers and restore file positions
+        if !off_in.is_null() {
+            *off_in += total as i64;
+            salty::posix::posix_lseek(fd_in, saved_in, salty::consts::SEEK_SET as i32);
+        }
+        if !off_out.is_null() {
+            *off_out += total as i64;
+            salty::posix::posix_lseek(fd_out, saved_out, salty::consts::SEEK_SET as i32);
+        }
+
+        total as isize
+    }
+}
+
+// ---------------------------------------------------------------------------
+// syslog stubs — no-ops, syslog() prints to stderr via DebugPutStr
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn openlog(_ident: *const u8, _option: i32, _facility: i32) {}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn closelog() {}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn setlogmask(mask: i32) -> i32 {
+    let _ = mask;
+    0xFF // Accept all priorities
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn syslog(_priority: i32, _fmt: *const u8, mut _args: ...) {}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vsyslog(_priority: i32, _fmt: *const u8, _ap: *mut u8) {}
+
+// ---------------------------------------------------------------------------
+// pdfork — FreeBSD Capsicum process descriptor fork (stub)
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfork(_fdp: *mut i32, _flags: i32) -> i32 {
+    errno::set_errno(38); // ENOSYS
+    -1
+}
+
+// ---------------------------------------------------------------------------
+// syscall — variadic raw syscall interface
+// ---------------------------------------------------------------------------
+
+/// Direct syscall interface for code that bypasses libc (e.g. libcxxabi futex).
+/// Maps SaltyOS syscall numbers to the kernel syscall ABI.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn syscall(number: i64, mut args: ...) -> i64 {
+    unsafe {
+        let a1 = args.arg::<u64>();
+        let a2 = args.arg::<u64>();
+        let a3 = args.arg::<u64>();
+        let a4 = args.arg::<u64>();
+        let a5 = args.arg::<u64>();
+        let a6 = args.arg::<u64>();
+        let r = salty::syscall::syscall(number as u64, a1, a2, a3, a4, a5, a6);
+        if r.error != 0 {
+            errno::set_errno(r.error as i32);
+            return -1;
+        }
+        r.value as i64
+    }
+}
+
+// ---------------------------------------------------------------------------
+// mkstemps — mkstemp with suffix length
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mkstemps(template: *mut u8, suffixlen: i32) -> i32 {
+    if template.is_null() {
+        errno::set_errno(errno::EINVAL);
+        return -1;
+    }
+    unsafe {
+        let len = crate::string::strlen(template);
+        let xs_end = if suffixlen >= 0 && (suffixlen as usize) < len {
+            len - suffixlen as usize
+        } else {
+            len
+        };
+        // Find XXXXXX before suffix
+        let mut xs = 0usize;
+        let mut i = xs_end;
+        while i > 0 && *template.add(i - 1) == b'X' {
+            xs += 1;
+            i -= 1;
+        }
+        if xs < 6 {
+            errno::set_errno(errno::EINVAL);
+            return -1;
+        }
+        let start = xs_end - xs;
+
+        use core::sync::atomic::{AtomicU64, Ordering};
+        static CTR: AtomicU64 = AtomicU64::new(0);
+        const CHARS: &[u8; 36] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+        let max_attempts: u32 = 256;
+
+        let mut attempt: u32 = 0;
+        while attempt < max_attempts {
+            let mut val = CTR.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+            let mut j = start;
+            while j < xs_end {
+                *template.add(j) = CHARS[(val % 36) as usize];
+                val /= 36;
+                j += 1;
+            }
+            let fd = salty::posix::posix_open(
+                template,
+                (salty::O_RDWR | salty::O_CREAT | salty::O_EXCL) as i32,
+                0o600,
+            );
+            if fd >= 0 {
+                return fd as i32;
+            }
+            attempt += 1;
+        }
+        errno::set_errno(errno::EEXIST);
+        -1
+    }
+}
+
+// ---------------------------------------------------------------------------
+// setproctitle — set process title (no-op on SaltyOS)
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn setproctitle(_fmt: *const u8, mut _args: ...) {}
