@@ -1,12 +1,12 @@
 //! Job control — process groups and sessions
 //! SPDX-License-Identifier: GPL-2.0-only
 //!
-//! Thin wrappers around `salty::posix::posix_setpgid` / `posix_setsid` /
+//! Thin wrappers around `trona_posix::posix_setpgid` / `posix_setsid` /
 //! `posix_getpgrp`. Terminal process group functions (`tcgetpgrp`,
 //! `tcsetpgrp`) return stubs since SaltyOS has no controlling terminal.
 
 use crate::errno;
-use salty::serial::LineBuf;
+use trona::serial::LineBuf;
 
 static mut JOBCTL_DBG_BUDGET: u32 = 128;
 
@@ -33,7 +33,7 @@ unsafe fn jobctl_dbg3(tag: &[u8], a: i32, b: i32, ret: i32) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setpgid(pid: i32, pgid: i32) -> i32 {
-    let ret = unsafe { salty::posix::posix_setpgid(pid, pgid) };
+    let ret = unsafe { trona_posix::posix_setpgid(pid, pgid) };
     unsafe {
         jobctl_dbg3(b"setpgid", pid, pgid, ret);
     }
@@ -46,7 +46,7 @@ pub unsafe extern "C" fn setpgid(pid: i32, pgid: i32) -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getpgid(pid: i32) -> i32 {
-    let ret = unsafe { salty::posix::posix_getpgid(pid) };
+    let ret = unsafe { trona_posix::posix_getpgid(pid) };
     unsafe {
         jobctl_dbg3(b"getpgid", pid, 0, ret);
     }
@@ -69,7 +69,7 @@ pub unsafe extern "C" fn setpgrp() -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setsid() -> i32 {
-    let ret = unsafe { salty::posix::posix_setsid() };
+    let ret = unsafe { trona_posix::posix_setsid() };
     unsafe {
         jobctl_dbg3(b"setsid", 0, 0, ret);
     }
@@ -82,7 +82,7 @@ pub unsafe extern "C" fn setsid() -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getsid(pid: i32) -> i32 {
-    let ret = unsafe { salty::posix::posix_getsid(pid) };
+    let ret = unsafe { trona_posix::posix_getsid(pid) };
     unsafe {
         jobctl_dbg3(b"getsid", pid, 0, ret);
     }
@@ -95,7 +95,7 @@ pub unsafe extern "C" fn getsid(pid: i32) -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tcgetpgrp(fd: i32) -> i32 {
-    let ret = unsafe { salty::posix::posix_ioctl(fd, salty::consts::TIOCGPGRP, 0) };
+    let ret = unsafe { trona_posix::posix_ioctl(fd, trona::consts::TIOCGPGRP, 0) };
     unsafe {
         jobctl_dbg3(b"tcgetpgrp", fd, 0, ret);
     }
@@ -108,7 +108,7 @@ pub unsafe extern "C" fn tcgetpgrp(fd: i32) -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tcsetpgrp(fd: i32, pgrp: i32) -> i32 {
-    let ret = unsafe { salty::posix::posix_ioctl(fd, salty::consts::TIOCSPGRP, pgrp as u64) };
+    let ret = unsafe { trona_posix::posix_ioctl(fd, trona::consts::TIOCSPGRP, pgrp as u64) };
     unsafe {
         jobctl_dbg3(b"tcsetpgrp", fd, pgrp, ret);
     }

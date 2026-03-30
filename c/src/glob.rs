@@ -317,8 +317,8 @@ pub unsafe extern "C" fn glob(
             }
             full_path[pos] = 0;
 
-            let mut salty_st = salty::types::BesaltStat::zeroed();
-            let ret = salty::posix::posix_stat(full_path.as_ptr(), &raw mut salty_st);
+            let mut salty_st = trona::types::TronaStat::zeroed();
+            let ret = trona_posix::posix_stat(full_path.as_ptr(), &raw mut salty_st);
             if ret >= 0 {
                 if !add_glob_result(pglob, full_path.as_ptr(), pos, flags) {
                     return GLOB_NOSPACE;

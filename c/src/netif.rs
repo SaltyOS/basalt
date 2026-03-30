@@ -152,7 +152,7 @@ pub unsafe extern "C" fn getifaddrs(ifap: *mut *mut IfAddrs) -> i32 {
     }
 
     let mut cfg = [0u64; 9];
-    let ret = unsafe { salty::posix::posix_net_get_config(&raw mut cfg) };
+    let ret = unsafe { trona_posix::posix_net_get_config(&raw mut cfg) };
     if ret < 0 {
         errno::set_errno(-ret);
         return -1;

@@ -1,7 +1,7 @@
 //! POSIX threads C ABI wrappers
 //! SPDX-License-Identifier: GPL-2.0-only
 //!
-//! Provides standard pthread C functions by delegating to libsalty's Rust
+//! Provides standard pthread C functions by delegating to libtrona's Rust
 //! implementations. Covers thread lifecycle, mutexes, condition variables,
 //! reader-writer locks, barriers, and once-initialization.
 
@@ -17,7 +17,7 @@ pub struct Timespec {
 /// Convert an absolute timespec to a relative timeout in nanoseconds.
 /// Returns 0 if the deadline has already passed.
 fn timespec_to_relative_ns(abstime: &Timespec) -> u64 {
-    let now = salty::syscall::syscall(salty::consts::SYS_CLOCK_GETTIME, 0, 0, 0, 0, 0, 0);
+    let now = trona::syscall::syscall(trona::consts::SYS_CLOCK_GETTIME, 0, 0, 0, 0, 0, 0);
     let now_ns = now.value;
     let target_ns = (abstime.tv_sec as u64).saturating_mul(1_000_000_000).saturating_add(abstime.tv_nsec as u64);
     target_ns.saturating_sub(now_ns)
@@ -30,48 +30,48 @@ fn validate_timespec(ts: &Timespec) -> bool {
 }
 
 // =========================================================================
-// Opaque types matching POSIX sizes (all backed by libsalty's Rust structs)
+// Opaque types matching POSIX sizes (all backed by libtrona's Rust structs)
 // =========================================================================
 
-/// pthread_t is an opaque pointer (same as libsalty's PthreadT).
+/// pthread_t is an opaque pointer (same as libtrona's PthreadT).
 pub type PthreadT = *mut u8;
 
-/// pthread_mutex_t wraps libsalty's sync::Mutex or sync::TypedMutex.
+/// pthread_mutex_t wraps libtrona's sync::Mutex or sync::TypedMutex.
 /// 32 bytes: first 24 bytes for the mutex data, byte 24 = kind (0=NORMAL, 1=RECURSIVE, 2=ERRORCHECK).
 #[repr(C, align(8))]
 pub struct PthreadMutexT {
     inner: [u8; 32],
 }
 
-/// pthread_cond_t wraps libsalty's sync::Condvar (single AtomicU32 = 4 bytes).
+/// pthread_cond_t wraps libtrona's sync::Condvar (single AtomicU32 = 4 bytes).
 /// Padded to 8 bytes and exposed as 8-byte aligned to keep embedded uses aligned.
 #[repr(C, align(8))]
 pub struct PthreadCondT {
     inner: [u8; 8],
 }
 
-/// pthread_rwlock_t wraps libsalty's sync::RWLock (three AtomicU32 = 12 bytes).
+/// pthread_rwlock_t wraps libtrona's sync::RWLock (three AtomicU32 = 12 bytes).
 /// Padded to 16 bytes and exposed as 8-byte aligned to keep embedded uses aligned.
 #[repr(C, align(8))]
 pub struct PthreadRwlockT {
     inner: [u8; 16],
 }
 
-/// pthread_barrier_t wraps libsalty's sync::Barrier (u32 + 2×AtomicU32 = 12 bytes).
+/// pthread_barrier_t wraps libtrona's sync::Barrier (u32 + 2×AtomicU32 = 12 bytes).
 /// Padded to 16 bytes and exposed as 8-byte aligned to keep embedded uses aligned.
 #[repr(C, align(8))]
 pub struct PthreadBarrierT {
     inner: [u8; 16],
 }
 
-/// pthread_once_t wraps libsalty's sync::Once (single AtomicU32 = 4 bytes).
+/// pthread_once_t wraps libtrona's sync::Once (single AtomicU32 = 4 bytes).
 /// Padded to 8 bytes and exposed as 8-byte aligned to keep embedded uses aligned.
 #[repr(C, align(8))]
 pub struct PthreadOnceT {
     inner: [u8; 8],
 }
 
-/// pthread_attr_t wraps libsalty's PthreadAttr.
+/// pthread_attr_t wraps libtrona's PthreadAttr.
 #[repr(C)]
 pub struct PthreadAttrT {
     /// Stack size in bytes (0 = default)
@@ -117,9 +117,9 @@ pub unsafe extern "C" fn pthread_create(
     arg: *mut u8,
 ) -> i32 {
     unsafe {
-        let ret = salty::pthread::pthread_create(
-            thread as *mut salty::pthread::PthreadT,
-            attr as *const salty::pthread::PthreadAttr,
+        let ret = trona_posix::pthread::pthread_create(
+            thread as *mut trona_posix::pthread::PthreadT,
+            attr as *const trona_posix::pthread::PthreadAttr,
             start_routine,
             arg,
         );
@@ -130,8 +130,8 @@ pub unsafe extern "C" fn pthread_create(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_join(thread: PthreadT, retval: *mut *mut u8) -> i32 {
     unsafe {
-        let ret = salty::pthread::pthread_join(
-            thread as salty::pthread::PthreadT,
+        let ret = trona_posix::pthread::pthread_join(
+            thread as trona_posix::pthread::PthreadT,
             retval,
         );
         if ret != 0 { errno::EINVAL } else { 0 }
@@ -140,18 +140,18 @@ pub unsafe extern "C" fn pthread_join(thread: PthreadT, retval: *mut *mut u8) ->
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_exit(retval: *mut u8) -> ! {
-    unsafe { salty::pthread::pthread_exit(retval) }
+    unsafe { trona_posix::pthread::pthread_exit(retval) }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pthread_self() -> PthreadT {
-    salty::pthread::pthread_self() as PthreadT
+    trona_posix::pthread::pthread_self() as PthreadT
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_detach(thread: PthreadT) -> i32 {
     unsafe {
-        let ret = salty::pthread::pthread_detach(thread as salty::pthread::PthreadT);
+        let ret = trona_posix::pthread::pthread_detach(thread as trona_posix::pthread::PthreadT);
         if ret != 0 { errno::EINVAL } else { 0 }
     }
 }
@@ -199,13 +199,13 @@ pub unsafe extern "C" fn pthread_mutex_init(
 
         let kind = if !attr.is_null() { (*attr).kind } else { 0 };
         if kind == PTHREAD_MUTEX_NORMAL || kind == 0 {
-            let m = &mut *(mutex as *mut salty::sync::Mutex);
-            core::ptr::write(m, salty::sync::Mutex::new());
+            let m = &mut *(mutex as *mut trona_posix::sync::Mutex);
+            core::ptr::write(m, trona_posix::sync::Mutex::new());
             set_mutex_kind(mutex, 0);
         } else {
             let mt = kind as u8;
-            let tm = &mut *(mutex as *mut salty::sync::TypedMutex);
-            core::ptr::write(tm, salty::sync::TypedMutex::new(mt));
+            let tm = &mut *(mutex as *mut trona_posix::sync::TypedMutex);
+            core::ptr::write(tm, trona_posix::sync::TypedMutex::new(mt));
             set_mutex_kind(mutex, mt);
         }
     }
@@ -219,11 +219,11 @@ pub unsafe extern "C" fn pthread_mutex_lock(mutex: *mut PthreadMutexT) -> i32 {
     }
     unsafe {
         if mutex_kind(mutex) == 0 {
-            let m = &*(mutex as *const salty::sync::Mutex);
+            let m = &*(mutex as *const trona_posix::sync::Mutex);
             m.lock();
             0
         } else {
-            let tm = &*(mutex as *const salty::sync::TypedMutex);
+            let tm = &*(mutex as *const trona_posix::sync::TypedMutex);
             tm.lock()
         }
     }
@@ -236,10 +236,10 @@ pub unsafe extern "C" fn pthread_mutex_trylock(mutex: *mut PthreadMutexT) -> i32
     }
     unsafe {
         if mutex_kind(mutex) == 0 {
-            let m = &*(mutex as *const salty::sync::Mutex);
+            let m = &*(mutex as *const trona_posix::sync::Mutex);
             if m.try_lock() { 0 } else { errno::EBUSY }
         } else {
-            let tm = &*(mutex as *const salty::sync::TypedMutex);
+            let tm = &*(mutex as *const trona_posix::sync::TypedMutex);
             tm.try_lock()
         }
     }
@@ -252,11 +252,11 @@ pub unsafe extern "C" fn pthread_mutex_unlock(mutex: *mut PthreadMutexT) -> i32 
     }
     unsafe {
         if mutex_kind(mutex) == 0 {
-            let m = &*(mutex as *const salty::sync::Mutex);
+            let m = &*(mutex as *const trona_posix::sync::Mutex);
             m.unlock();
             0
         } else {
-            let tm = &*(mutex as *const salty::sync::TypedMutex);
+            let tm = &*(mutex as *const trona_posix::sync::TypedMutex);
             tm.unlock()
         }
     }
@@ -277,11 +277,11 @@ pub unsafe extern "C" fn pthread_mutex_timedlock(
         let kind = mutex_kind(mutex);
         if kind == 0 {
             // NORMAL mutex
-            let m = &*(mutex as *const salty::sync::Mutex);
+            let m = &*(mutex as *const trona_posix::sync::Mutex);
             if m.lock_timeout(timespec_to_relative_ns(&*abstime)) { 0 } else { errno::ETIMEDOUT }
         } else {
             // Typed mutex
-            let tm = &*(mutex as *const salty::sync::TypedMutex);
+            let tm = &*(mutex as *const trona_posix::sync::TypedMutex);
             let ret = tm.lock_timeout(timespec_to_relative_ns(&*abstime));
             if ret == 0 { 0 } else { ret }
         }
@@ -306,8 +306,8 @@ pub unsafe extern "C" fn pthread_cond_init(
         return errno::EINVAL;
     }
     unsafe {
-        let c = &mut *(cond as *mut salty::sync::Condvar);
-        core::ptr::write(c, salty::sync::Condvar::new());
+        let c = &mut *(cond as *mut trona_posix::sync::Condvar);
+        core::ptr::write(c, trona_posix::sync::Condvar::new());
     }
     0
 }
@@ -321,14 +321,14 @@ pub unsafe extern "C" fn pthread_cond_wait(
         return errno::EINVAL;
     }
     unsafe {
-        let c = &*(cond as *const salty::sync::Condvar);
+        let c = &*(cond as *const trona_posix::sync::Condvar);
         let kind = mutex_kind(mutex);
         if kind == 0 {
-            let m = &*(mutex as *const salty::sync::Mutex);
+            let m = &*(mutex as *const trona_posix::sync::Mutex);
             c.wait(m);
             0
         } else {
-            let tm = &*(mutex as *const salty::sync::TypedMutex);
+            let tm = &*(mutex as *const trona_posix::sync::TypedMutex);
             c.wait_typed(tm)
         }
     }
@@ -340,7 +340,7 @@ pub unsafe extern "C" fn pthread_cond_signal(cond: *mut PthreadCondT) -> i32 {
         return errno::EINVAL;
     }
     unsafe {
-        let c = &*(cond as *const salty::sync::Condvar);
+        let c = &*(cond as *const trona_posix::sync::Condvar);
         c.signal();
     }
     0
@@ -352,7 +352,7 @@ pub unsafe extern "C" fn pthread_cond_broadcast(cond: *mut PthreadCondT) -> i32 
         return errno::EINVAL;
     }
     unsafe {
-        let c = &*(cond as *const salty::sync::Condvar);
+        let c = &*(cond as *const trona_posix::sync::Condvar);
         c.broadcast();
     }
     0
@@ -371,14 +371,14 @@ pub unsafe extern "C" fn pthread_cond_timedwait(
         if !validate_timespec(&*abstime) {
             return errno::EINVAL;
         }
-        let c = &*(cond as *const salty::sync::Condvar);
+        let c = &*(cond as *const trona_posix::sync::Condvar);
         let kind = mutex_kind(mutex);
         let timeout_ns = timespec_to_relative_ns(&*abstime);
         if timeout_ns == 0 {
             return errno::ETIMEDOUT;
         }
         if kind == 0 {
-            let m = &*(mutex as *const salty::sync::Mutex);
+            let m = &*(mutex as *const trona_posix::sync::Mutex);
             let ret = c.wait_timeout(m, timeout_ns);
             if ret == 110 {
                 errno::ETIMEDOUT
@@ -386,7 +386,7 @@ pub unsafe extern "C" fn pthread_cond_timedwait(
                 ret
             }
         } else {
-            let tm = &*(mutex as *const salty::sync::TypedMutex);
+            let tm = &*(mutex as *const trona_posix::sync::TypedMutex);
             let ret = c.wait_timeout_typed(tm, timeout_ns);
             if ret == 110 {
                 errno::ETIMEDOUT
@@ -415,8 +415,8 @@ pub unsafe extern "C" fn pthread_rwlock_init(
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &mut *(rwlock as *mut salty::sync::RWLock);
-        core::ptr::write(rw, salty::sync::RWLock::new());
+        let rw = &mut *(rwlock as *mut trona_posix::sync::RWLock);
+        core::ptr::write(rw, trona_posix::sync::RWLock::new());
     }
     0
 }
@@ -427,7 +427,7 @@ pub unsafe extern "C" fn pthread_rwlock_rdlock(rwlock: *mut PthreadRwlockT) -> i
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &*(rwlock as *const salty::sync::RWLock);
+        let rw = &*(rwlock as *const trona_posix::sync::RWLock);
         rw.read_lock();
     }
     0
@@ -439,7 +439,7 @@ pub unsafe extern "C" fn pthread_rwlock_wrlock(rwlock: *mut PthreadRwlockT) -> i
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &*(rwlock as *const salty::sync::RWLock);
+        let rw = &*(rwlock as *const trona_posix::sync::RWLock);
         rw.write_lock();
     }
     0
@@ -454,7 +454,7 @@ pub unsafe extern "C" fn pthread_rwlock_unlock(rwlock: *mut PthreadRwlockT) -> i
         // POSIX says unlock works for both read and write locks.
         // RWLock is #[repr(C)] with `state: AtomicU32` as first field.
         // Bit 31 is the writer flag.
-        let rw = &*(rwlock as *const salty::sync::RWLock);
+        let rw = &*(rwlock as *const trona_posix::sync::RWLock);
         let state_ptr = rwlock as *const core::sync::atomic::AtomicU32;
         let state = (*state_ptr).load(core::sync::atomic::Ordering::Relaxed);
         if state & (1 << 31) != 0 {
@@ -477,7 +477,7 @@ pub unsafe extern "C" fn pthread_rwlock_tryrdlock(rwlock: *mut PthreadRwlockT) -
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &*(rwlock as *const salty::sync::RWLock);
+        let rw = &*(rwlock as *const trona_posix::sync::RWLock);
         if rw.try_read_lock() { 0 } else { errno::EBUSY }
     }
 }
@@ -488,7 +488,7 @@ pub unsafe extern "C" fn pthread_rwlock_trywrlock(rwlock: *mut PthreadRwlockT) -
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &*(rwlock as *const salty::sync::RWLock);
+        let rw = &*(rwlock as *const trona_posix::sync::RWLock);
         if rw.try_write_lock() { 0 } else { errno::EBUSY }
     }
 }
@@ -505,7 +505,7 @@ pub unsafe extern "C" fn pthread_rwlock_timedrdlock(
         if !validate_timespec(&*abstime) {
             return errno::EINVAL;
         }
-        let rw = &*(rwlock as *const salty::sync::RWLock);
+        let rw = &*(rwlock as *const trona_posix::sync::RWLock);
         let timeout_ns = timespec_to_relative_ns(&*abstime);
         if timeout_ns == 0 {
             return if rw.try_read_lock() { 0 } else { errno::ETIMEDOUT };
@@ -526,7 +526,7 @@ pub unsafe extern "C" fn pthread_rwlock_timedwrlock(
         if !validate_timespec(&*abstime) {
             return errno::EINVAL;
         }
-        let rw = &*(rwlock as *const salty::sync::RWLock);
+        let rw = &*(rwlock as *const trona_posix::sync::RWLock);
         let timeout_ns = timespec_to_relative_ns(&*abstime);
         if timeout_ns == 0 {
             return if rw.try_write_lock() { 0 } else { errno::ETIMEDOUT };
@@ -549,8 +549,8 @@ pub unsafe extern "C" fn pthread_barrier_init(
         return errno::EINVAL;
     }
     unsafe {
-        let b = &mut *(barrier as *mut salty::sync::Barrier);
-        core::ptr::write(b, salty::sync::Barrier::new(count));
+        let b = &mut *(barrier as *mut trona_posix::sync::Barrier);
+        core::ptr::write(b, trona_posix::sync::Barrier::new(count));
     }
     0
 }
@@ -564,7 +564,7 @@ pub unsafe extern "C" fn pthread_barrier_wait(barrier: *mut PthreadBarrierT) -> 
         return errno::EINVAL;
     }
     unsafe {
-        let b = &*(barrier as *const salty::sync::Barrier);
+        let b = &*(barrier as *const trona_posix::sync::Barrier);
         if b.wait() {
             PTHREAD_BARRIER_SERIAL_THREAD
         } else {
@@ -591,7 +591,7 @@ pub unsafe extern "C" fn pthread_once(
         return errno::EINVAL;
     }
     unsafe {
-        let o = &*(once_control as *const salty::sync::Once);
+        let o = &*(once_control as *const trona_posix::sync::Once);
         o.call_once(init_routine);
     }
     0
@@ -739,7 +739,7 @@ const PTHREAD_CANCEL_DEFERRED: i32 = 0;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_cancel(thread: PthreadT) -> i32 {
     unsafe {
-        let ret = salty::pthread::pthread_cancel(thread as salty::pthread::PthreadT);
+        let ret = trona_posix::pthread::pthread_cancel(thread as trona_posix::pthread::PthreadT);
         if ret != 0 { errno::ESRCH } else { 0 }
     }
 }
@@ -750,7 +750,7 @@ pub unsafe extern "C" fn pthread_setcancelstate(state: i32, oldstate: *mut i32) 
         return errno::EINVAL;
     }
     unsafe {
-        let ret = salty::pthread::pthread_setcancelstate(state, oldstate);
+        let ret = trona_posix::pthread::pthread_setcancelstate(state, oldstate);
         if ret != 0 { return errno::EINVAL; }
     }
     0
@@ -762,7 +762,7 @@ pub unsafe extern "C" fn pthread_setcanceltype(ctype: i32, oldtype: *mut i32) ->
         return errno::EINVAL;
     }
     unsafe {
-        let ret = salty::pthread::pthread_setcanceltype(ctype, oldtype);
+        let ret = trona_posix::pthread::pthread_setcanceltype(ctype, oldtype);
         if ret != 0 { return errno::EINVAL; }
     }
     0
@@ -770,7 +770,7 @@ pub unsafe extern "C" fn pthread_setcanceltype(ctype: i32, oldtype: *mut i32) ->
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_testcancel() {
-    unsafe { salty::pthread::pthread_testcancel(); }
+    unsafe { trona_posix::pthread::pthread_testcancel(); }
 }
 
 /// Cleanup handler node (stack-allocated by caller).
@@ -788,10 +788,10 @@ pub unsafe extern "C" fn __pthread_cleanup_push(
     arg: *mut u8,
 ) {
     unsafe {
-        salty::pthread::pthread_cleanup_push_impl(
+        trona_posix::pthread::pthread_cleanup_push_impl(
             routine,
             arg,
-            handler as *mut salty::tls::CleanupHandler,
+            handler as *mut trona_posix::tls::CleanupHandler,
         );
     }
 }
@@ -802,7 +802,7 @@ pub unsafe extern "C" fn __pthread_cleanup_pop(
     execute: i32,
 ) {
     unsafe {
-        salty::pthread::pthread_cleanup_pop_impl(execute);
+        trona_posix::pthread::pthread_cleanup_pop_impl(execute);
     }
 }
 
@@ -823,7 +823,7 @@ pub unsafe extern "C" fn pthread_condattr_destroy(_attr: *mut PthreadCondattrT) 
 /// Maximum number of TSD keys. POSIX requires at least 128.
 const PTHREAD_KEYS_MAX: usize = 64;
 
-/// Maximum threads tracked (must match libsalty's MAX_THREADS).
+/// Maximum threads tracked (must match libtrona's MAX_THREADS).
 const KEY_MAX_THREADS: usize = 64;
 
 /// Key table entry: tracks whether the key is in use and its destructor.
@@ -867,7 +867,7 @@ pub extern "C" fn pthread_getthreadid_np() -> i32 {
 
 /// Get the current thread index (0..63) for key value lookup.
 fn current_thread_index() -> usize {
-    if let Some(tls) = salty::tls::current_tls() {
+    if let Some(tls) = trona_posix::tls::current_tls() {
         // SAFETY: tls is a valid pointer to ThreadLocalBlock, thread_id is a u64 field.
         let tid = unsafe { (*tls).thread_id } as usize;
         if tid < KEY_MAX_THREADS { tid } else { 0 }
@@ -952,7 +952,7 @@ pub unsafe extern "C" fn pthread_setspecific(key: u32, value: *mut u8) -> i32 {
 }
 
 // =========================================================================
-// POSIX semaphores — backed by salty::sync::Semaphore
+// POSIX semaphores — backed by trona_posix::sync::Semaphore
 // =========================================================================
 
 #[unsafe(no_mangle)]
@@ -965,14 +965,14 @@ pub unsafe extern "C" fn sem_init(sem: *mut u8, pshared: i32, value: u32) -> i32
         errno::set_errno(errno::ENOSYS);
         return -1;
     }
-    if value > salty::sync::SEM_VALUE_MAX {
+    if value > trona_posix::sync::SEM_VALUE_MAX {
         errno::set_errno(errno::EINVAL);
         return -1;
     }
     unsafe {
         core::ptr::write(
-            sem as *mut salty::sync::Semaphore,
-            salty::sync::Semaphore::new(value),
+            sem as *mut trona_posix::sync::Semaphore,
+            trona_posix::sync::Semaphore::new(value),
         );
     }
     0
@@ -990,7 +990,7 @@ pub unsafe extern "C" fn sem_wait(sem: *mut u8) -> i32 {
         return -1;
     }
     unsafe {
-        let s = &*(sem as *const salty::sync::Semaphore);
+        let s = &*(sem as *const trona_posix::sync::Semaphore);
         s.wait();
     }
     0
@@ -1003,7 +1003,7 @@ pub unsafe extern "C" fn sem_trywait(sem: *mut u8) -> i32 {
         return -1;
     }
     unsafe {
-        let s = &*(sem as *const salty::sync::Semaphore);
+        let s = &*(sem as *const trona_posix::sync::Semaphore);
         if s.try_wait() {
             0
         } else {
@@ -1024,7 +1024,7 @@ pub unsafe extern "C" fn sem_timedwait(sem: *mut u8, abstime: *const Timespec) -
             errno::set_errno(errno::EINVAL);
             return -1;
         }
-        let s = &*(sem as *const salty::sync::Semaphore);
+        let s = &*(sem as *const trona_posix::sync::Semaphore);
         let timeout_ns = timespec_to_relative_ns(&*abstime);
         if timeout_ns == 0 {
             if s.try_wait() {
@@ -1049,7 +1049,7 @@ pub unsafe extern "C" fn sem_post(sem: *mut u8) -> i32 {
         return -1;
     }
     unsafe {
-        let s = &*(sem as *const salty::sync::Semaphore);
+        let s = &*(sem as *const trona_posix::sync::Semaphore);
         let ret = s.post();
         if ret < 0 {
             errno::set_errno(errno::EOVERFLOW);
@@ -1066,7 +1066,7 @@ pub unsafe extern "C" fn sem_getvalue(sem: *mut u8, sval: *mut i32) -> i32 {
         return -1;
     }
     unsafe {
-        let s = &*(sem as *const salty::sync::Semaphore);
+        let s = &*(sem as *const trona_posix::sync::Semaphore);
         *sval = s.get_value();
     }
     0
@@ -1085,6 +1085,6 @@ struct TlsIndex {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __tls_get_addr(ti: *const TlsIndex) -> *mut core::ffi::c_void {
     unsafe {
-        salty::tls::tls_addr((*ti).ti_module, (*ti).ti_offset) as *mut core::ffi::c_void
+        trona_posix::tls::tls_addr((*ti).ti_module, (*ti).ti_offset) as *mut core::ffi::c_void
     }
 }

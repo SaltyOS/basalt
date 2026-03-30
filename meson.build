@@ -1,8 +1,6 @@
-# Besalt runtime monorepo (uapi/lib/c/cpp)
+# basalt — SaltyOS C/C++ Standard Library
 # SPDX-License-Identifier: GPL-2.0-only
 
-subdir('uapi')
-subdir('lib')
 subdir('c')
 
 # libc++.so: build from toolchain/llvm-project sources when available.

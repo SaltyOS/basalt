@@ -1,4 +1,4 @@
-/* libsalty.so linker script
+/* libc.so (basaltc) linker script
  * SPDX-License-Identifier: GPL-2.0-only
  */
 

@@ -1,4 +1,4 @@
-/* saltyc setjmp/longjmp for AArch64
+/* basaltc setjmp/longjmp for AArch64
  * SPDX-License-Identifier: GPL-2.0-only
  *
  * jmp_buf layout (14 * 8 + 8 * 8 = 176 bytes):

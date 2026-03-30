@@ -104,7 +104,7 @@ unsafe fn malloc_inner(size: usize) -> *mut u8 {
         }
 
         // No free block found, get more memory from sbrk
-        let ptr = salty::posix_mm::posix_sbrk(total as i64);
+        let ptr = trona_posix::mm::posix_sbrk(total as i64);
         if ptr == u64::MAX {
             errno::set_errno(errno::ENOMEM);
             return core::ptr::null_mut();

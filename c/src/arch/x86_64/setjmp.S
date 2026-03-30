@@ -1,4 +1,4 @@
-/* saltyc setjmp/longjmp for x86_64
+/* basaltc setjmp/longjmp for x86_64
  * SPDX-License-Identifier: GPL-2.0-only
  *
  * jmp_buf layout (8 * 8 = 64 bytes):

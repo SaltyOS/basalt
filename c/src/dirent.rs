@@ -108,7 +108,7 @@ pub unsafe extern "C" fn opendir(path: *const u8) -> *mut DIR {
     }
 
     unsafe {
-        let fd = salty::posix::posix_opendir(path);
+        let fd = trona_posix::posix_opendir(path);
         if fd < 0 {
             errno::set_errno(-fd);
             return core::ptr::null_mut();
@@ -116,7 +116,7 @@ pub unsafe extern "C" fn opendir(path: *const u8) -> *mut DIR {
 
         let dir = alloc_dir();
         if dir.is_null() {
-            salty::posix::posix_closedir(fd);
+            trona_posix::posix_closedir(fd);
             errno::set_errno(errno::ENOMEM);
             return core::ptr::null_mut();
         }
@@ -134,28 +134,28 @@ pub unsafe extern "C" fn readdir(dir: *mut DIR) -> *mut Dirent {
     }
 
     unsafe {
-        let mut salty_entry = salty::types::BesaltDirent::zeroed();
-        let ret = salty::posix::posix_readdir((*dir).fd, &raw mut salty_entry);
+        let mut trona_entry = trona::types::TronaDirent::zeroed();
+        let ret = trona_posix::posix_readdir((*dir).fd, &raw mut trona_entry);
         if ret == 0 {
             // No more entries
             return core::ptr::null_mut();
         }
 
-        // Copy fields from BesaltDirent into our Dirent
-        (*dir).entry.d_ino = salty_entry.d_ino;
+        // Copy fields from TronaDirent into our Dirent
+        (*dir).entry.d_ino = trona_entry.d_ino;
         (*dir).entry.d_off = 0;
         (*dir).entry.d_reclen = core::mem::size_of::<Dirent>() as u16;
-        (*dir).entry.d_type = salty_entry.d_type;
+        (*dir).entry.d_type = trona_entry.d_type;
         (*dir).entry.d_pad0 = 0;
         (*dir).entry.d_pad1 = 0;
 
-        // Copy name, capping at the smaller of BesaltDirent.d_name (62 bytes)
+        // Copy name, capping at the smaller of TronaDirent.d_name (62 bytes)
         // and our d_name (256 bytes)
-        let name_len = salty_entry.d_namlen as usize;
+        let name_len = trona_entry.d_namlen as usize;
         let copy_len = if name_len < 62 { name_len } else { 61 };
         (*dir).entry.d_namlen = copy_len as u16;
         for i in 0..copy_len {
-            (*dir).entry.d_name[i] = salty_entry.d_name[i];
+            (*dir).entry.d_name[i] = trona_entry.d_name[i];
         }
         (*dir).entry.d_name[copy_len] = 0;
         (*dir).has_entry = true;
@@ -174,7 +174,7 @@ pub unsafe extern "C" fn closedir(dir: *mut DIR) -> i32 {
 
     unsafe {
         let fd = (*dir).fd;
-        salty::posix::posix_closedir(fd);
+        trona_posix::posix_closedir(fd);
         free_dir(dir);
         0
     }

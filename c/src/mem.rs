@@ -6,7 +6,7 @@
 //! compiler intrinsics (`#[no_mangle]`) since Rust's codegen emits calls
 //! to them for large copies and zeroing.
 //!
-//! When `saltyc_sse2` is enabled, the core operations delegate to SSE2-
+//! When `basaltc_sse2` is enabled, the core operations delegate to SSE2-
 //! accelerated implementations via the `Arch` trait.
 
 use crate::arch::{Arch, ArchMem};

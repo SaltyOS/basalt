@@ -20,7 +20,7 @@ const MAX_EXEC_ARGS: usize = 64;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fork() -> i32 {
-    let ret = salty::posix::posix_fork();
+    let ret = trona_posix::posix_fork();
     if ret < 0 {
         errno::set_errno(-ret);
         return -1;
@@ -35,7 +35,7 @@ pub unsafe extern "C" fn execve(
     envp: *const *const u8,
 ) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_execve(path, argv, envp);
+        let ret = trona_posix::posix_execve(path, argv, envp);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -71,7 +71,7 @@ pub unsafe extern "C" fn execvp(file: *const u8, argv: *const *const u8) -> i32 
         // Get PATH from environment
         let path_env = crate::env::getenv(b"PATH\0".as_ptr());
         let path = if path_env.is_null() || *path_env == 0 {
-            salty::DEFAULT_PATH_NUL.as_ptr()
+            trona_posix::DEFAULT_PATH_NUL.as_ptr()
         } else {
             path_env
         };
@@ -192,18 +192,18 @@ pub unsafe extern "C" fn execlp(file: *const u8, arg0: *const u8, mut args: ...)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _exit_process(status: i32) -> ! {
     unsafe {
-        salty::posix::posix_exit(status);
+        trona_posix::posix_exit(status);
     }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getpid() -> i32 {
-    unsafe { salty::posix::posix_getpid() }
+    unsafe { trona_posix::posix_getpid() }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getppid() -> i32 {
-    unsafe { salty::posix::posix_getppid() }
+    unsafe { trona_posix::posix_getppid() }
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +213,7 @@ pub unsafe extern "C" fn getppid() -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_waitpid3(pid, status, options);
+        let ret = trona_posix::posix_waitpid3(pid, status, options);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -278,7 +278,7 @@ pub extern "C" fn WSTOPSIG(status: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kill(pid: i32, sig: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_kill(pid, sig);
+        let ret = trona_posix::posix_kill(pid, sig);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -305,7 +305,7 @@ pub unsafe extern "C" fn abort() -> ! {
     unsafe {
         raise(SIGABRT);
         // If raise returns (handler caught it or ignored), force exit
-        salty::posix::posix_exit(134);
+        trona_posix::posix_exit(134);
     }
 }
 
@@ -315,27 +315,27 @@ pub unsafe extern "C" fn abort() -> ! {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getuid() -> u32 {
-    unsafe { salty::posix::posix_getuid() as u32 }
+    unsafe { trona_posix::posix_getuid() as u32 }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn geteuid() -> u32 {
-    unsafe { salty::posix::posix_geteuid() as u32 }
+    unsafe { trona_posix::posix_geteuid() as u32 }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getgid() -> u32 {
-    unsafe { salty::posix::posix_getgid() as u32 }
+    unsafe { trona_posix::posix_getgid() as u32 }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getegid() -> u32 {
-    unsafe { salty::posix::posix_getegid() as u32 }
+    unsafe { trona_posix::posix_getegid() as u32 }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getgroups(size: i32, list: *mut u32) -> i32 {
-    unsafe { salty::posix::posix_getgroups(size, list as *mut i32) }
+    unsafe { trona_posix::posix_getgroups(size, list as *mut i32) }
 }
 
 #[unsafe(no_mangle)]
@@ -428,7 +428,7 @@ unsafe fn do_posix_spawn(
             return errno::EINVAL;
         }
 
-        let child = salty::posix::posix_fork();
+        let child = trona_posix::posix_fork();
         if child < 0 {
             return -child; // return error code directly
         }
@@ -470,20 +470,20 @@ unsafe fn do_posix_spawn(
                     let action = &fa.actions[i];
                     match action.action_type {
                         SPAWN_ACTION_CLOSE => {
-                            salty::posix::posix_close(action.fd);
+                            trona_posix::posix_close(action.fd);
                         }
                         SPAWN_ACTION_DUP2 => {
                             crate::unistd::dup2(action.fd, action.newfd);
                         }
                         SPAWN_ACTION_OPEN => {
-                            let fd = salty::posix::posix_open(
+                            let fd = trona_posix::posix_open(
                                 action.path,
                                 action.oflag,
                                 action.mode,
                             );
                             if fd >= 0 && fd != action.fd {
                                 crate::unistd::dup2(fd, action.fd);
-                                salty::posix::posix_close(fd);
+                                trona_posix::posix_close(fd);
                             }
                         }
                         _ => {}
@@ -499,7 +499,7 @@ unsafe fn do_posix_spawn(
             }
 
             // exec failed — exit with 127
-            salty::posix::posix_exit(127);
+            trona_posix::posix_exit(127);
         }
 
         // === Parent process ===

@@ -1,4 +1,4 @@
-/* saltyc CRT startup
+/* basaltc CRT startup
  * SPDX-License-Identifier: GPL-2.0-only
  *
  * _start is called by the dynamic linker (rtld) or directly for static binaries.

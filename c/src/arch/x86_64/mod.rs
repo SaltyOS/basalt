@@ -2,17 +2,17 @@
 //! SPDX-License-Identifier: GPL-2.0-only
 //!
 //! Provides `X86_64Arch` which implements `ArchMath`, `ArchMem`, and
-//! `ArchString`. When `saltyc_sse2` is enabled (default on x86_64),
+//! `ArchString`. When `basaltc_sse2` is enabled (default on x86_64),
 //! sqrt/sqrtf use SSE2 `sqrtsd`/`sqrtss`, memory operations use 128-bit
 //! `movdqu`, and strlen uses `pcmpeqb`+`pmovmskb`. Transcendental math
 //! always uses the x87 FPU (no SSE equivalent exists).
 
 pub mod math_x87;
-#[cfg(saltyc_sse2)]
+#[cfg(basaltc_sse2)]
 pub mod math_sse2;
-#[cfg(saltyc_sse2)]
+#[cfg(basaltc_sse2)]
 pub mod mem_sse2;
-#[cfg(saltyc_sse2)]
+#[cfg(basaltc_sse2)]
 pub mod string_sse2;
 
 pub struct X86_64Arch;
@@ -20,17 +20,17 @@ pub struct X86_64Arch;
 impl super::ArchMath for X86_64Arch {
     #[inline]
     fn sqrt(x: f64) -> f64 {
-        #[cfg(saltyc_sse2)]
+        #[cfg(basaltc_sse2)]
         { unsafe { math_sse2::sqrt_sse2(x) } }
-        #[cfg(not(saltyc_sse2))]
+        #[cfg(not(basaltc_sse2))]
         { math_x87::sqrt_x87(x) }
     }
 
     #[inline]
     fn sqrtf(x: f32) -> f32 {
-        #[cfg(saltyc_sse2)]
+        #[cfg(basaltc_sse2)]
         { unsafe { math_sse2::sqrtf_sse2(x) } }
-        #[cfg(not(saltyc_sse2))]
+        #[cfg(not(basaltc_sse2))]
         { math_x87::sqrt_x87(x as f64) as f32 }
     }
 
@@ -75,41 +75,41 @@ impl super::ArchMath for X86_64Arch {
 impl super::ArchMem for X86_64Arch {
     #[inline]
     unsafe fn memcpy(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
-        #[cfg(saltyc_sse2)]
+        #[cfg(basaltc_sse2)]
         { unsafe { mem_sse2::memcpy_sse2(dst, src, n) } }
-        #[cfg(not(saltyc_sse2))]
+        #[cfg(not(basaltc_sse2))]
         { unsafe { scalar_memcpy(dst, src, n) } }
     }
 
     #[inline]
     unsafe fn memset(s: *mut u8, c: i32, n: usize) -> *mut u8 {
-        #[cfg(saltyc_sse2)]
+        #[cfg(basaltc_sse2)]
         { unsafe { mem_sse2::memset_sse2(s, c, n) } }
-        #[cfg(not(saltyc_sse2))]
+        #[cfg(not(basaltc_sse2))]
         { unsafe { scalar_memset(s, c, n) } }
     }
 
     #[inline]
     unsafe fn memmove(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
-        #[cfg(saltyc_sse2)]
+        #[cfg(basaltc_sse2)]
         { unsafe { mem_sse2::memmove_sse2(dst, src, n) } }
-        #[cfg(not(saltyc_sse2))]
+        #[cfg(not(basaltc_sse2))]
         { unsafe { scalar_memmove(dst, src, n) } }
     }
 
     #[inline]
     unsafe fn memcmp(s1: *const u8, s2: *const u8, n: usize) -> i32 {
-        #[cfg(saltyc_sse2)]
+        #[cfg(basaltc_sse2)]
         { unsafe { mem_sse2::memcmp_sse2(s1, s2, n) } }
-        #[cfg(not(saltyc_sse2))]
+        #[cfg(not(basaltc_sse2))]
         { unsafe { scalar_memcmp(s1, s2, n) } }
     }
 
     #[inline]
     unsafe fn memchr(s: *const u8, c: i32, n: usize) -> *mut u8 {
-        #[cfg(saltyc_sse2)]
+        #[cfg(basaltc_sse2)]
         { unsafe { mem_sse2::memchr_sse2(s, c, n) } }
-        #[cfg(not(saltyc_sse2))]
+        #[cfg(not(basaltc_sse2))]
         { unsafe { scalar_memchr(s, c, n) } }
     }
 }
@@ -117,18 +117,18 @@ impl super::ArchMem for X86_64Arch {
 impl super::ArchString for X86_64Arch {
     #[inline]
     unsafe fn strlen(s: *const u8) -> usize {
-        #[cfg(saltyc_sse2)]
+        #[cfg(basaltc_sse2)]
         { unsafe { string_sse2::strlen_sse2(s) } }
-        #[cfg(not(saltyc_sse2))]
+        #[cfg(not(basaltc_sse2))]
         { unsafe { scalar_strlen(s) } }
     }
 }
 
 // ============================================================================
-// Scalar fallbacks (used when saltyc_sse2 is disabled)
+// Scalar fallbacks (used when basaltc_sse2 is disabled)
 // ============================================================================
 
-#[cfg(not(saltyc_sse2))]
+#[cfg(not(basaltc_sse2))]
 unsafe fn scalar_memcpy(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
     unsafe {
         let mut i = 0;
@@ -140,7 +140,7 @@ unsafe fn scalar_memcpy(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
     }
 }
 
-#[cfg(not(saltyc_sse2))]
+#[cfg(not(basaltc_sse2))]
 unsafe fn scalar_memset(s: *mut u8, c: i32, n: usize) -> *mut u8 {
     unsafe {
         let val = c as u8;
@@ -153,7 +153,7 @@ unsafe fn scalar_memset(s: *mut u8, c: i32, n: usize) -> *mut u8 {
     }
 }
 
-#[cfg(not(saltyc_sse2))]
+#[cfg(not(basaltc_sse2))]
 unsafe fn scalar_memmove(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
     unsafe {
         if (dst as usize) < (src as usize) {
@@ -173,7 +173,7 @@ unsafe fn scalar_memmove(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
     }
 }
 
-#[cfg(not(saltyc_sse2))]
+#[cfg(not(basaltc_sse2))]
 unsafe fn scalar_memcmp(s1: *const u8, s2: *const u8, n: usize) -> i32 {
     unsafe {
         let mut i = 0;
@@ -189,7 +189,7 @@ unsafe fn scalar_memcmp(s1: *const u8, s2: *const u8, n: usize) -> i32 {
     }
 }
 
-#[cfg(not(saltyc_sse2))]
+#[cfg(not(basaltc_sse2))]
 unsafe fn scalar_memchr(s: *const u8, c: i32, n: usize) -> *mut u8 {
     unsafe {
         let val = c as u8;
@@ -204,7 +204,7 @@ unsafe fn scalar_memchr(s: *const u8, c: i32, n: usize) -> *mut u8 {
     }
 }
 
-#[cfg(not(saltyc_sse2))]
+#[cfg(not(basaltc_sse2))]
 unsafe fn scalar_strlen(s: *const u8) -> usize {
     unsafe {
         let mut len = 0;

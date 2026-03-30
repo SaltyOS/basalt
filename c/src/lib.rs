@@ -1,13 +1,13 @@
-//! saltyc — SaltyOS C Standard Library
+//! basaltc — SaltyOS C Standard Library
 //! SPDX-License-Identifier: GPL-2.0-only
 //!
 //! Rust implementation of a C standard library for SaltyOS. Provides POSIX
 //! and BSD-compatible C functions for ported userland programs (FreeBSD ls,
 //! cat, etc.). All public functions use `#[unsafe(no_mangle)] pub extern "C"`
-//! for C ABI compatibility and are linked into executables via `libsalty.so`.
+//! for C ABI compatibility and are linked into executables via `libtrona.so`.
 //!
 //! System operations (file I/O, memory management, process control) are
-//! delegated to `libsalty`, which communicates with kernel services via IPC.
+//! delegated to `libtrona`, which communicates with kernel services via IPC.
 //! Core subsystems (malloc, errno) are thread-safe via spinlocks and TLS.
 //! stdio FILE operations are not yet fully locked.
 
@@ -18,7 +18,8 @@
 #![feature(c_variadic)]
 #![feature(linkage)]
 
-extern crate salty;
+extern crate trona;
+extern crate trona_posix;
 
 pub mod arch;
 pub mod crt;
@@ -61,4 +62,4 @@ pub mod getrandom;
 pub mod iconv;
 pub mod stack_protector;
 
-// Panic handler is provided by libsalty (our dependency)
+// Panic handler is provided by libtrona (our dependency)

@@ -19,14 +19,14 @@ use crate::errno;
 
 static mut LOGGED_CLOCK_GETTIME_CALLS: u8 = 0;
 
-fn log_clock_gettime(clock_id: i32, ret: i32, ts: &salty::types::Timespec) {
+fn log_clock_gettime(clock_id: i32, ret: i32, ts: &trona::types::Timespec) {
     unsafe {
         if *(&raw const LOGGED_CLOCK_GETTIME_CALLS) >= 32 {
             return;
         }
         *(&raw mut LOGGED_CLOCK_GETTIME_CALLS) += 1;
     }
-    salty::udebug!(|_lb| {
+    trona::udebug!(|_lb| {
         _lb.str(b"[libc] clock_gettime id=");
         _lb.dec(clock_id as u64);
         _lb.str(b" ret=");
@@ -427,8 +427,8 @@ unsafe fn write_str(buf: *mut u8, max: usize, s: &[u8]) -> usize {
 /// Helper to get time value from salty
 unsafe fn get_epoch_secs() -> TimeT {
     unsafe {
-        let mut ts = salty::types::Timespec::zeroed();
-        let ret = salty::posix::posix_clock_gettime(0, &raw mut ts);
+        let mut ts = trona::types::Timespec::zeroed();
+        let ret = trona_posix::posix_clock_gettime(0, &raw mut ts);
         if ret < 0 {
             return 0;
         }
@@ -770,8 +770,8 @@ pub unsafe extern "C" fn time(t: *mut TimeT) -> TimeT {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gettimeofday(tv: *mut Timeval, _tz: *mut u8) -> i32 {
     unsafe {
-        let mut stv = salty::types::Timeval::zeroed();
-        let ret = salty::posix::posix_gettimeofday(&raw mut stv);
+        let mut stv = trona::types::Timeval::zeroed();
+        let ret = trona_posix::posix_gettimeofday(&raw mut stv);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -787,8 +787,8 @@ pub unsafe extern "C" fn gettimeofday(tv: *mut Timeval, _tz: *mut u8) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn clock_gettime(clock_id: i32, tp: *mut Timespec) -> i32 {
     unsafe {
-        let mut sts = salty::types::Timespec::zeroed();
-        let ret = salty::posix::posix_clock_gettime(clock_id, &raw mut sts);
+        let mut sts = trona::types::Timespec::zeroed();
+        let ret = trona_posix::posix_clock_gettime(clock_id, &raw mut sts);
         log_clock_gettime(clock_id, ret, &sts);
         if ret < 0 {
             errno::set_errno(-ret);
@@ -1376,22 +1376,22 @@ pub unsafe extern "C" fn setitimer(
             return -1;
         }
 
-        let salty_new = salty::posix::Itimerval {
-            it_interval: salty::Timeval {
+        let trona_new = trona_posix::Itimerval {
+            it_interval: trona_posix::Timeval {
                 tv_sec: nv.it_interval.tv_sec as u64,
                 tv_usec: nv.it_interval.tv_usec as u64,
             },
-            it_value: salty::Timeval {
+            it_value: trona_posix::Timeval {
                 tv_sec: nv.it_value.tv_sec as u64,
                 tv_usec: nv.it_value.tv_usec as u64,
             },
         };
-        let mut salty_old = salty::posix::Itimerval::zeroed();
+        let mut trona_old = trona_posix::Itimerval::zeroed();
 
-        let ret = salty::posix::posix_setitimer(
+        let ret = trona_posix::posix_setitimer(
             which,
-            &raw const salty_new,
-            if old_value.is_null() { core::ptr::null_mut() } else { &raw mut salty_old },
+            &raw const trona_new,
+            if old_value.is_null() { core::ptr::null_mut() } else { &raw mut trona_old },
         );
         if ret != 0 {
             errno::set_errno(-ret);
@@ -1399,10 +1399,10 @@ pub unsafe extern "C" fn setitimer(
         }
 
         if !old_value.is_null() {
-            (*old_value).it_interval.tv_sec = salty_old.it_interval.tv_sec as i64;
-            (*old_value).it_interval.tv_usec = salty_old.it_interval.tv_usec as i64;
-            (*old_value).it_value.tv_sec = salty_old.it_value.tv_sec as i64;
-            (*old_value).it_value.tv_usec = salty_old.it_value.tv_usec as i64;
+            (*old_value).it_interval.tv_sec = trona_old.it_interval.tv_sec as i64;
+            (*old_value).it_interval.tv_usec = trona_old.it_interval.tv_usec as i64;
+            (*old_value).it_value.tv_sec = trona_old.it_value.tv_sec as i64;
+            (*old_value).it_value.tv_usec = trona_old.it_value.tv_usec as i64;
         }
     }
     0
@@ -1420,17 +1420,17 @@ pub unsafe extern "C" fn getitimer(which: i32, curr_value: *mut Itimerval) -> i3
             return -1;
         }
 
-        let mut salty_cur = salty::posix::Itimerval::zeroed();
-        let ret = salty::posix::posix_getitimer(which, &raw mut salty_cur);
+        let mut trona_cur = trona_posix::Itimerval::zeroed();
+        let ret = trona_posix::posix_getitimer(which, &raw mut trona_cur);
         if ret != 0 {
             errno::set_errno(-ret);
             return -1;
         }
 
-        (*curr_value).it_interval.tv_sec = salty_cur.it_interval.tv_sec as i64;
-        (*curr_value).it_interval.tv_usec = salty_cur.it_interval.tv_usec as i64;
-        (*curr_value).it_value.tv_sec = salty_cur.it_value.tv_sec as i64;
-        (*curr_value).it_value.tv_usec = salty_cur.it_value.tv_usec as i64;
+        (*curr_value).it_interval.tv_sec = trona_cur.it_interval.tv_sec as i64;
+        (*curr_value).it_interval.tv_usec = trona_cur.it_interval.tv_usec as i64;
+        (*curr_value).it_value.tv_sec = trona_cur.it_value.tv_sec as i64;
+        (*curr_value).it_value.tv_usec = trona_cur.it_value.tv_usec as i64;
     }
     0
 }

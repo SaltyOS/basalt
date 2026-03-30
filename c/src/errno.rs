@@ -84,7 +84,7 @@ static mut ERRNO: i32 = 0;
 /// startup before threads are created).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __errno_location() -> *mut i32 {
-    let tls_ptr = salty::tls::current_errno();
+    let tls_ptr = trona_posix::tls::current_errno();
     if !tls_ptr.is_null() {
         tls_ptr
     } else {

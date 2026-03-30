@@ -612,7 +612,7 @@ unsafe fn arc4_stir() {
         let key = &raw mut ARC4_KEY as *mut u8;
         let mut filled = 0usize;
         while filled < 32 {
-            match salty::syscall::sys_getrandom() {
+            match trona::syscall::sys_getrandom() {
                 Some(val) => {
                     let bytes = val.to_le_bytes();
                     let remain = 32 - filled;
@@ -622,8 +622,8 @@ unsafe fn arc4_stir() {
                 }
                 None => {
                     // RDRAND unavailable — fall back to clock mixing
-                    let mut ts = salty::types::Timespec::zeroed();
-                    salty::posix::posix_clock_gettime(0, &mut ts);
+                    let mut ts = trona::types::Timespec::zeroed();
+                    trona_posix::posix_clock_gettime(0, &mut ts);
                     let v = ts
                         .tv_nsec
                         .wrapping_mul(6364136223846793005)
@@ -639,7 +639,7 @@ unsafe fn arc4_stir() {
         *(&raw mut ARC4_CTR) = 0;
         *(&raw mut ARC4_POS) = 64;
         *(&raw mut ARC4_RESEED_LEFT) = ARC4_RESEED_BYTES;
-        *(&raw mut ARC4_PID) = salty::posix::posix_getpid() as u32;
+        *(&raw mut ARC4_PID) = trona_posix::posix_getpid() as u32;
     }
 }
 
@@ -648,7 +648,7 @@ unsafe fn arc4_ensure() {
     unsafe {
         let reseed_left = *(&raw const ARC4_RESEED_LEFT);
         let pid = *(&raw const ARC4_PID);
-        if reseed_left == 0 || pid != salty::posix::posix_getpid() as u32 {
+        if reseed_left == 0 || pid != trona_posix::posix_getpid() as u32 {
             arc4_stir();
         }
     }
@@ -908,7 +908,7 @@ pub unsafe extern "C" fn mkdtemp(template: *mut u8) -> *mut u8 {
                 j += 1;
             }
 
-            let ret = salty::posix::posix_mkdir(template, 0o700);
+            let ret = trona_posix::posix_mkdir(template, 0o700);
             if ret == 0 {
                 return template;
             }

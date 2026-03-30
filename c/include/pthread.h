@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-/* POSIX threads — types and function prototypes for SaltyOS besaltc */
+/* POSIX threads — types and function prototypes for SaltyOS basaltc */
 #ifndef __PTHREAD_H__
 #define __PTHREAD_H__
 

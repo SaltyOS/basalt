@@ -22,9 +22,9 @@
 //! 10. Call `main(argc, argv, envp)`, then `exit()`
 //!
 //! Custom auxv tags used by SaltyOS:
-//! - `0x1007` (`AT_BESALT_SLOT_BASE`): slot allocator pool base
-//! - `0x1008` (`AT_BESALT_SLOT_COUNT`): slot allocator pool size
-//! - `0x100B` (`AT_BESALT_MM_EP`): mmsrv endpoint cap slot
+//! - `0x1007` (`AT_TRONA_SLOT_BASE`): slot allocator pool base
+//! - `0x1008` (`AT_TRONA_SLOT_COUNT`): slot allocator pool size
+//! - `0x100B` (`AT_TRONA_MM_EP`): mmsrv endpoint cap slot
 
 use crate::env;
 
@@ -117,17 +117,17 @@ pub unsafe extern "C" fn __libc_start_main(
 
         // Probe fd 0: if already open (inherited from exec), skip /dev/console.
         // dup(0) succeeds if fd 0 exists (exec'd process), fails if empty (fresh spawn).
-        let probe = salty::posix::posix_dup(0);
+        let probe = trona_posix::posix_dup(0);
         if probe >= 0 {
             // fd 0 exists — inherited from exec caller (getty→bash).
             // Close the test fd and leave fd 0/1/2 as-is.
-            salty::posix::posix_close(probe);
+            trona_posix::posix_close(probe);
         } else {
             // fd 0 doesn't exist — fresh spawn. Open /dev/console.
-            let fd0 = salty::posix::posix_open(b"/dev/console\0".as_ptr(), 2, 0); // O_RDWR
+            let fd0 = trona_posix::posix_open(b"/dev/console\0".as_ptr(), 2, 0); // O_RDWR
             if fd0 >= 0 {
-                salty::posix::posix_dup(fd0); // fd 1
-                salty::posix::posix_dup(fd0); // fd 2
+                trona_posix::posix_dup(fd0); // fd 1
+                trona_posix::posix_dup(fd0); // fd 2
             }
         }
 
@@ -162,7 +162,7 @@ unsafe fn common_init(stack_ptr: *const u64) {
     unsafe {
         init_ipc_from_auxv(stack_ptr);
         init_mm_from_auxv(stack_ptr);
-        salty::tls::init_main_thread_tls();
+        trona_posix::tls::init_main_thread_tls();
     }
 }
 
@@ -181,20 +181,20 @@ unsafe fn init_ipc_from_auxv(stack_ptr: *const u64) {
         }
         let _auxv = p.add(1); // past envp NULL terminator — points to auxv pairs
         let ipc_buf_vaddr: u64 = 0x0000_0000_0020_0000;
-        salty::invoke::tcb_set_ipc_buffer(CAP_SELF_TCB, ipc_buf_vaddr);
-        salty::ipc::ipc_context_init(
-            &raw mut salty::__besalt_ipc_ctx,
-            ipc_buf_vaddr as *mut salty::types::IpcBuffer,
+        trona::invoke::tcb_set_ipc_buffer(CAP_SELF_TCB, ipc_buf_vaddr);
+        trona::ipc::ipc_context_init(
+            &raw mut trona::__trona_ipc_ctx,
+            ipc_buf_vaddr as *mut trona::types::IpcBuffer,
         );
     }
 }
 
 /// Initialize the per-process slot allocator and POSIX memory manager from auxv.
 ///
-/// Parses SaltyOS-specific auxiliary vector entries (`AT_BESALT_*`) to discover
+/// Parses SaltyOS-specific auxiliary vector entries (`AT_TRONA_*`) to discover
 /// the slot allocator pool and the mmsrv endpoint capability. The RTLD may
 /// have already consumed some slots, so its exported values take precedence
-/// over raw auxv. The mmsrv endpoint is provided via `AT_BESALT_MM_EP` by
+/// over raw auxv. The mmsrv endpoint is provided via `AT_TRONA_MM_EP` by
 /// the spawner (init or procmgr). If absent, defaults to 0 (no pager).
 unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
     unsafe {
@@ -210,7 +210,7 @@ unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
         // Parse auxv
         let mut slot_base: u64 = 0;
         let mut slot_count: u64 = 0;
-        let mut mm_ep: u64 = 0; // default: no mmsrv (overridden by AT_BESALT_MM_EP)
+        let mut mm_ep: u64 = 0; // default: no mmsrv (overridden by AT_TRONA_MM_EP)
 
         loop {
             let tag = *p;
@@ -219,9 +219,9 @@ unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
                 break; // AT_NULL
             }
             match tag {
-                0x1007 => slot_base = val,   // AT_BESALT_SLOT_BASE
-                0x1008 => slot_count = val,  // AT_BESALT_SLOT_COUNT
-                0x100B => mm_ep = val,       // AT_BESALT_MM_EP
+                0x1007 => slot_base = val,   // AT_TRONA_SLOT_BASE
+                0x1008 => slot_count = val,  // AT_TRONA_SLOT_COUNT
+                0x100B => mm_ep = val,       // AT_TRONA_MM_EP
                 _ => {}
             }
             p = p.add(2);
@@ -229,22 +229,22 @@ unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
 
         // Prefer RTLD-exported slot pool info because RTLD advances it past
         // the slots consumed while loading shared libraries.
-        let rtld_base = *(&raw const salty::__besalt_slot_base);
-        let rtld_count = *(&raw const salty::__besalt_slot_count);
+        let rtld_base = *(&raw const trona::__trona_slot_base);
+        let rtld_count = *(&raw const trona::__trona_slot_count);
         if rtld_base != 0 && rtld_count != 0 {
             slot_base = rtld_base;
             slot_count = rtld_count;
         }
 
-        let cspace_ntfn = *(&raw const salty::__besalt_cspace_ntfn);
+        let cspace_ntfn = *(&raw const trona::__trona_cspace_ntfn);
 
         // Initialize per-process slot allocator
         if slot_base != 0 {
-            salty::slot_alloc::slot_alloc_init(slot_base, slot_count, cspace_ntfn);
+            trona::slot_alloc::slot_alloc_init(slot_base, slot_count, cspace_ntfn);
         }
 
         // Initialize posix_mm with the pager endpoint discovered from auxv
-        salty::posix_mm::posix_mm_init(mm_ep);
+        trona_posix::mm::posix_mm_init(mm_ep);
     }
 }
 
@@ -386,7 +386,7 @@ unsafe fn call_fini_array(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _exit(status: i32) -> ! {
     unsafe {
-        salty::posix::posix_exit(status);
+        trona_posix::posix_exit(status);
     }
 }
 

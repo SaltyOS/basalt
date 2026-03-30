@@ -1,11 +1,11 @@
 //! POSIX signal handling
 //! SPDX-License-Identifier: GPL-2.0-only
 //!
-//! Single-threaded signal implementation backed by libsalty's notification
-//! mechanism. Signal handlers are registered via `salty::signals::posix_signal`,
+//! Single-threaded signal implementation backed by libtrona's notification
+//! mechanism. Signal handlers are registered via `trona_posix::signals::posix_signal`,
 //! which sets up a kernel notification object to deliver signals asynchronously.
 //!
-//! The `sigaction` interface stores `sa_mask` and `sa_flags` in shared libsalty
+//! The `sigaction` interface stores `sa_mask` and `sa_flags` in shared libtrona
 //! globals (`__sig_sa_mask`, `__sig_sa_flags`) so the signal delivery trampoline
 //! can apply the correct mask before invoking the handler. Up to 32 signals
 //! are supported (`NSIG = 32`).
@@ -55,9 +55,9 @@ static mut BLOCKED_MASK: Sigset = Sigset { bits: 0 };
 
 /// Install a signal handler for signal `sig`.
 ///
-/// Registers the handler with libsalty's notification-based signal delivery
-/// via `salty::signals::posix_signal`. Both `SIG_DFL` and `SIG_IGN` are
-/// forwarded to libsalty so it can update the kernel notification mask.
+/// Registers the handler with libtrona's notification-based signal delivery
+/// via `trona_posix::signals::posix_signal`. Both `SIG_DFL` and `SIG_IGN` are
+/// forwarded to libtrona so it can update the kernel notification mask.
 ///
 /// Returns the previous handler on success, or `SIG_ERR` on failure.
 #[unsafe(no_mangle)]
@@ -75,9 +75,9 @@ pub unsafe extern "C" fn signal(sig: i32, handler: SighandlerT) -> SighandlerT {
             .get_unchecked(sig as usize);
         (*(&raw mut HANDLERS))[sig as usize] = handler;
 
-        // If handler is a catch function (not SIG_DFL or SIG_IGN), register with libsalty
+        // If handler is a catch function (not SIG_DFL or SIG_IGN), register with libtrona
         if handler != SIG_DFL && handler != SIG_IGN {
-            let result = salty::signals::posix_signal(sig, handler);
+            let result = trona_posix::signals::posix_signal(sig, handler);
             if result == usize::MAX {
                 // Registration failed, revert
                 (*(&raw mut HANDLERS))[sig as usize] = old;
@@ -85,8 +85,8 @@ pub unsafe extern "C" fn signal(sig: i32, handler: SighandlerT) -> SighandlerT {
                 return SIG_ERR;
             }
         } else {
-            // Still notify libsalty of disposition change
-            let result = salty::signals::posix_signal(sig, handler);
+            // Still notify libtrona of disposition change
+            let result = trona_posix::signals::posix_signal(sig, handler);
             if result == usize::MAX {
                 (*(&raw mut HANDLERS))[sig as usize] = old;
                 errno::set_errno(errno::EINVAL);
@@ -110,9 +110,9 @@ pub unsafe extern "C" fn sigaction(sig: i32, act: *const Sigaction, oact: *mut S
         if !oact.is_null() {
             (*oact).sa_handler = (*(&raw const HANDLERS))[sig as usize];
             (*oact).sa_mask = Sigset {
-                bits: (*(&raw const salty::__sig_sa_mask))[sig as usize],
+                bits: (*(&raw const trona_posix::__sig_sa_mask))[sig as usize],
             };
-            (*oact).sa_flags = (*(&raw const salty::__sig_sa_flags))[sig as usize];
+            (*oact).sa_flags = (*(&raw const trona_posix::__sig_sa_flags))[sig as usize];
             (*oact).sa_restorer = 0;
         }
 
@@ -123,7 +123,7 @@ pub unsafe extern "C" fn sigaction(sig: i32, act: *const Sigaction, oact: *mut S
 
             (*(&raw mut HANDLERS))[sig as usize] = new_handler;
 
-            let result = salty::signals::posix_signal(sig, new_handler);
+            let result = trona_posix::signals::posix_signal(sig, new_handler);
             if result == usize::MAX {
                 // Revert on failure
                 (*(&raw mut HANDLERS))[sig as usize] = old;
@@ -131,9 +131,9 @@ pub unsafe extern "C" fn sigaction(sig: i32, act: *const Sigaction, oact: *mut S
                 return -1;
             }
 
-            // Store sa_mask and sa_flags in shared libsalty globals
-            (*(&raw mut salty::__sig_sa_mask))[sig as usize] = (*act).sa_mask.bits;
-            (*(&raw mut salty::__sig_sa_flags))[sig as usize] = (*act).sa_flags;
+            // Store sa_mask and sa_flags in shared libtrona globals
+            (*(&raw mut trona_posix::__sig_sa_mask))[sig as usize] = (*act).sa_mask.bits;
+            (*(&raw mut trona_posix::__sig_sa_flags))[sig as usize] = (*act).sa_flags;
         }
 
         0
@@ -143,7 +143,7 @@ pub unsafe extern "C" fn sigaction(sig: i32, act: *const Sigaction, oact: *mut S
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sigprocmask(how: i32, set: *const Sigset, oldset: *mut Sigset) -> i32 {
     unsafe {
-        let current = *(&raw const salty::__sig_blocked_mask);
+        let current = *(&raw const trona_posix::__sig_blocked_mask);
         if !oldset.is_null() {
             (*oldset).bits = current;
         }
@@ -159,7 +159,7 @@ pub unsafe extern "C" fn sigprocmask(how: i32, set: *const Sigset, oldset: *mut 
                     return -1;
                 }
             };
-            (*(&raw mut salty::__sig_blocked_mask)) = updated;
+            (*(&raw mut trona_posix::__sig_blocked_mask)) = updated;
             (*(&raw mut BLOCKED_MASK)).bits = updated;
         }
 
@@ -175,25 +175,25 @@ pub unsafe extern "C" fn sigsuspend(mask: *const Sigset) -> i32 {
     }
     unsafe {
         // Save current blocked mask
-        let saved = *(&raw const salty::__sig_blocked_mask);
+        let saved = *(&raw const trona_posix::__sig_blocked_mask);
         // Apply temporary mask
-        (*(&raw mut salty::__sig_blocked_mask)) = (*mask).bits;
+        (*(&raw mut trona_posix::__sig_blocked_mask)) = (*mask).bits;
         (*(&raw mut BLOCKED_MASK)).bits = (*mask).bits;
 
         // Wait on signal notification (blocking).
         // salty_wait atomically swaps notification bits to 0 (consuming them).
         // We must repost the consumed bits so posix_sigcheck can find them.
         let cap_signal_ntfn: u64 = 6;
-        let pending_bits = salty::besalt_wait(cap_signal_ntfn);
+        let pending_bits = trona::trona_wait(cap_signal_ntfn);
         if pending_bits != 0 {
-            salty::besalt_signal(cap_signal_ntfn, pending_bits);
+            trona::trona_signal(cap_signal_ntfn, pending_bits);
         }
 
         // Dispatch pending signals
-        salty::signals::posix_sigcheck();
+        trona_posix::signals::posix_sigcheck();
 
         // Restore original mask
-        (*(&raw mut salty::__sig_blocked_mask)) = saved;
+        (*(&raw mut trona_posix::__sig_blocked_mask)) = saved;
         (*(&raw mut BLOCKED_MASK)).bits = saved;
 
         errno::set_errno(errno::EINTR);
@@ -211,14 +211,14 @@ pub unsafe extern "C" fn sigpending(set: *mut Sigset) -> i32 {
         // Non-blocking poll for notification bits
         let cap_signal_ntfn: u64 = 6;
         let mut bits: u64 = 0;
-        let err = salty::besalt_poll(cap_signal_ntfn, &raw mut bits);
+        let err = trona::trona_poll(cap_signal_ntfn, &raw mut bits);
 
         if err == 0 && bits != 0 {
             // Re-signal ALL consumed bits back (poll is destructive)
-            salty::besalt_signal(cap_signal_ntfn, bits);
+            trona::trona_signal(cap_signal_ntfn, bits);
 
             // Pending = signaled AND blocked
-            let blocked = *(&raw const salty::__sig_blocked_mask);
+            let blocked = *(&raw const trona_posix::__sig_blocked_mask);
             (*set).bits = (bits as u32) & blocked;
         } else {
             (*set).bits = 0;

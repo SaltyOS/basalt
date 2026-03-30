@@ -14,7 +14,7 @@ pub unsafe extern "C" fn getrandom(buf: *mut u8, buflen: usize, _flags: u32) -> 
         let mut filled = 0usize;
         while filled < buflen {
             let remaining = buflen - filled;
-            match salty::syscall::sys_getrandom() {
+            match trona::syscall::sys_getrandom() {
                 Some(val) => {
                     let bytes = val.to_le_bytes();
                     let to_copy = if remaining < 8 { remaining } else { 8 };
@@ -55,7 +55,7 @@ pub unsafe extern "C" fn getentropy(buf: *mut u8, buflen: usize) -> i32 {
     unsafe {
         let mut filled = 0usize;
         while filled < buflen {
-            match salty::syscall::sys_getrandom() {
+            match trona::syscall::sys_getrandom() {
                 Some(val) => {
                     let bytes = val.to_le_bytes();
                     let remaining = buflen - filled;

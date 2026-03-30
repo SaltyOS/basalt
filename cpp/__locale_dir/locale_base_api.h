@@ -9,7 +9,7 @@
 // SaltyOS shadow of libcxx/include/__locale_dir/locale_base_api.h.
 // Adds _LIBCPP_LOCALE_BACKEND_SALTYOS detection before the upstream
 // platform chain so our backend is selected when building for SaltyOS.
-// The isystem search order (lib/besalt/cpp before libcxx/include) ensures
+// The isystem search order (lib/basalt/cpp before libcxx/include) ensures
 // this copy is found first by the compiler.
 //
 //===----------------------------------------------------------------------===//

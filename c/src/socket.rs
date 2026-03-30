@@ -5,10 +5,10 @@
 //! send, recv, sendto, recvfrom, sendmsg, recvmsg, shutdown, socketpair)
 //! plus poll, epoll, and DNS name resolution (getaddrinfo/freeaddrinfo).
 //!
-//! All functions delegate to `salty::posix::*` or `salty::dns::*`.
+//! All functions delegate to `trona_posix::*` or `trona_posix::dns::*`.
 
 use crate::errno;
-use salty::consts::SOL_SOCKET;
+use trona::consts::SOL_SOCKET;
 
 static mut LOGGED_SOCKET_META_CALLS: u8 = 0;
 static mut LOGGED_RECVMSG_INET_RESULTS: u8 = 0;
@@ -31,7 +31,7 @@ fn log_socket_meta(op: &[u8], fd: i32, a: i32, b: i32) {
         }
         *(&raw mut LOGGED_SOCKET_META_CALLS) += 1;
     }
-    salty::udebug!(|_lb| {
+    trona::udebug!(|_lb| {
         _lb.str(b"[libc] ");
         _lb.str(op);
         _lb.str(b" fd=");
@@ -55,7 +55,7 @@ fn log_recvmsg_inet_result(fd: i32, ret: isize, data: &[u8], user_data: Option<&
         }
         *(&raw mut LOGGED_RECVMSG_INET_RESULTS) += 1;
     }
-    salty::udebug!(|_lb| {
+    trona::udebug!(|_lb| {
         _lb.str(b"[libc] recvmsg inet fd=");
         _lb.dec(fd as u64);
         _lb.str(b" ret=");
@@ -138,14 +138,14 @@ unsafe fn decode_sockaddr_in(addr: *const u8, addrlen: u32) -> Option<(u32, u16)
     None
 }
 
-unsafe fn decode_posix_sockaddr_in(addr: *const u8, addrlen: u32) -> Option<salty::types::SockAddrIn> {
+unsafe fn decode_posix_sockaddr_in(addr: *const u8, addrlen: u32) -> Option<trona::types::SockAddrIn> {
     if addr.is_null() || addrlen < 8 {
         return None;
     }
 
     let family = unsafe { core::ptr::read_unaligned(addr as *const u16) };
     if family == AF_INET as u16 {
-        let mut posix = salty::types::SockAddrIn::zeroed();
+        let mut posix = trona::types::SockAddrIn::zeroed();
         posix.family = AF_INET as u16;
         posix.port = unsafe { core::ptr::read_unaligned(addr.add(2) as *const u16) };
         posix.addr = unsafe { core::ptr::read_unaligned(addr.add(4) as *const u32) };
@@ -155,7 +155,7 @@ unsafe fn decode_posix_sockaddr_in(addr: *const u8, addrlen: u32) -> Option<salt
     let sa_len = unsafe { *addr };
     let sa_family = unsafe { *addr.add(1) };
     if sa_family == AF_INET as u8 && sa_len as u32 >= 8 {
-        let mut posix = salty::types::SockAddrIn::zeroed();
+        let mut posix = trona::types::SockAddrIn::zeroed();
         posix.family = AF_INET as u16;
         posix.port = unsafe { core::ptr::read_unaligned(addr.add(2) as *const u16) };
         posix.addr = unsafe { core::ptr::read_unaligned(addr.add(4) as *const u32) };
@@ -269,10 +269,10 @@ unsafe fn socket_domain(fd: i32) -> Option<i32> {
     unsafe {
         let mut domain = 0u32;
         let mut domain_len = core::mem::size_of::<u32>() as u32;
-        let ret = salty::posix::posix_getsockopt(
+        let ret = trona_posix::posix_getsockopt(
             fd,
             SOL_SOCKET,
-            salty::consts::SO_DOMAIN,
+            trona::consts::SO_DOMAIN,
             &raw mut domain as *mut u32 as *mut u8,
             &raw mut domain_len,
         );
@@ -298,7 +298,7 @@ unsafe fn store_timestamp_cmsg(msg: *mut MsgHdr, timestamp_ns: u64) {
         return;
     }
 
-    if timestamp_ns == salty::consts::INET_RECV_TIMESTAMP_NONE {
+    if timestamp_ns == trona::consts::INET_RECV_TIMESTAMP_NONE {
         hdr.msg_controllen = 0;
         return;
     }
@@ -310,7 +310,7 @@ unsafe fn store_timestamp_cmsg(msg: *mut MsgHdr, timestamp_ns: u64) {
     let cmsg = CmsgHdr {
         cmsg_len: cmsg_len(core::mem::size_of::<TimeSpec>()) as u32,
         cmsg_level: cmsg_sol_socket_level(),
-        cmsg_type: salty::consts::SCM_TIMESTAMP,
+        cmsg_type: trona::consts::SCM_TIMESTAMP,
     };
     unsafe {
         core::ptr::write_unaligned(hdr.msg_control as *mut CmsgHdr, cmsg);
@@ -372,13 +372,13 @@ const SERVICES: &[(&[u8], u16, i32)] = &[
 #[inline]
 fn dns_label_to_eai(label: u64) -> i32 {
     match label {
-        salty::consts::BESALT_TIMED_OUT => EAI_AGAIN,
-        salty::consts::BESALT_DNS_SERVER_FAIL => EAI_FAIL,
-        salty::consts::BESALT_DNS_NXDOMAIN | salty::consts::BESALT_NOT_FOUND => EAI_NONAME,
-        salty::consts::BESALT_INVALID_OPERATION
-        | salty::consts::BESALT_INVALID_CAPABILITY
-        | salty::consts::BESALT_BUSY
-        | salty::consts::BESALT_CANCELLED => EAI_AGAIN,
+        trona::consts::TRONA_TIMED_OUT => EAI_AGAIN,
+        trona::consts::TRONA_DNS_SERVER_FAIL => EAI_FAIL,
+        trona::consts::TRONA_DNS_NXDOMAIN | trona::consts::TRONA_NOT_FOUND => EAI_NONAME,
+        trona::consts::TRONA_INVALID_OPERATION
+        | trona::consts::TRONA_INVALID_CAPABILITY
+        | trona::consts::TRONA_BUSY
+        | trona::consts::TRONA_CANCELLED => EAI_AGAIN,
         _ => EAI_AGAIN,
     }
 }
@@ -387,13 +387,13 @@ fn dns_label_to_eai(label: u64) -> i32 {
 unsafe fn set_h_errno_from_dns_label(label: u64) {
     unsafe {
         crate::inet::h_errno = match label {
-            salty::consts::BESALT_TIMED_OUT => TRY_AGAIN,
-            salty::consts::BESALT_DNS_SERVER_FAIL => NO_RECOVERY,
-            salty::consts::BESALT_DNS_NXDOMAIN | salty::consts::BESALT_NOT_FOUND => HOST_NOT_FOUND,
-            salty::consts::BESALT_INVALID_OPERATION
-            | salty::consts::BESALT_INVALID_CAPABILITY
-            | salty::consts::BESALT_BUSY
-            | salty::consts::BESALT_CANCELLED => TRY_AGAIN,
+            trona::consts::TRONA_TIMED_OUT => TRY_AGAIN,
+            trona::consts::TRONA_DNS_SERVER_FAIL => NO_RECOVERY,
+            trona::consts::TRONA_DNS_NXDOMAIN | trona::consts::TRONA_NOT_FOUND => HOST_NOT_FOUND,
+            trona::consts::TRONA_INVALID_OPERATION
+            | trona::consts::TRONA_INVALID_CAPABILITY
+            | trona::consts::TRONA_BUSY
+            | trona::consts::TRONA_CANCELLED => TRY_AGAIN,
             _ => TRY_AGAIN,
         };
     }
@@ -407,16 +407,16 @@ unsafe fn set_h_errno_from_dns_label(label: u64) {
 pub unsafe extern "C" fn socket(domain: i32, sock_type: i32, protocol: i32) -> i32 {
     unsafe {
         let base_type = sock_type & !(SOCK_NONBLOCK | SOCK_CLOEXEC);
-        let ret = salty::posix::posix_socket(domain, base_type, protocol);
+        let ret = trona_posix::posix_socket(domain, base_type, protocol);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
         }
         if (sock_type & SOCK_NONBLOCK) != 0 {
-            let _ = salty::posix::posix_fcntl(ret, 4, salty::O_NONBLOCK as i64);
+            let _ = trona_posix::posix_fcntl(ret, 4, trona_posix::O_NONBLOCK as i64);
         }
         if (sock_type & SOCK_CLOEXEC) != 0 {
-            let _ = salty::posix::posix_fcntl(ret, 2, 1);
+            let _ = trona_posix::posix_fcntl(ret, 2, 1);
         }
         ret
     }
@@ -426,13 +426,13 @@ pub unsafe extern "C" fn socket(domain: i32, sock_type: i32, protocol: i32) -> i
 pub unsafe extern "C" fn bind(fd: i32, addr: *const u8, addrlen: u32) -> i32 {
     unsafe {
         let ret = if let Some(posix_addr) = decode_posix_sockaddr_in(addr, addrlen) {
-            salty::posix::posix_bind(
+            trona_posix::posix_bind(
                 fd,
-                &raw const posix_addr as *const salty::types::SockAddrIn as *const u8,
-                core::mem::size_of::<salty::types::SockAddrIn>() as u32,
+                &raw const posix_addr as *const trona::types::SockAddrIn as *const u8,
+                core::mem::size_of::<trona::types::SockAddrIn>() as u32,
             )
         } else {
-            salty::posix::posix_bind(fd, addr, addrlen)
+            trona_posix::posix_bind(fd, addr, addrlen)
         };
         if ret < 0 {
             errno::set_errno(-ret);
@@ -445,7 +445,7 @@ pub unsafe extern "C" fn bind(fd: i32, addr: *const u8, addrlen: u32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn listen(fd: i32, backlog: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_listen(fd, backlog);
+        let ret = trona_posix::posix_listen(fd, backlog);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -457,7 +457,7 @@ pub unsafe extern "C" fn listen(fd: i32, backlog: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn accept(fd: i32, _addr: *mut u8, _addrlen: *mut u32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_accept(fd);
+        let ret = trona_posix::posix_accept(fd);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -470,13 +470,13 @@ pub unsafe extern "C" fn accept(fd: i32, _addr: *mut u8, _addrlen: *mut u32) -> 
 pub unsafe extern "C" fn connect(fd: i32, addr: *const u8, addrlen: u32) -> i32 {
     unsafe {
         let ret = if let Some(posix_addr) = decode_posix_sockaddr_in(addr, addrlen) {
-            salty::posix::posix_connect(
+            trona_posix::posix_connect(
                 fd,
-                &raw const posix_addr as *const salty::types::SockAddrIn as *const u8,
-                core::mem::size_of::<salty::types::SockAddrIn>() as u32,
+                &raw const posix_addr as *const trona::types::SockAddrIn as *const u8,
+                core::mem::size_of::<trona::types::SockAddrIn>() as u32,
             )
         } else {
-            salty::posix::posix_connect(fd, addr, addrlen)
+            trona_posix::posix_connect(fd, addr, addrlen)
         };
         if ret < 0 {
             errno::set_errno(-ret);
@@ -489,7 +489,7 @@ pub unsafe extern "C" fn connect(fd: i32, addr: *const u8, addrlen: u32) -> i32 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn shutdown(fd: i32, how: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_shutdown(fd, how);
+        let ret = trona_posix::posix_shutdown(fd, how);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -506,7 +506,7 @@ pub unsafe extern "C" fn socketpair(
     sv: *mut i32,
 ) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_socketpair(sv);
+        let ret = trona_posix::posix_socketpair(sv);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -522,7 +522,7 @@ pub unsafe extern "C" fn socketpair(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn send(fd: i32, buf: *const u8, len: usize, _flags: i32) -> isize {
     unsafe {
-        let ret = salty::posix::posix_write(fd, buf, len as u64);
+        let ret = trona_posix::posix_write(fd, buf, len as u64);
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -534,7 +534,7 @@ pub unsafe extern "C" fn send(fd: i32, buf: *const u8, len: usize, _flags: i32) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn recv(fd: i32, buf: *mut u8, len: usize, _flags: i32) -> isize {
     unsafe {
-        let ret = salty::posix::posix_read(fd, buf, len as u64);
+        let ret = trona_posix::posix_read(fd, buf, len as u64);
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -554,16 +554,16 @@ pub unsafe extern "C" fn sendto(
 ) -> isize {
     unsafe {
         let ret = if let Some(posix_addr) = decode_posix_sockaddr_in(addr, addrlen) {
-            salty::posix::posix_sendto(
+            trona_posix::posix_sendto(
                 fd,
                 buf,
                 len,
                 flags,
-                &raw const posix_addr as *const salty::types::SockAddrIn as *const u8,
-                core::mem::size_of::<salty::types::SockAddrIn>() as u32,
+                &raw const posix_addr as *const trona::types::SockAddrIn as *const u8,
+                core::mem::size_of::<trona::types::SockAddrIn>() as u32,
             )
         } else {
-            salty::posix::posix_sendto(fd, buf, len, flags, addr, addrlen)
+            trona_posix::posix_sendto(fd, buf, len, flags, addr, addrlen)
         };
         if ret < 0 {
             errno::set_errno((-ret) as i32);
@@ -584,14 +584,14 @@ pub unsafe extern "C" fn recvfrom(
 ) -> isize {
     unsafe {
         let ret = if !addr.is_null() && !addrlen.is_null() && socket_domain(fd) == Some(AF_INET) {
-            let mut host = salty::types::SockAddrIn::zeroed();
-            let mut host_len = core::mem::size_of::<salty::types::SockAddrIn>() as u32;
-            let ret = salty::posix::posix_recvfrom(
+            let mut host = trona::types::SockAddrIn::zeroed();
+            let mut host_len = core::mem::size_of::<trona::types::SockAddrIn>() as u32;
+            let ret = trona_posix::posix_recvfrom(
                 fd,
                 buf,
                 len,
                 flags,
-                &raw mut host as *mut salty::types::SockAddrIn as *mut u8,
+                &raw mut host as *mut trona::types::SockAddrIn as *mut u8,
                 &raw mut host_len,
             );
             if ret >= 0 {
@@ -600,7 +600,7 @@ pub unsafe extern "C" fn recvfrom(
             }
             ret
         } else {
-            salty::posix::posix_recvfrom(fd, buf, len, flags, addr, addrlen)
+            trona_posix::posix_recvfrom(fd, buf, len, flags, addr, addrlen)
         };
         if ret < 0 {
             errno::set_errno((-ret) as i32);
@@ -624,16 +624,16 @@ pub unsafe extern "C" fn sendmsg(fd: i32, msg: *const MsgHdr, _flags: i32) -> is
             && hdr.msg_namelen >= core::mem::size_of::<SockAddrIn>() as u32
         {
             if let Some(posix_addr) = decode_posix_sockaddr_in(hdr.msg_name as *const u8, hdr.msg_namelen) {
-                salty::posix::posix_sendto(
+                trona_posix::posix_sendto(
                     fd,
                     buf.as_ptr(),
                     data_len,
                     0,
-                    &raw const posix_addr as *const salty::types::SockAddrIn as *const u8,
-                    core::mem::size_of::<salty::types::SockAddrIn>() as u32,
+                    &raw const posix_addr as *const trona::types::SockAddrIn as *const u8,
+                    core::mem::size_of::<trona::types::SockAddrIn>() as u32,
                 )
             } else {
-                salty::posix::posix_sendto(
+                trona_posix::posix_sendto(
                     fd,
                     buf.as_ptr(),
                     data_len,
@@ -646,7 +646,7 @@ pub unsafe extern "C" fn sendmsg(fd: i32, msg: *const MsgHdr, _flags: i32) -> is
             let mut rights = [0i32; 4];
             let rights_count = extract_scm_rights(msg, &mut rights);
             if rights_count > 0 {
-                salty::posix::posix_sendmsg(
+                trona_posix::posix_sendmsg(
                     fd,
                     buf.as_ptr(),
                     data_len as u64,
@@ -654,7 +654,7 @@ pub unsafe extern "C" fn sendmsg(fd: i32, msg: *const MsgHdr, _flags: i32) -> is
                     rights_count as u32,
                 )
             } else {
-                salty::posix::posix_write(fd, buf.as_ptr(), data_len as u64)
+                trona_posix::posix_write(fd, buf.as_ptr(), data_len as u64)
             }
         };
         if ret < 0 {
@@ -698,15 +698,15 @@ pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isiz
         };
 
         let ret = if domain == Some(AF_INET) && (has_name || has_control) {
-            let mut host_name = salty::types::SockAddrIn::zeroed();
-            let mut name_len = core::mem::size_of::<salty::types::SockAddrIn>() as u32;
-            let mut timestamp_ns = salty::consts::INET_RECV_TIMESTAMP_NONE;
-            let ret = salty::posix::posix_recvmsg_inet(
+            let mut host_name = trona::types::SockAddrIn::zeroed();
+            let mut name_len = core::mem::size_of::<trona::types::SockAddrIn>() as u32;
+            let mut timestamp_ns = trona::consts::INET_RECV_TIMESTAMP_NONE;
+            let ret = trona_posix::posix_recvmsg_inet(
                 fd,
                 buf.as_mut_ptr(),
                 cap as u64,
                 if has_name {
-                    &raw mut host_name as *mut salty::types::SockAddrIn as *mut u8
+                    &raw mut host_name as *mut trona::types::SockAddrIn as *mut u8
                 } else {
                     core::ptr::null_mut()
                 },
@@ -751,14 +751,14 @@ pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isiz
         } else if !hdr.msg_name.is_null()
             && hdr.msg_namelen >= core::mem::size_of::<SockAddrIn>() as u32
         {
-            let mut host_name = salty::types::SockAddrIn::zeroed();
-            let mut name_len = core::mem::size_of::<salty::types::SockAddrIn>() as u32;
-            let ret = salty::posix::posix_recvfrom(
+            let mut host_name = trona::types::SockAddrIn::zeroed();
+            let mut name_len = core::mem::size_of::<trona::types::SockAddrIn>() as u32;
+            let ret = trona_posix::posix_recvfrom(
                 fd,
                 buf.as_mut_ptr(),
                 cap,
                 0,
-                &raw mut host_name as *mut salty::types::SockAddrIn as *mut u8,
+                &raw mut host_name as *mut trona::types::SockAddrIn as *mut u8,
                 &raw mut name_len,
             );
             if ret >= 0 {
@@ -776,7 +776,7 @@ pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isiz
         {
             let mut rights = [0i32; 4];
             let mut rights_len = rights.len() as u32;
-            let ret = salty::posix::posix_recvmsg(
+            let ret = trona_posix::posix_recvmsg(
                 fd,
                 buf.as_mut_ptr(),
                 cap as u64,
@@ -791,7 +791,7 @@ pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isiz
             ret
         } else {
             hdr.msg_controllen = 0;
-            salty::posix::posix_read(fd, buf.as_mut_ptr(), cap as u64)
+            trona_posix::posix_read(fd, buf.as_mut_ptr(), cap as u64)
         };
         if ret < 0 {
             errno::set_errno((-ret) as i32);
@@ -816,7 +816,7 @@ pub unsafe extern "C" fn setsockopt(
 ) -> i32 {
     log_socket_meta(b"setsockopt", fd, level, optname);
     unsafe {
-        let ret = salty::posix::posix_setsockopt(fd, level, optname, optval, optlen);
+        let ret = trona_posix::posix_setsockopt(fd, level, optname, optval, optlen);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -835,7 +835,7 @@ pub unsafe extern "C" fn getsockopt(
 ) -> i32 {
     log_socket_meta(b"getsockopt", fd, level, optname);
     unsafe {
-        let ret = salty::posix::posix_getsockopt(fd, level, optname, optval, optlen);
+        let ret = trona_posix::posix_getsockopt(fd, level, optname, optval, optlen);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -861,11 +861,11 @@ pub unsafe extern "C" fn getsockname(
             return -1;
         }
 
-        let mut host = salty::types::SockAddrIn::zeroed();
-        let mut host_len = core::mem::size_of::<salty::types::SockAddrIn>() as u32;
-        let ret = salty::posix::posix_getsockname(
+        let mut host = trona::types::SockAddrIn::zeroed();
+        let mut host_len = core::mem::size_of::<trona::types::SockAddrIn>() as u32;
+        let ret = trona_posix::posix_getsockname(
             fd,
-            &raw mut host as *mut salty::types::SockAddrIn as *mut u8,
+            &raw mut host as *mut trona::types::SockAddrIn as *mut u8,
             &raw mut host_len,
         );
         if ret < 0 {
@@ -896,11 +896,11 @@ pub unsafe extern "C" fn getpeername(
             return -1;
         }
 
-        let mut host = salty::types::SockAddrIn::zeroed();
-        let mut host_len = core::mem::size_of::<salty::types::SockAddrIn>() as u32;
-        let ret = salty::posix::posix_getpeername(
+        let mut host = trona::types::SockAddrIn::zeroed();
+        let mut host_len = core::mem::size_of::<trona::types::SockAddrIn>() as u32;
+        let ret = trona_posix::posix_getpeername(
             fd,
-            &raw mut host as *mut salty::types::SockAddrIn as *mut u8,
+            &raw mut host as *mut trona::types::SockAddrIn as *mut u8,
             &raw mut host_len,
         );
         if ret < 0 {
@@ -1008,7 +1008,7 @@ unsafe fn extract_scm_rights(msg: *const MsgHdr, fds: &mut [i32; 4]) -> usize {
     }
 
     let cmsg = unsafe { core::ptr::read_unaligned(hdr.msg_control as *const CmsgHdr) };
-    if !is_sol_socket_level(cmsg.cmsg_level) || cmsg.cmsg_type != salty::consts::SCM_RIGHTS {
+    if !is_sol_socket_level(cmsg.cmsg_level) || cmsg.cmsg_type != trona::consts::SCM_RIGHTS {
         return 0;
     }
 
@@ -1062,7 +1062,7 @@ unsafe fn store_scm_rights(msg: *mut MsgHdr, fds: &[i32]) {
     let cmsg = CmsgHdr {
         cmsg_len: (header_len + fd_count * core::mem::size_of::<i32>()) as u32,
         cmsg_level: cmsg_sol_socket_level(),
-        cmsg_type: salty::consts::SCM_RIGHTS,
+        cmsg_type: trona::consts::SCM_RIGHTS,
     };
     unsafe {
         core::ptr::write_unaligned(hdr.msg_control as *mut CmsgHdr, cmsg);
@@ -1130,7 +1130,7 @@ unsafe fn parse_numeric_ipv4(s: *const u8) -> Option<u32> {
         if len == 0 {
             return None;
         }
-        salty::dns::parse_ipv4_numeric(core::slice::from_raw_parts(s, len))
+        trona_posix::dns::parse_ipv4_numeric(core::slice::from_raw_parts(s, len))
     }
 }
 
@@ -1213,7 +1213,7 @@ pub unsafe extern "C" fn getaddrinfo(
                 return EAI_NONAME;
             }
             let hostname = core::slice::from_raw_parts(node, len);
-            let dns = match salty::dns::dns_resolve_multi_result(hostname) {
+            let dns = match trona_posix::dns::dns_resolve_multi_result(hostname) {
                 Ok(dns) => dns,
                 Err(label) => return dns_label_to_eai(label),
             };
@@ -1342,7 +1342,7 @@ pub unsafe extern "C" fn getnameinfo(
                 *host.add(len) = 0;
             } else {
                 // Try reverse DNS, fall back to numeric
-                let rlen = salty::dns::dns_reverse_lookup(ip, host, (hostlen - 1) as usize);
+                let rlen = trona_posix::dns::dns_reverse_lookup(ip, host, (hostlen - 1) as usize);
                 if rlen > 0 {
                     *host.add(rlen) = 0;
                 } else {
@@ -1450,7 +1450,7 @@ pub unsafe extern "C" fn gai_strerror(errcode: i32) -> *const u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn poll(fds: *mut PollFd, nfds: u32, timeout: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_poll(fds as *mut salty::PollFd, nfds, timeout);
+        let ret = trona_posix::posix_poll(fds as *mut trona_posix::PollFd, nfds, timeout);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -1480,7 +1480,7 @@ pub unsafe extern "C" fn ppoll(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn epoll_create(_size: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_epoll_create();
+        let ret = trona_posix::posix_epoll_create();
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -1492,7 +1492,7 @@ pub unsafe extern "C" fn epoll_create(_size: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn epoll_create1(_flags: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_epoll_create();
+        let ret = trona_posix::posix_epoll_create();
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -1514,7 +1514,7 @@ pub unsafe extern "C" fn epoll_ctl(
         } else {
             ((*event).events, (*event).data)
         };
-        let ret = salty::posix::posix_epoll_ctl(epfd, op, fd, events, data);
+        let ret = trona_posix::posix_epoll_ctl(epfd, op, fd, events, data);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -1531,11 +1531,11 @@ pub unsafe extern "C" fn epoll_wait(
     timeout: i32,
 ) -> i32 {
     unsafe {
-        // EpollEvent layout matches salty::types::EpollEvent (events: u32, data: u64)
+        // EpollEvent layout matches trona::types::EpollEvent (events: u32, data: u64)
         // but we have a padding field. Use salty EpollEvent directly via cast.
-        let ret = salty::posix::posix_epoll_wait(
+        let ret = trona_posix::posix_epoll_wait(
             epfd,
-            events as *mut salty::types::EpollEvent,
+            events as *mut trona::types::EpollEvent,
             maxevents,
             timeout,
         );
@@ -1592,7 +1592,7 @@ pub unsafe extern "C" fn gethostbyname(name: *const u8) -> *mut Hostent {
         return core::ptr::null_mut();
     }
     unsafe {
-        let ip = match salty::dns::posix_gethostbyname_result(name) {
+        let ip = match trona_posix::dns::posix_gethostbyname_result(name) {
             Ok(ip) => {
                 crate::inet::h_errno = 0;
                 ip

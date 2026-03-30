@@ -17,7 +17,7 @@ fn log_select_enter(api: &[u8], nfds: i32, timeout_ms: i32, timeout_sec: i64, ti
         }
         *(&raw mut LOGGED_SELECT_CALLS) += 1;
     }
-    salty::udebug!(|_lb| {
+    trona::udebug!(|_lb| {
         _lb.str(b"[libc] ");
         _lb.str(api);
         _lb.str(b" wait nfds=");
@@ -49,7 +49,7 @@ fn log_select_enter(api: &[u8], nfds: i32, timeout_ms: i32, timeout_sec: i64, ti
 }
 
 fn log_select_result(api: &[u8], nfds: i32, timeout_ms: i32, ret: i32, timeout_sec: i64, timeout_nsec: i64) {
-    salty::udebug!(|_lb| {
+    trona::udebug!(|_lb| {
         _lb.str(b"[libc] ");
         _lb.str(api);
         _lb.str(b" nfds=");
@@ -175,12 +175,12 @@ pub unsafe extern "C" fn select(
             if !timeout.is_null() {
                 let ms = (*timeout).tv_sec * 1000 + (*timeout).tv_usec / 1000;
                 if ms > 0 {
-                    let ts = salty::types::Timespec {
+                    let ts = trona::types::Timespec {
                         tv_sec: (*timeout).tv_sec as u64,
                         tv_nsec: ((*timeout).tv_usec * 1000) as u64,
                     };
-                    let mut rem = salty::types::Timespec::zeroed();
-                    salty::posix::posix_nanosleep(&raw const ts, &raw mut rem);
+                    let mut rem = trona::types::Timespec::zeroed();
+                    trona_posix::posix_nanosleep(&raw const ts, &raw mut rem);
                 }
             }
             return 0;
@@ -193,7 +193,7 @@ pub unsafe extern "C" fn select(
         } else {
             MAX_POLL
         };
-        let mut poll_fds: [salty::PollFd; MAX_POLL] = core::mem::zeroed();
+        let mut poll_fds: [trona_posix::PollFd; MAX_POLL] = core::mem::zeroed();
         let mut fd_map: [i32; MAX_POLL] = [0; MAX_POLL]; // map index -> original fd
         let mut pi = 0;
 
@@ -209,13 +209,13 @@ pub unsafe extern "C" fn select(
                 poll_fds[pi].events = 0;
                 poll_fds[pi].revents = 0;
                 if in_read {
-                    poll_fds[pi].events |= salty::POLLIN;
+                    poll_fds[pi].events |= trona_posix::POLLIN;
                 }
                 if in_write {
-                    poll_fds[pi].events |= salty::POLLOUT;
+                    poll_fds[pi].events |= trona_posix::POLLOUT;
                 }
                 if in_except {
-                    poll_fds[pi].events |= salty::POLLERR;
+                    poll_fds[pi].events |= trona_posix::POLLERR;
                 }
                 fd_map[pi] = fd;
                 pi += 1;
@@ -236,7 +236,7 @@ pub unsafe extern "C" fn select(
         let timeout_sec = if timeout.is_null() { -1 } else { (*timeout).tv_sec };
         let timeout_nsec = if timeout.is_null() { -1 } else { (*timeout).tv_usec * 1000 };
         log_select_enter(b"select", nfds, timeout_ms, timeout_sec, timeout_nsec);
-        let ret = salty::posix::posix_poll(poll_fds.as_mut_ptr(), pi as u32, timeout_ms);
+        let ret = trona_posix::posix_poll(poll_fds.as_mut_ptr(), pi as u32, timeout_ms);
         log_select_result(b"select", nfds, timeout_ms, ret, timeout_sec, timeout_nsec);
 
         if ret < 0 {
@@ -261,7 +261,7 @@ pub unsafe extern "C" fn select(
             let rev = poll_fds[i].revents;
             let mut counted = false;
 
-            if !readfds.is_null() && (rev & (salty::POLLIN | salty::POLLHUP | salty::POLLERR)) != 0
+            if !readfds.is_null() && (rev & (trona_posix::POLLIN | trona_posix::POLLHUP | trona_posix::POLLERR)) != 0
             {
                 fd_set(fd, readfds);
                 if !counted {
@@ -269,14 +269,14 @@ pub unsafe extern "C" fn select(
                     counted = true;
                 }
             }
-            if !writefds.is_null() && (rev & salty::POLLOUT) != 0 {
+            if !writefds.is_null() && (rev & trona_posix::POLLOUT) != 0 {
                 fd_set(fd, writefds);
                 if !counted {
                     ready += 1;
                     counted = true;
                 }
             }
-            if !exceptfds.is_null() && (rev & salty::POLLERR) != 0 {
+            if !exceptfds.is_null() && (rev & trona_posix::POLLERR) != 0 {
                 fd_set(fd, exceptfds);
                 if !counted {
                     ready += 1;

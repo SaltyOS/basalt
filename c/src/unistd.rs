@@ -1,7 +1,7 @@
 //! POSIX unistd wrappers
 //! SPDX-License-Identifier: GPL-2.0-only
 //!
-//! Thin wrappers around `salty::posix::*` and `salty::posix_mm::*` functions.
+//! Thin wrappers around `trona_posix::*` and `trona_posix::mm::*` functions.
 //! Each wrapper translates negative return values into `errno` settings.
 //! Includes file I/O (`open`, `close`, `read`, `write`, `lseek`), directory
 //! operations (`mkdir`, `rmdir`, `unlink`, `rename`), stat family, `mmap`,
@@ -43,25 +43,25 @@ pub struct Stat {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: translate BesaltStat -> Stat
+// Helper: translate TronaStat -> Stat
 // ---------------------------------------------------------------------------
 
-unsafe fn translate_stat(salty_stat: &salty::types::BesaltStat, out: *mut Stat) {
+unsafe fn translate_stat(trona_stat: &trona::types::TronaStat, out: *mut Stat) {
     unsafe {
         core::ptr::write_bytes(out, 0, 1);
 
         (*out).st_dev = 0;
-        (*out).st_ino = salty_stat.st_ino;
-        (*out).st_nlink = salty_stat.st_nlink;
-        (*out).st_mode = (salty_stat.st_mode & 0xffff) as u16;
+        (*out).st_ino = trona_stat.st_ino;
+        (*out).st_nlink = trona_stat.st_nlink;
+        (*out).st_mode = (trona_stat.st_mode & 0xffff) as u16;
         (*out).st_padding0 = 0;
-        (*out).st_uid = salty_stat.st_uid as u32;
-        (*out).st_gid = salty_stat.st_gid as u32;
+        (*out).st_uid = trona_stat.st_uid as u32;
+        (*out).st_gid = trona_stat.st_gid as u32;
         (*out).st_padding1 = 0;
         (*out).st_rdev = 0;
-        (*out).st_size = salty_stat.st_size as i64;
+        (*out).st_size = trona_stat.st_size as i64;
 
-        let blocks = salty_stat.st_size.saturating_add(511) / 512;
+        let blocks = trona_stat.st_size.saturating_add(511) / 512;
         (*out).st_blocks = if blocks > i64::MAX as u64 {
             i64::MAX
         } else {
@@ -69,7 +69,7 @@ unsafe fn translate_stat(salty_stat: &salty::types::BesaltStat, out: *mut Stat) 
         };
         (*out).st_blksize = 4096;
 
-        let mtime = salty_stat.st_mtime as i64;
+        let mtime = trona_stat.st_mtime as i64;
         (*out).st_atim.tv_sec = mtime;
         (*out).st_atim.tv_nsec = 0;
         (*out).st_mtim.tv_sec = mtime;
@@ -91,12 +91,12 @@ unsafe fn translate_stat(salty_stat: &salty::types::BesaltStat, out: *mut Stat) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn open(path: *const u8, flags: i32, mut args: ...) -> i32 {
     unsafe {
-        let mode: u32 = if (flags & salty::O_CREAT as i32) != 0 {
+        let mode: u32 = if (flags & trona_posix::O_CREAT as i32) != 0 {
             args.arg::<u32>()
         } else {
             0
         };
-        let ret = salty::posix::posix_open(path, flags, mode);
+        let ret = trona_posix::posix_open(path, flags, mode);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -108,13 +108,13 @@ pub unsafe extern "C" fn open(path: *const u8, flags: i32, mut args: ...) -> i32
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn creat(path: *const u8, _mode: u32) -> i32 {
     // creat(path, mode) == open(path, O_WRONLY|O_CREAT|O_TRUNC, mode)
-    unsafe { open(path, (salty::O_WRONLY | salty::O_CREAT | salty::O_TRUNC) as i32) }
+    unsafe { open(path, (trona_posix::O_WRONLY | trona_posix::O_CREAT | trona_posix::O_TRUNC) as i32) }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn close(fd: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_close(fd);
+        let ret = trona_posix::posix_close(fd);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -126,7 +126,7 @@ pub unsafe extern "C" fn close(fd: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn read(fd: i32, buf: *mut u8, count: usize) -> isize {
     unsafe {
-        let ret = salty::posix::posix_read(fd, buf, count as u64);
+        let ret = trona_posix::posix_read(fd, buf, count as u64);
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -138,7 +138,7 @@ pub unsafe extern "C" fn read(fd: i32, buf: *mut u8, count: usize) -> isize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn write(fd: i32, buf: *const u8, count: usize) -> isize {
     unsafe {
-        let ret = salty::posix::posix_write(fd, buf, count as u64);
+        let ret = trona_posix::posix_write(fd, buf, count as u64);
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -150,7 +150,7 @@ pub unsafe extern "C" fn write(fd: i32, buf: *const u8, count: usize) -> isize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn lseek(fd: i32, offset: i64, whence: i32) -> i64 {
     unsafe {
-        let ret = salty::posix::posix_lseek(fd, offset, whence);
+        let ret = trona_posix::posix_lseek(fd, offset, whence);
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -162,7 +162,7 @@ pub unsafe extern "C" fn lseek(fd: i32, offset: i64, whence: i32) -> i64 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dup(oldfd: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_dup(oldfd);
+        let ret = trona_posix::posix_dup(oldfd);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -174,7 +174,7 @@ pub unsafe extern "C" fn dup(oldfd: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dup2(oldfd: i32, newfd: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_dup2(oldfd, newfd);
+        let ret = trona_posix::posix_dup2(oldfd, newfd);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -186,7 +186,7 @@ pub unsafe extern "C" fn dup2(oldfd: i32, newfd: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pipe(fds: *mut i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_pipe(fds);
+        let ret = trona_posix::posix_pipe(fds);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -198,7 +198,7 @@ pub unsafe extern "C" fn pipe(fds: *mut i32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pipe2(fds: *mut i32, flags: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_pipe2(fds, flags);
+        let ret = trona_posix::posix_pipe2(fds, flags);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -211,14 +211,14 @@ pub unsafe extern "C" fn pipe2(fds: *mut i32, flags: i32) -> i32 {
 pub unsafe extern "C" fn fcntl(fd: i32, cmd: i32, mut args: ...) -> i32 {
     unsafe {
         let arg: i64 = args.arg();
-        salty::udebug!(|_lb| {
+        trona::udebug!(|_lb| {
             _lb.str(b"[libc] fcntl fd=");
             _lb.dec(fd as u64);
             _lb.str(b" cmd=");
             _lb.dec(cmd as u64);
             _lb.putc(b'\n');
         });
-        let ret = salty::posix::posix_fcntl(fd, cmd, arg);
+        let ret = trona_posix::posix_fcntl(fd, cmd, arg);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -230,7 +230,7 @@ pub unsafe extern "C" fn fcntl(fd: i32, cmd: i32, mut args: ...) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn isatty(fd: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_isatty(fd);
+        let ret = trona_posix::posix_isatty(fd);
         if ret == 0 {
             errno::set_errno(errno::ENOTTY);
         }
@@ -245,7 +245,7 @@ pub unsafe extern "C" fn isatty(fd: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn chdir(path: *const u8) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_chdir(path);
+        let ret = trona_posix::posix_chdir(path);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -271,7 +271,7 @@ pub unsafe extern "C" fn getcwd(buf: *mut u8, size: usize) -> *mut u8 {
                 errno::set_errno(errno::ENOMEM);
                 return core::ptr::null_mut();
             }
-            let ret = salty::posix::posix_getcwd(p, alloc_size as u64);
+            let ret = trona_posix::posix_getcwd(p, alloc_size as u64);
             if ret < 0 {
                 crate::malloc::free(p);
                 errno::set_errno(-ret);
@@ -283,7 +283,7 @@ pub unsafe extern "C" fn getcwd(buf: *mut u8, size: usize) -> *mut u8 {
             errno::set_errno(errno::EINVAL);
             return core::ptr::null_mut();
         }
-        let ret = salty::posix::posix_getcwd(buf, size as u64);
+        let ret = trona_posix::posix_getcwd(buf, size as u64);
         if ret < 0 {
             errno::set_errno(-ret);
             return core::ptr::null_mut();
@@ -295,7 +295,7 @@ pub unsafe extern "C" fn getcwd(buf: *mut u8, size: usize) -> *mut u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn access(path: *const u8, mode: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_access(path, mode);
+        let ret = trona_posix::posix_access(path, mode);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -307,7 +307,7 @@ pub unsafe extern "C" fn access(path: *const u8, mode: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn unlink(path: *const u8) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_unlink(path);
+        let ret = trona_posix::posix_unlink(path);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -319,7 +319,7 @@ pub unsafe extern "C" fn unlink(path: *const u8) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rmdir(path: *const u8) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_rmdir(path);
+        let ret = trona_posix::posix_rmdir(path);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -331,7 +331,7 @@ pub unsafe extern "C" fn rmdir(path: *const u8) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mkdir(path: *const u8, mode: u32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_mkdir(path, mode as i32);
+        let ret = trona_posix::posix_mkdir(path, mode as i32);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -343,7 +343,7 @@ pub unsafe extern "C" fn mkdir(path: *const u8, mode: u32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn link(old: *const u8, new: *const u8) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_link(old, new);
+        let ret = trona_posix::posix_link(old, new);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -355,7 +355,7 @@ pub unsafe extern "C" fn link(old: *const u8, new: *const u8) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn symlink(target: *const u8, linkpath: *const u8) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_symlink(target, linkpath);
+        let ret = trona_posix::posix_symlink(target, linkpath);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -367,7 +367,7 @@ pub unsafe extern "C" fn symlink(target: *const u8, linkpath: *const u8) -> i32 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn readlink(path: *const u8, buf: *mut u8, bufsiz: usize) -> isize {
     unsafe {
-        let ret = salty::posix::posix_readlink(path, buf, bufsiz);
+        let ret = trona_posix::posix_readlink(path, buf, bufsiz);
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -383,7 +383,7 @@ pub unsafe extern "C" fn readlink(path: *const u8, buf: *mut u8, bufsiz: usize) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pread(fd: i32, buf: *mut u8, count: usize, offset: i64) -> isize {
     unsafe {
-        let ret = salty::posix::posix_pread(fd, buf, count as u64, offset);
+        let ret = trona_posix::posix_pread(fd, buf, count as u64, offset);
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -395,7 +395,7 @@ pub unsafe extern "C" fn pread(fd: i32, buf: *mut u8, count: usize, offset: i64)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pwrite(fd: i32, buf: *const u8, count: usize, offset: i64) -> isize {
     unsafe {
-        let ret = salty::posix::posix_pwrite(fd, buf, count as u64, offset);
+        let ret = trona_posix::posix_pwrite(fd, buf, count as u64, offset);
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -415,8 +415,8 @@ pub unsafe extern "C" fn stat(path: *const u8, buf: *mut Stat) -> i32 {
         return -1;
     }
     unsafe {
-        let mut salty_st = salty::types::BesaltStat::zeroed();
-        let ret = salty::posix::posix_stat(path, &raw mut salty_st);
+        let mut salty_st = trona::types::TronaStat::zeroed();
+        let ret = trona_posix::posix_stat(path, &raw mut salty_st);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -439,8 +439,8 @@ pub unsafe extern "C" fn fstat(fd: i32, buf: *mut Stat) -> i32 {
         return -1;
     }
     unsafe {
-        let mut salty_st = salty::types::BesaltStat::zeroed();
-        let ret = salty::posix::posix_fstat(fd, &raw mut salty_st);
+        let mut salty_st = trona::types::TronaStat::zeroed();
+        let ret = trona_posix::posix_fstat(fd, &raw mut salty_st);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -473,7 +473,7 @@ pub unsafe extern "C" fn writev(fd: i32, iov: *const Iovec, iovcnt: i32) -> isiz
             if v.iov_len == 0 {
                 continue;
             }
-            let ret = salty::posix::posix_write(fd, v.iov_base, v.iov_len as u64);
+            let ret = trona_posix::posix_write(fd, v.iov_base, v.iov_len as u64);
             if ret < 0 {
                 if total > 0 {
                     return total;
@@ -503,7 +503,7 @@ pub unsafe extern "C" fn readv(fd: i32, iov: *const Iovec, iovcnt: i32) -> isize
             if v.iov_len == 0 {
                 continue;
             }
-            let ret = salty::posix::posix_read(fd, v.iov_base as *mut u8, v.iov_len as u64);
+            let ret = trona_posix::posix_read(fd, v.iov_base as *mut u8, v.iov_len as u64);
             if ret < 0 {
                 if total > 0 {
                     return total;
@@ -526,19 +526,19 @@ pub unsafe extern "C" fn readv(fd: i32, iov: *const Iovec, iovcnt: i32) -> isize
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn umask(mask: u32) -> u32 {
-    unsafe { salty::posix::posix_umask(mask) }
+    unsafe { trona_posix::posix_umask(mask) }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn truncate(path: *const u8, length: i64) -> i32 {
     unsafe {
-        let fd = salty::posix::posix_open(path, salty::O_WRONLY as i32, 0);
+        let fd = trona_posix::posix_open(path, trona_posix::O_WRONLY as i32, 0);
         if fd < 0 {
             errno::set_errno(-fd);
             return -1;
         }
-        let ret = salty::posix::posix_ftruncate(fd, length as u64);
-        salty::posix::posix_close(fd);
+        let ret = trona_posix::posix_ftruncate(fd, length as u64);
+        trona_posix::posix_close(fd);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -550,7 +550,7 @@ pub unsafe extern "C" fn truncate(path: *const u8, length: i64) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ftruncate(fd: i32, length: i64) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_ftruncate(fd, length as u64);
+        let ret = trona_posix::posix_ftruncate(fd, length as u64);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -594,7 +594,7 @@ pub unsafe extern "C" fn fpathconf(_fd: i32, name: i32) -> i64 {
 pub unsafe extern "C" fn confstr(name: i32, buf: *mut u8, len: usize) -> usize {
     // _CS_PATH = 0
     let val: &[u8] = match name {
-        0 => salty::DEFAULT_PATH,
+        0 => trona_posix::DEFAULT_PATH,
         _ => b"",
     };
     let needed = val.len() + 1; // include NUL
@@ -614,13 +614,13 @@ pub unsafe extern "C" fn confstr(name: i32, buf: *mut u8, len: usize) -> usize {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sleep(seconds: u32) -> u32 {
-    unsafe { salty::posix::posix_sleep(seconds as u64) as u32 }
+    unsafe { trona_posix::posix_sleep(seconds as u64) as u32 }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn usleep(usec: u32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_usleep(usec as u64);
+        let ret = trona_posix::posix_usleep(usec as u64);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -637,15 +637,15 @@ pub unsafe extern "C" fn nanosleep(req: *const Timespec, rem: *mut Timespec) -> 
     }
     unsafe {
         // Convert from our i64-based Timespec to salty's u64-based Timespec
-        let salty_req = salty::types::Timespec {
+        let trona_req = trona::types::Timespec {
             tv_sec: (*req).tv_sec as u64,
             tv_nsec: (*req).tv_nsec as u64,
         };
-        let mut salty_rem = salty::types::Timespec::zeroed();
-        let ret = salty::posix::posix_nanosleep(&raw const salty_req, &raw mut salty_rem);
+        let mut trona_rem = trona::types::Timespec::zeroed();
+        let ret = trona_posix::posix_nanosleep(&raw const trona_req, &raw mut trona_rem);
         if !rem.is_null() {
-            (*rem).tv_sec = salty_rem.tv_sec as i64;
-            (*rem).tv_nsec = salty_rem.tv_nsec as i64;
+            (*rem).tv_sec = trona_rem.tv_sec as i64;
+            (*rem).tv_nsec = trona_rem.tv_nsec as i64;
         }
         if ret < 0 {
             errno::set_errno(-ret);
@@ -701,7 +701,7 @@ pub unsafe extern "C" fn pause() -> i32 {
 }
 
 // ---------------------------------------------------------------------------
-// Memory mapping (wrappers for libsalty posix_mm)
+// Memory mapping (wrappers for libtrona posix_mm)
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
@@ -714,7 +714,7 @@ pub unsafe extern "C" fn mmap(
     offset: i64,
 ) -> *mut u8 {
     unsafe {
-        let ret = salty::posix_mm::posix_mmap(addr, length as u64, prot, flags, fd, offset);
+        let ret = trona_posix::mm::posix_mmap(addr, length as u64, prot, flags, fd, offset);
         if ret as usize == usize::MAX {
             errno::set_errno(errno::ENOMEM);
             return usize::MAX as *mut u8; // MAP_FAILED
@@ -726,7 +726,7 @@ pub unsafe extern "C" fn mmap(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mprotect(addr: *mut u8, len: usize, prot: i32) -> i32 {
     unsafe {
-        let ret = salty::posix_mm::posix_mprotect(addr, len as u64, prot);
+        let ret = trona_posix::mm::posix_mprotect(addr, len as u64, prot);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -743,7 +743,7 @@ pub unsafe extern "C" fn madvise(_addr: *mut u8, _length: usize, _advice: i32) -
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn munmap(addr: *mut u8, length: usize) -> i32 {
     unsafe {
-        let ret = salty::posix_mm::posix_munmap(addr, length as u64);
+        let ret = trona_posix::mm::posix_munmap(addr, length as u64);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -780,7 +780,7 @@ pub unsafe extern "C" fn munlockall() -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn shm_open(name: *const u8, oflag: i32, _mode: u32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_shm_open(name, oflag);
+        let ret = trona_posix::posix_shm_open(name, oflag);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -792,7 +792,7 @@ pub unsafe extern "C" fn shm_open(name: *const u8, oflag: i32, _mode: u32) -> i3
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn shm_unlink(name: *const u8) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_shm_unlink(name);
+        let ret = trona_posix::posix_shm_unlink(name);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -808,7 +808,7 @@ pub unsafe extern "C" fn shm_unlink(name: *const u8) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mkfifo(path: *const u8, mode: u32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_mkfifo(path, mode);
+        let ret = trona_posix::posix_mkfifo(path, mode);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -853,13 +853,13 @@ pub unsafe extern "C" fn ttyname_r(fd: i32, buf: *mut u8, len: usize) -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn chmod(path: *const u8, mode: u32) -> i32 {
-    unsafe { fchmodat(salty::consts::AT_FDCWD, path, mode, 0) }
+    unsafe { fchmodat(trona::consts::AT_FDCWD, path, mode, 0) }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fchmod(fd: i32, mode: u32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_fchmod(fd, mode);
+        let ret = trona_posix::posix_fchmod(fd, mode);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -870,13 +870,13 @@ pub unsafe extern "C" fn fchmod(fd: i32, mode: u32) -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn chown(path: *const u8, owner: u32, group: u32) -> i32 {
-    unsafe { fchownat(salty::consts::AT_FDCWD, path, owner, group, 0) }
+    unsafe { fchownat(trona::consts::AT_FDCWD, path, owner, group, 0) }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fchown(fd: i32, owner: u32, group: u32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_fchown(fd, owner, group);
+        let ret = trona_posix::posix_fchown(fd, owner, group);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -889,11 +889,11 @@ pub unsafe extern "C" fn fchown(fd: i32, owner: u32, group: u32) -> i32 {
 pub unsafe extern "C" fn lchown(path: *const u8, owner: u32, group: u32) -> i32 {
     unsafe {
         fchownat(
-            salty::consts::AT_FDCWD,
+            trona::consts::AT_FDCWD,
             path,
             owner,
             group,
-            salty::consts::AT_SYMLINK_NOFOLLOW,
+            trona::consts::AT_SYMLINK_NOFOLLOW,
         )
     }
 }
@@ -915,12 +915,12 @@ pub unsafe extern "C" fn flock(_fd: i32, _operation: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn openat(dirfd: i32, path: *const u8, flags: i32, mut args: ...) -> i32 {
     unsafe {
-        let mode: u32 = if (flags & salty::O_CREAT as i32) != 0 {
+        let mode: u32 = if (flags & trona_posix::O_CREAT as i32) != 0 {
             args.arg::<u32>()
         } else {
             0
         };
-        let ret = salty::posix::posix_openat(dirfd, path, flags, mode);
+        let ret = trona_posix::posix_openat(dirfd, path, flags, mode);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -936,8 +936,8 @@ pub unsafe extern "C" fn fstatat(dirfd: i32, path: *const u8, buf: *mut Stat, fl
         return -1;
     }
     unsafe {
-        let mut salty_st = salty::types::BesaltStat::zeroed();
-        let ret = salty::posix::posix_fstatat(dirfd, path, &raw mut salty_st, flags);
+        let mut salty_st = trona::types::TronaStat::zeroed();
+        let ret = trona_posix::posix_fstatat(dirfd, path, &raw mut salty_st, flags);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -950,7 +950,7 @@ pub unsafe extern "C" fn fstatat(dirfd: i32, path: *const u8, buf: *mut Stat, fl
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn unlinkat(dirfd: i32, path: *const u8, flags: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_unlinkat(dirfd, path, flags);
+        let ret = trona_posix::posix_unlinkat(dirfd, path, flags);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -967,7 +967,7 @@ pub unsafe extern "C" fn renameat(
     new_path: *const u8,
 ) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_renameat(old_dirfd, old_path, new_dirfd, new_path);
+        let ret = trona_posix::posix_renameat(old_dirfd, old_path, new_dirfd, new_path);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -979,7 +979,7 @@ pub unsafe extern "C" fn renameat(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mkdirat(dirfd: i32, path: *const u8, mode: u32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_mkdirat(dirfd, path, mode as i32);
+        let ret = trona_posix::posix_mkdirat(dirfd, path, mode as i32);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -997,7 +997,7 @@ pub unsafe extern "C" fn mknodat(_dirfd: i32, _path: *const u8, _mode: u32, _dev
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn faccessat(dirfd: i32, path: *const u8, mode: i32, flags: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_faccessat(dirfd, path, mode, flags);
+        let ret = trona_posix::posix_faccessat(dirfd, path, mode, flags);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -1009,7 +1009,7 @@ pub unsafe extern "C" fn faccessat(dirfd: i32, path: *const u8, mode: i32, flags
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fchmodat(dirfd: i32, path: *const u8, mode: u32, flags: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_fchmodat(dirfd, path, mode, flags);
+        let ret = trona_posix::posix_fchmodat(dirfd, path, mode, flags);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -1027,7 +1027,7 @@ pub unsafe extern "C" fn fchownat(
     flags: i32,
 ) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_fchownat(dirfd, path, owner, group, flags);
+        let ret = trona_posix::posix_fchownat(dirfd, path, owner, group, flags);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -1045,7 +1045,7 @@ pub unsafe extern "C" fn linkat(
     flags: i32,
 ) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_linkat(old_dirfd, old_path, new_dirfd, new_path, flags);
+        let ret = trona_posix::posix_linkat(old_dirfd, old_path, new_dirfd, new_path, flags);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -1057,7 +1057,7 @@ pub unsafe extern "C" fn linkat(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn symlinkat(target: *const u8, new_dirfd: i32, linkpath: *const u8) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_symlinkat(target, new_dirfd, linkpath);
+        let ret = trona_posix::posix_symlinkat(target, new_dirfd, linkpath);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -1074,7 +1074,7 @@ pub unsafe extern "C" fn readlinkat(
     bufsiz: usize,
 ) -> isize {
     unsafe {
-        let ret = salty::posix::posix_readlinkat(dirfd, path, buf, bufsiz);
+        let ret = trona_posix::posix_readlinkat(dirfd, path, buf, bufsiz);
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -1103,7 +1103,7 @@ pub unsafe extern "C" fn utimensat(
                 (*times.add(1)).tv_nsec,
             )
         };
-        let ret = salty::posix::posix_utimensat(
+        let ret = trona_posix::posix_utimensat(
             dirfd, path, atime_sec, atime_nsec, mtime_sec, mtime_nsec, flags,
         );
         if ret < 0 {
@@ -1131,7 +1131,7 @@ pub unsafe extern "C" fn futimens(fd: i32, times: *const Timespec) -> i32 {
             )
         };
         let at_empty_path: i32 = 0x1000;
-        let ret = salty::posix::posix_utimensat(
+        let ret = trona_posix::posix_utimensat(
             fd,
             empty.as_ptr(),
             atime_sec,
@@ -1151,7 +1151,7 @@ pub unsafe extern "C" fn futimens(fd: i32, times: *const Timespec) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dup3(oldfd: i32, newfd: i32, flags: i32) -> i32 {
     unsafe {
-        let ret = salty::posix::posix_dup3(oldfd, newfd, flags);
+        let ret = trona_posix::posix_dup3(oldfd, newfd, flags);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;

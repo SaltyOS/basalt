@@ -7,7 +7,7 @@
 #include <sys/cdefs.h>
 #include <time.h>       /* struct tm — required by POSIX for wcsftime */
 
-typedef int          wchar_t_saltyc;  /* actual wchar_t from stddef.h */
+typedef int          wchar_t_basaltc;  /* actual wchar_t from stddef.h */
 #ifndef _WINT_T_DEFINED
 #define _WINT_T_DEFINED
 typedef unsigned int wint_t;

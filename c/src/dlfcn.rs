@@ -78,7 +78,7 @@ struct RtldState {
 }
 
 unsafe extern "C" {
-    /// Pointer to rtld's global state, exported by ld-besalt.so.
+    /// Pointer to rtld's global state, exported by ld-trona.so.
     #[linkage = "extern_weak"]
     static __rtld_global: *const RtldState;
 }

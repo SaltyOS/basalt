@@ -135,23 +135,23 @@ fn parse_mode(mode: *const u8) -> (u32, i32) {
         match c0 {
             b'r' => {
                 if c1 == b'+' {
-                    (FILE_READ | FILE_WRITE, salty::O_RDWR as i32)
+                    (FILE_READ | FILE_WRITE, trona_posix::O_RDWR as i32)
                 } else {
-                    (FILE_READ, salty::O_RDONLY as i32)
+                    (FILE_READ, trona_posix::O_RDONLY as i32)
                 }
             }
             b'w' => {
                 if c1 == b'+' {
-                    (FILE_READ | FILE_WRITE, (salty::O_RDWR | salty::O_CREAT | salty::O_TRUNC) as i32)
+                    (FILE_READ | FILE_WRITE, (trona_posix::O_RDWR | trona_posix::O_CREAT | trona_posix::O_TRUNC) as i32)
                 } else {
-                    (FILE_WRITE, (salty::O_WRONLY | salty::O_CREAT | salty::O_TRUNC) as i32)
+                    (FILE_WRITE, (trona_posix::O_WRONLY | trona_posix::O_CREAT | trona_posix::O_TRUNC) as i32)
                 }
             }
             b'a' => {
                 if c1 == b'+' {
-                    (FILE_READ | FILE_WRITE | FILE_APPEND, (salty::O_RDWR | salty::O_CREAT | salty::O_APPEND) as i32)
+                    (FILE_READ | FILE_WRITE | FILE_APPEND, (trona_posix::O_RDWR | trona_posix::O_CREAT | trona_posix::O_APPEND) as i32)
                 } else {
-                    (FILE_WRITE | FILE_APPEND, (salty::O_WRONLY | salty::O_CREAT | salty::O_APPEND) as i32)
+                    (FILE_WRITE | FILE_APPEND, (trona_posix::O_WRONLY | trona_posix::O_CREAT | trona_posix::O_APPEND) as i32)
                 }
             }
             _ => (0, 0),
@@ -177,15 +177,15 @@ pub unsafe extern "C" fn fopen(path: *const u8, mode: *const u8) -> *mut FILE {
     }
 
     unsafe {
-        let open_mode: u32 = if (oflags & salty::O_CREAT as i32) != 0 { 0o644 } else { 0 };
-        let fd = salty::posix::posix_open(path, oflags, open_mode);
+        let open_mode: u32 = if (oflags & trona_posix::O_CREAT as i32) != 0 { 0o644 } else { 0 };
+        let fd = trona_posix::posix_open(path, oflags, open_mode);
         if fd < 0 {
             errno::set_errno(errno::ENOENT);
             return core::ptr::null_mut();
         }
         let f = alloc_file(fd, flags);
         if f.is_null() {
-            salty::posix::posix_close(fd);
+            trona_posix::posix_close(fd);
             errno::set_errno(errno::ENOMEM);
         }
         f
@@ -212,7 +212,7 @@ pub unsafe extern "C" fn fclose(f: *mut FILE) -> i32 {
         let ret = if let Some(cfn) = (*f).close_fn {
             cfn((*f).cookie)
         } else if (*f)._file >= 0 {
-            salty::posix::posix_close((*f)._file) as i32
+            trona_posix::posix_close((*f)._file) as i32
         } else {
             0
         };
@@ -238,10 +238,10 @@ pub unsafe extern "C" fn freopen(
     }
     unsafe {
         fflush(f);
-        salty::posix::posix_close((*f)._file);
+        trona_posix::posix_close((*f)._file);
         let (flags, oflags) = parse_mode(mode);
-        let open_mode: u32 = if (oflags & salty::O_CREAT as i32) != 0 { 0o644 } else { 0 };
-        let fd = salty::posix::posix_open(path, oflags, open_mode);
+        let open_mode: u32 = if (oflags & trona_posix::O_CREAT as i32) != 0 { 0o644 } else { 0 };
+        let fd = trona_posix::posix_open(path, oflags, open_mode);
         if fd < 0 {
             (*f)._file = -1;
             return core::ptr::null_mut();
@@ -267,7 +267,7 @@ pub unsafe extern "C" fn fflush(f: *mut FILE) -> i32 {
             let n = if let Some(wfn) = (*f).write_fn {
                 wfn((*f).cookie, (*f).buf.as_ptr(), (*f).buf_pos as i32) as i64
             } else {
-                salty::posix::posix_write((*f)._file, (*f).buf.as_ptr(), (*f).buf_pos as u64)
+                trona_posix::posix_write((*f)._file, (*f).buf.as_ptr(), (*f).buf_pos as u64)
             };
             if n < 0 {
                 (*f).flags |= FILE_ERROR;
@@ -312,7 +312,7 @@ pub unsafe extern "C" fn fgetc(f: *mut FILE) -> i32 {
             let n = if let Some(rfn) = (*f).read_fn {
                 rfn((*f).cookie, (*f).buf.as_mut_ptr(), BUF_SIZE as i32) as i64
             } else {
-                salty::posix::posix_read((*f)._file, (*f).buf.as_mut_ptr(), BUF_SIZE as u64)
+                trona_posix::posix_read((*f)._file, (*f).buf.as_mut_ptr(), BUF_SIZE as u64)
             };
             if n <= 0 {
                 (*f).flags |= if n == 0 { FILE_EOF } else { FILE_ERROR };
@@ -361,7 +361,7 @@ pub unsafe extern "C" fn fputc(c: i32, f: *mut FILE) -> i32 {
             let n = if let Some(wfn) = (*f).write_fn {
                 wfn((*f).cookie, &byte, 1) as i64
             } else {
-                salty::posix::posix_write((*f)._file, &byte, 1)
+                trona_posix::posix_write((*f)._file, &byte, 1)
             };
             return if n == 1 { c } else { EOF };
         }
@@ -506,7 +506,7 @@ pub unsafe extern "C" fn fseek(f: *mut FILE, offset: i64, whence: i32) -> i32 {
         let ret = if let Some(sfn) = (*f).seek_fn {
             sfn((*f).cookie, offset, whence)
         } else {
-            salty::posix::posix_lseek((*f)._file, offset, whence)
+            trona_posix::posix_lseek((*f)._file, offset, whence)
         };
         if ret < 0 { -1 } else { 0 }
     }
@@ -519,14 +519,14 @@ pub unsafe extern "C" fn ftell(f: *mut FILE) -> i64 {
     }
     unsafe {
         fflush(f);
-        salty::posix::posix_lseek((*f)._file, 0, salty::SEEK_CUR as i32)
+        trona_posix::posix_lseek((*f)._file, 0, trona_posix::SEEK_CUR as i32)
     }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rewind(f: *mut FILE) {
     unsafe {
-        fseek(f, 0, salty::SEEK_SET as i32);
+        fseek(f, 0, trona_posix::SEEK_SET as i32);
         if !f.is_null() {
             (*f).flags &= !(FILE_ERROR | FILE_EOF);
         }
@@ -675,7 +675,7 @@ pub unsafe extern "C" fn dprintf(fd: i32, fmt: *const u8, args: ...) -> i32 {
         let n = vsnprintf(buf.as_mut_ptr(), 4096, fmt, args);
         if n > 0 {
             let write_len = if (n as usize) < 4096 { n as usize } else { 4095 };
-            salty::posix::posix_write(fd, buf.as_ptr(), write_len as u64);
+            trona_posix::posix_write(fd, buf.as_ptr(), write_len as u64);
         }
         n
     }
@@ -741,12 +741,12 @@ pub unsafe extern "C" fn perror(s: *const u8) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn remove(path: *const u8) -> i32 {
-    unsafe { salty::posix::posix_unlink(path) }
+    unsafe { trona_posix::posix_unlink(path) }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rename(old: *const u8, new: *const u8) -> i32 {
-    unsafe { salty::posix::posix_rename(old, new) }
+    unsafe { trona_posix::posix_rename(old, new) }
 }
 
 // ======================================================================
@@ -1399,7 +1399,7 @@ pub unsafe extern "C" fn open_memstream(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tmpfile() -> *mut FILE {
-    unsafe { fopen(b"/tmp/saltyc_tmp\0".as_ptr(), b"w+\0".as_ptr()) }
+    unsafe { fopen(b"/tmp/basaltc_tmp\0".as_ptr(), b"w+\0".as_ptr()) }
 }
 
 #[unsafe(no_mangle)]
@@ -1421,7 +1421,7 @@ pub unsafe extern "C" fn mkstemp(template: *mut u8) -> i32 {
         for i in 0..6 {
             *template.add(base + i) = digits[((n >> (i * 4)) & 0xf) as usize];
         }
-        salty::posix::posix_open(template, (salty::O_RDWR | salty::O_CREAT | salty::O_EXCL) as i32, 0o600)
+        trona_posix::posix_open(template, (trona_posix::O_RDWR | trona_posix::O_CREAT | trona_posix::O_EXCL) as i32, 0o600)
     }
 }
 
@@ -2172,20 +2172,20 @@ pub unsafe extern "C" fn popen(cmd: *const u8, mode: *const u8) -> *mut FILE {
 
         let pid = crate::process::fork();
         if pid < 0 {
-            salty::posix::posix_close(fds[0]);
-            salty::posix::posix_close(fds[1]);
+            trona_posix::posix_close(fds[0]);
+            trona_posix::posix_close(fds[1]);
             return core::ptr::null_mut();
         }
 
         if pid == 0 {
             if is_read {
-                salty::posix::posix_close(fds[0]);
+                trona_posix::posix_close(fds[0]);
                 crate::unistd::dup2(fds[1], 1);
-                salty::posix::posix_close(fds[1]);
+                trona_posix::posix_close(fds[1]);
             } else {
-                salty::posix::posix_close(fds[1]);
+                trona_posix::posix_close(fds[1]);
                 crate::unistd::dup2(fds[0], 0);
-                salty::posix::posix_close(fds[0]);
+                trona_posix::posix_close(fds[0]);
             }
             crate::process::execl(
                 b"/bin/sh\0".as_ptr(),
@@ -2202,7 +2202,7 @@ pub unsafe extern "C" fn popen(cmd: *const u8, mode: *const u8) -> *mut FILE {
         } else {
             (fds[1], fds[0])
         };
-        salty::posix::posix_close(close_fd);
+        trona_posix::posix_close(close_fd);
 
         let mode_str = if is_read {
             b"r\0".as_ptr()
@@ -2211,7 +2211,7 @@ pub unsafe extern "C" fn popen(cmd: *const u8, mode: *const u8) -> *mut FILE {
         };
         let fp = fdopen(parent_fd, mode_str);
         if fp.is_null() {
-            salty::posix::posix_close(parent_fd);
+            trona_posix::posix_close(parent_fd);
             return core::ptr::null_mut();
         }
 

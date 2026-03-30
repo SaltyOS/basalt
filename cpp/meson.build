@@ -48,12 +48,12 @@ _cxx_flags = [
   #  3. libcxxabi/include — cxxabi headers
   #  4. clang resource   — freestanding stddef.h, stdint.h, float.h, stdarg.h
   #                        (reached via libc++'s #include_next)
-  #  5. besaltc/include  — C library headers (stdio.h, stdlib.h, pthread.h, ...)
+  #  5. basaltc/include  — C library headers (stdio.h, stdlib.h, pthread.h, ...)
   '-isystem', meson.current_source_dir(),
   '-isystem', _libcxx_inc,
   '-isystem', _libcxxabi_inc,
   '-isystem', _clang_resource_dir / 'include',
-  '-isystem', besaltc_inc_dir,
+  '-isystem', basaltc_inc_dir,
   '-I', _libcxx_src,
   # charconv.cpp → from_chars_floating_point.h → shared/fp_bits.h lives in libc/
   '-I', _llvm_src / 'libc',
@@ -198,7 +198,7 @@ _libunwind_flags = [
   '-isystem', _libcxxabi_inc,
   '-isystem', _libunwind_inc,
   '-isystem', _clang_resource_dir / 'include',
-  '-isystem', besaltc_inc_dir,
+  '-isystem', basaltc_inc_dir,
   '-I', _libunwind_src,
   '-include', _config_site,
 ]
@@ -282,7 +282,7 @@ _clang_rt_builtins = run_command(
 ).stdout().strip()
 
 # Link libc++.so — libcxx + libcxxabi objects + compiler-rt builtins +
-# DT_NEEDED entries for libc/libbesalt
+# DT_NEEDED entries for libc/libtrona
 libcxx_so = custom_target('libcxx_so',
   input: _all_objs,
   output: 'libc++.so',
@@ -296,12 +296,12 @@ libcxx_so = custom_target('libcxx_so',
     '-o', '@OUTPUT@',
     '@INPUT@',
     _clang_rt_builtins,
-    '-L', besaltc_build_dir,
+    '-L', basaltc_build_dir,
     '-lc',
-    '-L', libbesalt_build_dir,
-    '-lbesalt',
+    '-L', libtrona_build_dir,
+    '-ltrona',
   ],
-  depends: [libc_so, libbesalt_so],
+  depends: [libc_so, libtrona_so],
   build_by_default: true,
 )
 

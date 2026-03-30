@@ -119,8 +119,8 @@ static mut DEFAULT_TERMIOS: Termios = Termios {
 pub unsafe extern "C" fn tcgetattr(fd: i32, termios_p: *mut Termios) -> i32 {
     unsafe {
         // Route through VFS → console server IPC
-        let mut salty_t = salty::types::Termios::zeroed();
-        let ret = salty::posix::posix_tcgetattr(fd, &raw mut salty_t);
+        let mut salty_t = trona::types::Termios::zeroed();
+        let ret = trona_posix::posix_tcgetattr(fd, &raw mut salty_t);
         if ret != 0 {
             // Fallback to local defaults
             let src = &raw const DEFAULT_TERMIOS;
@@ -136,7 +136,7 @@ pub unsafe extern "C" fn tcgetattr(fd: i32, termios_p: *mut Termios) -> i32 {
             (*termios_p).c_cc[VSUSP] = 26;
             return 0;
         }
-        // Copy from salty Termios to saltyc Termios
+        // Copy from salty Termios to basaltc Termios
         (*termios_p).c_iflag = salty_t.c_iflag;
         (*termios_p).c_oflag = salty_t.c_oflag;
         (*termios_p).c_cflag = salty_t.c_cflag;
@@ -155,7 +155,7 @@ pub unsafe extern "C" fn tcgetattr(fd: i32, termios_p: *mut Termios) -> i32 {
 pub unsafe extern "C" fn tcsetattr(fd: i32, action: i32, termios_p: *const Termios) -> i32 {
     unsafe {
         // Route through VFS → console server IPC
-        let mut salty_t = salty::types::Termios::zeroed();
+        let mut salty_t = trona::types::Termios::zeroed();
         salty_t.c_iflag = (*termios_p).c_iflag;
         salty_t.c_oflag = (*termios_p).c_oflag;
         salty_t.c_cflag = (*termios_p).c_cflag;
@@ -166,7 +166,7 @@ pub unsafe extern "C" fn tcsetattr(fd: i32, action: i32, termios_p: *const Termi
         for i in 0..NCCS {
             salty_t.c_cc[i] = (*termios_p).c_cc[i];
         }
-        let ret = salty::posix::posix_tcsetattr(fd, action, &raw const salty_t);
+        let ret = trona_posix::posix_tcsetattr(fd, action, &raw const salty_t);
         if ret != 0 {
             // Fallback: update local static
             let dst = &raw mut DEFAULT_TERMIOS;

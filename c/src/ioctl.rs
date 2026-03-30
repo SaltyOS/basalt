@@ -13,7 +13,7 @@ pub unsafe extern "C" fn ioctl(fd: i32, request: u64, mut args: ...) -> i32 {
     unsafe {
         if *(&raw const LOGGED_IOCTL_CALLS) < 24 {
             *(&raw mut LOGGED_IOCTL_CALLS) += 1;
-            salty::udebug!(|_lb| {
+            trona::udebug!(|_lb| {
                 _lb.str(b"[libc] ioctl fd=");
                 _lb.dec(fd as u64);
                 _lb.str(b" req=");
@@ -23,7 +23,7 @@ pub unsafe extern "C" fn ioctl(fd: i32, request: u64, mut args: ...) -> i32 {
         }
     }
 
-    let ret = unsafe { salty::posix::posix_ioctl(fd, request, arg) };
+    let ret = unsafe { trona_posix::posix_ioctl(fd, request, arg) };
     if ret < 0 {
         errno::set_errno(-ret);
         return -1;

@@ -9,12 +9,12 @@
 // SaltyOS libc++ locale backend.
 //
 // SaltyOS is C-locale-only. This backend follows the Fuchsia model:
-//   - locale_t is a void* sentinel (from besaltc's locale.h)
+//   - locale_t is a void* sentinel (from basaltc's locale.h)
 //   - uselocale/newlocale/freelocale are no-ops / singleton returns
 //   - __locale_guard calls uselocale to set/restore locale (harmless)
 //   - Character classification delegates to no_locale/characters.h
 //   - strtonum functions delegate to no_locale/strtonum.h
-//   - Wide conversion functions use besaltc's wcrtomb/mbrtowc/etc.
+//   - Wide conversion functions use basaltc's wcrtomb/mbrtowc/etc.
 //
 //===----------------------------------------------------------------------===//
 
