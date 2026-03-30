@@ -101,6 +101,7 @@ extern char **environ;
 /* BSD extensions */
 extern const char *getprogname(void);
 extern void        setprogname(const char *name);
+extern char       *getprogpath(char *buf, const char *argv0);
 extern void        strmode(int mode, char *bp);
 extern void       *setmode(const char *mode_str);
 extern mode_t      getmode(const void *set, mode_t omode);

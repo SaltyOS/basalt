@@ -47,6 +47,129 @@ pub unsafe extern "C" fn setprogname(name: *const u8) {
 }
 
 // ---------------------------------------------------------------------------
+// getprogpath — resolve executable path from argv[0] via PATH search
+// ---------------------------------------------------------------------------
+
+unsafe extern "C" {
+    safe fn stat(path: *const u8, buf: *mut u8) -> i32;
+    safe fn realpath(name: *const u8, resolved: *mut u8) -> *mut u8;
+    safe fn getcwd(buf: *mut u8, size: usize) -> *mut u8;
+    safe fn getenv(name: *const u8) -> *mut u8;
+    safe fn strdup(s: *const u8) -> *mut u8;
+    safe fn strtok_r(s: *mut u8, delim: *const u8, saveptr: *mut *mut u8) -> *mut u8;
+    safe fn free(ptr: *mut u8);
+}
+
+const PATH_MAX: usize = 4096;
+
+/// Resolve the full path of `argv0` by searching PATH.
+///
+/// On success, writes the resolved path into `buf` (which must be at least
+/// PATH_MAX bytes) and returns `buf`. Returns null on failure.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getprogpath(buf: *mut u8, argv0: *const u8) -> *mut u8 {
+    unsafe {
+        if argv0.is_null() || *argv0 == 0 {
+            return core::ptr::null_mut();
+        }
+
+        // Absolute path
+        if *argv0 == b'/' {
+            if realpath(argv0, buf).is_null() {
+                return core::ptr::null_mut();
+            }
+            let mut st = [0u8; 256];
+            if stat(buf, st.as_mut_ptr()) != 0 {
+                return core::ptr::null_mut();
+            }
+            return buf;
+        }
+
+        // Relative path (contains '/')
+        let mut p = argv0;
+        let mut has_slash = false;
+        while *p != 0 {
+            if *p == b'/' {
+                has_slash = true;
+                break;
+            }
+            p = p.add(1);
+        }
+        if has_slash {
+            let mut cwd = [0u8; PATH_MAX];
+            if getcwd(cwd.as_mut_ptr(), PATH_MAX).is_null() {
+                return core::ptr::null_mut();
+            }
+            // Build cwd/argv0
+            let mut full = [0u8; PATH_MAX];
+            let mut i = 0usize;
+            let mut cp = cwd.as_ptr();
+            while *cp != 0 && i < PATH_MAX - 2 {
+                full[i] = *cp;
+                i += 1;
+                cp = cp.add(1);
+            }
+            full[i] = b'/';
+            i += 1;
+            cp = argv0;
+            while *cp != 0 && i < PATH_MAX - 1 {
+                full[i] = *cp;
+                i += 1;
+                cp = cp.add(1);
+            }
+            full[i] = 0;
+            if realpath(full.as_ptr(), buf).is_null() {
+                return core::ptr::null_mut();
+            }
+            return buf;
+        }
+
+        // PATH search
+        let path_env = getenv(b"PATH\0".as_ptr());
+        if path_env.is_null() {
+            return core::ptr::null_mut();
+        }
+        let path_copy = strdup(path_env);
+        if path_copy.is_null() {
+            return core::ptr::null_mut();
+        }
+
+        let mut state: *mut u8 = core::ptr::null_mut();
+        let mut tok = strtok_r(path_copy, b":\0".as_ptr(), &raw mut state);
+        while !tok.is_null() {
+            let mut full = [0u8; PATH_MAX];
+            let mut i = 0usize;
+            let mut cp = tok as *const u8;
+            while *cp != 0 && i < PATH_MAX - 2 {
+                full[i] = *cp;
+                i += 1;
+                cp = cp.add(1);
+            }
+            full[i] = b'/';
+            i += 1;
+            cp = argv0;
+            while *cp != 0 && i < PATH_MAX - 1 {
+                full[i] = *cp;
+                i += 1;
+                cp = cp.add(1);
+            }
+            full[i] = 0;
+
+            let mut st = [0u8; 256];
+            if stat(full.as_ptr(), st.as_mut_ptr()) == 0 {
+                if !realpath(full.as_ptr(), buf).is_null() {
+                    free(path_copy);
+                    return buf;
+                }
+            }
+            tok = strtok_r(core::ptr::null_mut(), b":\0".as_ptr(), &raw mut state);
+        }
+        free(path_copy);
+        core::ptr::null_mut()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // __xuname — FreeBSD uname wrapper
 // ---------------------------------------------------------------------------
 
@@ -251,7 +374,6 @@ unsafe extern "C" {
     safe fn strtoul(s: *const u8, endptr: *mut *mut u8, base: i32) -> u64;
     safe fn strcspn(s: *const u8, reject: *const u8) -> usize;
     safe fn realloc(ptr: *mut u8, size: usize) -> *mut u8;
-    safe fn free(ptr: *mut u8);
 }
 
 /// strtoq — BSD legacy alias for strtoll.
