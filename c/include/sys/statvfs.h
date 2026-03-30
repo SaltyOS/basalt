@@ -4,6 +4,7 @@
 
 #include <sys/types.h>
 #include <sys/cdefs.h>
+#include <sys/mount.h>
 
 struct statvfs {
     unsigned long f_bsize;
@@ -18,6 +19,9 @@ struct statvfs {
     unsigned long f_flag;
     unsigned long f_namemax;
 };
+
+/* BSD/Linux compat: some software uses f_flags instead of POSIX f_flag */
+#define f_flags f_flag
 
 __BEGIN_DECLS
 
