@@ -171,11 +171,11 @@ unsafe fn fill_sockaddr_in(addr: *mut u8, ip: u32, port: u16) {
     }
 
     unsafe {
-        *addr = core::mem::size_of::<SockAddrIn>() as u8;
-        *addr.add(1) = AF_INET as u8;
-        core::ptr::write_unaligned(addr.add(2) as *mut u16, port.to_be());
-        core::ptr::write_unaligned(addr.add(4) as *mut u32, ip.to_be());
-        core::ptr::write_bytes(addr.add(8), 0, core::mem::size_of::<SockAddrIn>() - 8);
+        let sa = &mut *(addr as *mut SockAddrIn);
+        sa.sin_family = AF_INET as u16;
+        sa.sin_port = port.to_be();
+        sa.sin_addr = ip.to_be();
+        sa.sin_zero = [0; 8];
     }
 }
 
