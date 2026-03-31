@@ -13,6 +13,7 @@ use trona::consts::SOL_SOCKET;
 static mut LOGGED_SOCKET_META_CALLS: u8 = 0;
 static mut LOGGED_RECVMSG_INET_RESULTS: u8 = 0;
 const BSD_SOL_SOCKET: i32 = 0xFFFF;
+const POSIX_MSG_PEEK: i32 = 0x02;
 
 #[inline]
 fn cmsg_sol_socket_level() -> i32 {
@@ -534,7 +535,11 @@ pub unsafe extern "C" fn send(fd: i32, buf: *const u8, len: usize, _flags: i32) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn recv(fd: i32, buf: *mut u8, len: usize, _flags: i32) -> isize {
     unsafe {
-        let ret = trona_posix::posix_read(fd, buf, len as u64);
+        let ret = if (_flags & POSIX_MSG_PEEK) != 0 && socket_domain(fd) == Some(AF_INET) {
+            trona_posix::posix_recv_inet(fd, buf, len, _flags)
+        } else {
+            trona_posix::posix_read(fd, buf, len as u64)
+        };
         if ret < 0 {
             errno::set_errno((-ret) as i32);
             return -1;
@@ -715,6 +720,11 @@ pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isiz
                     &raw mut timestamp_ns
                 } else {
                     core::ptr::null_mut()
+                },
+                if (_flags & POSIX_MSG_PEEK) != 0 {
+                    trona::consts::INET_RECV_FLAG_PEEK
+                } else {
+                    0
                 },
             );
             let preview_len = if ret > 0 {
