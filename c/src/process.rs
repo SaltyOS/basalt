@@ -35,6 +35,30 @@ pub unsafe extern "C" fn execve(
     envp: *const *const u8,
 ) -> i32 {
     unsafe {
+        let mut path_len = 0usize;
+        while !path.is_null() && *path.add(path_len) != 0 && path_len < 255 {
+            path_len += 1;
+        }
+        let mut argv0_len = 0usize;
+        let argv0 = if !argv.is_null() && !(*argv).is_null() {
+            *argv
+        } else {
+            core::ptr::null()
+        };
+        while !argv0.is_null() && *argv0.add(argv0_len) != 0 && argv0_len < 255 {
+            argv0_len += 1;
+        }
+        trona::udebug!(|_lb| {
+            _lb.str(b"[libc] execve path='");
+            if !path.is_null() {
+                _lb.bytes(core::slice::from_raw_parts(path, path_len));
+            }
+            _lb.str(b"' argv0='");
+            if !argv0.is_null() {
+                _lb.bytes(core::slice::from_raw_parts(argv0, argv0_len));
+            }
+            _lb.str(b"'\n");
+        });
         let ret = trona_posix::posix_execve(path, argv, envp);
         if ret < 0 {
             errno::set_errno(-ret);
@@ -108,6 +132,25 @@ pub unsafe extern "C" fn execvp(file: *const u8, argv: *const *const u8) -> i32 
                     }
                 }
                 path_buf[pos] = 0;
+
+                let mut argv0_len = 0usize;
+                let argv0 = if !argv.is_null() && !(*argv).is_null() {
+                    *argv
+                } else {
+                    core::ptr::null()
+                };
+                while !argv0.is_null() && *argv0.add(argv0_len) != 0 && argv0_len < 255 {
+                    argv0_len += 1;
+                }
+                trona::udebug!(|_lb| {
+                    _lb.str(b"[libc] execvp try path='");
+                    _lb.bytes(&path_buf[..pos]);
+                    _lb.str(b"' argv0='");
+                    if !argv0.is_null() {
+                        _lb.bytes(core::slice::from_raw_parts(argv0, argv0_len));
+                    }
+                    _lb.str(b"'\n");
+                });
 
                 let ret = execve(path_buf.as_ptr(), argv, core::ptr::null());
                 // execve only returns on error
