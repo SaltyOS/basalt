@@ -202,7 +202,7 @@ pub unsafe extern "C" fn utime(filename: *const u8, times: *const Utimbuf) -> i3
             ((*times).actime, 0i64, (*times).modtime, 0i64)
         };
         let ret = trona_posix::posix_utimensat(
-            trona::consts::AT_FDCWD,
+            trona::consts::posix::AT_FDCWD,
             filename,
             atime_sec,
             atime_nsec,
@@ -238,7 +238,7 @@ pub unsafe extern "C" fn utimes(filename: *const u8, times: *const CTimeval) -> 
             )
         };
         let ret = trona_posix::posix_utimensat(
-            trona::consts::AT_FDCWD,
+            trona::consts::posix::AT_FDCWD,
             filename,
             atime_sec,
             atime_nsec,
@@ -270,12 +270,12 @@ pub unsafe extern "C" fn copy_file_range(
     unsafe {
         // If off_in is provided, seek to that offset (saving current pos)
         let saved_in: i64 = if !off_in.is_null() {
-            let cur = trona_posix::posix_lseek(fd_in, 0, trona::consts::SEEK_CUR as i32);
+            let cur = trona_posix::posix_lseek(fd_in, 0, trona::consts::posix::SEEK_CUR as i32);
             if cur < 0 {
                 errno::set_errno(errno::EBADF);
                 return -1;
             }
-            let ret = trona_posix::posix_lseek(fd_in, *off_in, trona::consts::SEEK_SET as i32);
+            let ret = trona_posix::posix_lseek(fd_in, *off_in, trona::consts::posix::SEEK_SET as i32);
             if ret < 0 {
                 errno::set_errno(errno::EINVAL);
                 return -1;
@@ -286,18 +286,18 @@ pub unsafe extern "C" fn copy_file_range(
         };
 
         let saved_out: i64 = if !off_out.is_null() {
-            let cur = trona_posix::posix_lseek(fd_out, 0, trona::consts::SEEK_CUR as i32);
+            let cur = trona_posix::posix_lseek(fd_out, 0, trona::consts::posix::SEEK_CUR as i32);
             if cur < 0 {
                 if !off_in.is_null() {
-                    trona_posix::posix_lseek(fd_in, saved_in, trona::consts::SEEK_SET as i32);
+                    trona_posix::posix_lseek(fd_in, saved_in, trona::consts::posix::SEEK_SET as i32);
                 }
                 errno::set_errno(errno::EBADF);
                 return -1;
             }
-            let ret = trona_posix::posix_lseek(fd_out, *off_out, trona::consts::SEEK_SET as i32);
+            let ret = trona_posix::posix_lseek(fd_out, *off_out, trona::consts::posix::SEEK_SET as i32);
             if ret < 0 {
                 if !off_in.is_null() {
-                    trona_posix::posix_lseek(fd_in, saved_in, trona::consts::SEEK_SET as i32);
+                    trona_posix::posix_lseek(fd_in, saved_in, trona::consts::posix::SEEK_SET as i32);
                 }
                 errno::set_errno(errno::EINVAL);
                 return -1;
@@ -321,13 +321,13 @@ pub unsafe extern "C" fn copy_file_range(
             if nr < 0 {
                 if total == 0 {
                     if !off_in.is_null() {
-                        trona_posix::posix_lseek(fd_in, saved_in, trona::consts::SEEK_SET as i32);
+                        trona_posix::posix_lseek(fd_in, saved_in, trona::consts::posix::SEEK_SET as i32);
                     }
                     if !off_out.is_null() {
                         trona_posix::posix_lseek(
                             fd_out,
                             saved_out,
-                            trona::consts::SEEK_SET as i32,
+                            trona::consts::posix::SEEK_SET as i32,
                         );
                     }
                     errno::set_errno(errno::EIO);
@@ -352,14 +352,14 @@ pub unsafe extern "C" fn copy_file_range(
                             trona_posix::posix_lseek(
                                 fd_in,
                                 saved_in,
-                                trona::consts::SEEK_SET as i32,
+                                trona::consts::posix::SEEK_SET as i32,
                             );
                         }
                         if !off_out.is_null() {
                             trona_posix::posix_lseek(
                                 fd_out,
                                 saved_out,
-                                trona::consts::SEEK_SET as i32,
+                                trona::consts::posix::SEEK_SET as i32,
                             );
                         }
                         errno::set_errno(errno::EIO);
@@ -368,14 +368,14 @@ pub unsafe extern "C" fn copy_file_range(
                     total += written;
                     if !off_in.is_null() {
                         *off_in += total as i64;
-                        trona_posix::posix_lseek(fd_in, saved_in, trona::consts::SEEK_SET as i32);
+                        trona_posix::posix_lseek(fd_in, saved_in, trona::consts::posix::SEEK_SET as i32);
                     }
                     if !off_out.is_null() {
                         *off_out += total as i64;
                         trona_posix::posix_lseek(
                             fd_out,
                             saved_out,
-                            trona::consts::SEEK_SET as i32,
+                            trona::consts::posix::SEEK_SET as i32,
                         );
                     }
                     return total as isize;
@@ -391,11 +391,11 @@ pub unsafe extern "C" fn copy_file_range(
         // Update offset pointers and restore file positions
         if !off_in.is_null() {
             *off_in += total as i64;
-            trona_posix::posix_lseek(fd_in, saved_in, trona::consts::SEEK_SET as i32);
+            trona_posix::posix_lseek(fd_in, saved_in, trona::consts::posix::SEEK_SET as i32);
         }
         if !off_out.is_null() {
             *off_out += total as i64;
-            trona_posix::posix_lseek(fd_out, saved_out, trona::consts::SEEK_SET as i32);
+            trona_posix::posix_lseek(fd_out, saved_out, trona::consts::posix::SEEK_SET as i32);
         }
 
         total as isize

@@ -134,7 +134,7 @@ pub unsafe extern "C" fn readdir(dir: *mut DIR) -> *mut Dirent {
     }
 
     unsafe {
-        let mut trona_entry = trona::types::TronaDirent::zeroed();
+        let mut trona_entry = trona_posix::TronaDirent::zeroed();
         let ret = trona_posix::posix_readdir((*dir).fd, &raw mut trona_entry);
         if ret == 0 {
             // No more entries

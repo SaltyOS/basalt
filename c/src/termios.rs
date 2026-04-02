@@ -119,7 +119,7 @@ static mut DEFAULT_TERMIOS: Termios = Termios {
 pub unsafe extern "C" fn tcgetattr(fd: i32, termios_p: *mut Termios) -> i32 {
     unsafe {
         // Route through VFS → console server IPC
-        let mut salty_t = trona::types::Termios::zeroed();
+        let mut salty_t = trona_posix::Termios::zeroed();
         let ret = trona_posix::posix_tcgetattr(fd, &raw mut salty_t);
         if ret != 0 {
             // Fallback to local defaults
@@ -155,7 +155,7 @@ pub unsafe extern "C" fn tcgetattr(fd: i32, termios_p: *mut Termios) -> i32 {
 pub unsafe extern "C" fn tcsetattr(fd: i32, action: i32, termios_p: *const Termios) -> i32 {
     unsafe {
         // Route through VFS → console server IPC
-        let mut salty_t = trona::types::Termios::zeroed();
+        let mut salty_t = trona_posix::Termios::zeroed();
         salty_t.c_iflag = (*termios_p).c_iflag;
         salty_t.c_oflag = (*termios_p).c_oflag;
         salty_t.c_cflag = (*termios_p).c_cflag;

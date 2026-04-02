@@ -46,7 +46,7 @@ pub struct Stat {
 // Helper: translate TronaStat -> Stat
 // ---------------------------------------------------------------------------
 
-unsafe fn translate_stat(trona_stat: &trona::types::TronaStat, out: *mut Stat) {
+unsafe fn translate_stat(trona_stat: &trona_posix::TronaStat, out: *mut Stat) {
     unsafe {
         core::ptr::write_bytes(out, 0, 1);
 
@@ -415,7 +415,7 @@ pub unsafe extern "C" fn stat(path: *const u8, buf: *mut Stat) -> i32 {
         return -1;
     }
     unsafe {
-        let mut salty_st = trona::types::TronaStat::zeroed();
+        let mut salty_st = trona_posix::TronaStat::zeroed();
         let ret = trona_posix::posix_stat(path, &raw mut salty_st);
         if ret < 0 {
             errno::set_errno(-ret);
@@ -439,7 +439,7 @@ pub unsafe extern "C" fn fstat(fd: i32, buf: *mut Stat) -> i32 {
         return -1;
     }
     unsafe {
-        let mut salty_st = trona::types::TronaStat::zeroed();
+        let mut salty_st = trona_posix::TronaStat::zeroed();
         let ret = trona_posix::posix_fstat(fd, &raw mut salty_st);
         if ret < 0 {
             errno::set_errno(-ret);
@@ -853,7 +853,7 @@ pub unsafe extern "C" fn ttyname_r(fd: i32, buf: *mut u8, len: usize) -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn chmod(path: *const u8, mode: u32) -> i32 {
-    unsafe { fchmodat(trona::consts::AT_FDCWD, path, mode, 0) }
+    unsafe { fchmodat(trona::consts::posix::AT_FDCWD, path, mode, 0) }
 }
 
 #[unsafe(no_mangle)]
@@ -870,7 +870,7 @@ pub unsafe extern "C" fn fchmod(fd: i32, mode: u32) -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn chown(path: *const u8, owner: u32, group: u32) -> i32 {
-    unsafe { fchownat(trona::consts::AT_FDCWD, path, owner, group, 0) }
+    unsafe { fchownat(trona::consts::posix::AT_FDCWD, path, owner, group, 0) }
 }
 
 #[unsafe(no_mangle)]
@@ -889,11 +889,11 @@ pub unsafe extern "C" fn fchown(fd: i32, owner: u32, group: u32) -> i32 {
 pub unsafe extern "C" fn lchown(path: *const u8, owner: u32, group: u32) -> i32 {
     unsafe {
         fchownat(
-            trona::consts::AT_FDCWD,
+            trona::consts::posix::AT_FDCWD,
             path,
             owner,
             group,
-            trona::consts::AT_SYMLINK_NOFOLLOW,
+            trona::consts::posix::AT_SYMLINK_NOFOLLOW,
         )
     }
 }
@@ -936,7 +936,7 @@ pub unsafe extern "C" fn fstatat(dirfd: i32, path: *const u8, buf: *mut Stat, fl
         return -1;
     }
     unsafe {
-        let mut salty_st = trona::types::TronaStat::zeroed();
+        let mut salty_st = trona_posix::TronaStat::zeroed();
         let ret = trona_posix::posix_fstatat(dirfd, path, &raw mut salty_st, flags);
         if ret < 0 {
             errno::set_errno(-ret);

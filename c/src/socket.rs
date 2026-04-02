@@ -8,7 +8,7 @@
 //! All functions delegate to `trona_posix::*` or `trona_posix::dns::*`.
 
 use crate::errno;
-use trona::consts::SOL_SOCKET;
+use trona::consts::posix::SOL_SOCKET;
 
 static mut LOGGED_SOCKET_META_CALLS: u8 = 0;
 static mut LOGGED_RECVMSG_INET_RESULTS: u8 = 0;
@@ -139,14 +139,14 @@ unsafe fn decode_sockaddr_in(addr: *const u8, addrlen: u32) -> Option<(u32, u16)
     None
 }
 
-unsafe fn decode_posix_sockaddr_in(addr: *const u8, addrlen: u32) -> Option<trona::types::SockAddrIn> {
+unsafe fn decode_posix_sockaddr_in(addr: *const u8, addrlen: u32) -> Option<trona_posix::SockAddrIn> {
     if addr.is_null() || addrlen < 8 {
         return None;
     }
 
     let family = unsafe { core::ptr::read_unaligned(addr as *const u16) };
     if family == AF_INET as u16 {
-        let mut posix = trona::types::SockAddrIn::zeroed();
+        let mut posix = trona_posix::SockAddrIn::zeroed();
         posix.family = AF_INET as u16;
         posix.port = unsafe { core::ptr::read_unaligned(addr.add(2) as *const u16) };
         posix.addr = unsafe { core::ptr::read_unaligned(addr.add(4) as *const u32) };
@@ -156,7 +156,7 @@ unsafe fn decode_posix_sockaddr_in(addr: *const u8, addrlen: u32) -> Option<tron
     let sa_len = unsafe { *addr };
     let sa_family = unsafe { *addr.add(1) };
     if sa_family == AF_INET as u8 && sa_len as u32 >= 8 {
-        let mut posix = trona::types::SockAddrIn::zeroed();
+        let mut posix = trona_posix::SockAddrIn::zeroed();
         posix.family = AF_INET as u16;
         posix.port = unsafe { core::ptr::read_unaligned(addr.add(2) as *const u16) };
         posix.addr = unsafe { core::ptr::read_unaligned(addr.add(4) as *const u32) };
@@ -273,7 +273,7 @@ unsafe fn socket_domain(fd: i32) -> Option<i32> {
         let ret = trona_posix::posix_getsockopt(
             fd,
             SOL_SOCKET,
-            trona::consts::SO_DOMAIN,
+            trona::consts::posix::SO_DOMAIN,
             &raw mut domain as *mut u32 as *mut u8,
             &raw mut domain_len,
         );
@@ -311,7 +311,7 @@ unsafe fn store_timestamp_cmsg(msg: *mut MsgHdr, timestamp_ns: u64) {
     let cmsg = CmsgHdr {
         cmsg_len: cmsg_len(core::mem::size_of::<TimeSpec>()) as u32,
         cmsg_level: cmsg_sol_socket_level(),
-        cmsg_type: trona::consts::SCM_TIMESTAMP,
+        cmsg_type: trona::consts::posix::SCM_TIMESTAMP,
     };
     unsafe {
         core::ptr::write_unaligned(hdr.msg_control as *mut CmsgHdr, cmsg);
@@ -429,8 +429,8 @@ pub unsafe extern "C" fn bind(fd: i32, addr: *const u8, addrlen: u32) -> i32 {
         let ret = if let Some(posix_addr) = decode_posix_sockaddr_in(addr, addrlen) {
             trona_posix::posix_bind(
                 fd,
-                &raw const posix_addr as *const trona::types::SockAddrIn as *const u8,
-                core::mem::size_of::<trona::types::SockAddrIn>() as u32,
+                &raw const posix_addr as *const trona_posix::SockAddrIn as *const u8,
+                core::mem::size_of::<trona_posix::SockAddrIn>() as u32,
             )
         } else {
             trona_posix::posix_bind(fd, addr, addrlen)
@@ -473,8 +473,8 @@ pub unsafe extern "C" fn connect(fd: i32, addr: *const u8, addrlen: u32) -> i32 
         let ret = if let Some(posix_addr) = decode_posix_sockaddr_in(addr, addrlen) {
             trona_posix::posix_connect(
                 fd,
-                &raw const posix_addr as *const trona::types::SockAddrIn as *const u8,
-                core::mem::size_of::<trona::types::SockAddrIn>() as u32,
+                &raw const posix_addr as *const trona_posix::SockAddrIn as *const u8,
+                core::mem::size_of::<trona_posix::SockAddrIn>() as u32,
             )
         } else {
             trona_posix::posix_connect(fd, addr, addrlen)
@@ -564,8 +564,8 @@ pub unsafe extern "C" fn sendto(
                 buf,
                 len,
                 flags,
-                &raw const posix_addr as *const trona::types::SockAddrIn as *const u8,
-                core::mem::size_of::<trona::types::SockAddrIn>() as u32,
+                &raw const posix_addr as *const trona_posix::SockAddrIn as *const u8,
+                core::mem::size_of::<trona_posix::SockAddrIn>() as u32,
             )
         } else {
             trona_posix::posix_sendto(fd, buf, len, flags, addr, addrlen)
@@ -589,14 +589,14 @@ pub unsafe extern "C" fn recvfrom(
 ) -> isize {
     unsafe {
         let ret = if !addr.is_null() && !addrlen.is_null() && socket_domain(fd) == Some(AF_INET) {
-            let mut host = trona::types::SockAddrIn::zeroed();
-            let mut host_len = core::mem::size_of::<trona::types::SockAddrIn>() as u32;
+            let mut host = trona_posix::SockAddrIn::zeroed();
+            let mut host_len = core::mem::size_of::<trona_posix::SockAddrIn>() as u32;
             let ret = trona_posix::posix_recvfrom(
                 fd,
                 buf,
                 len,
                 flags,
-                &raw mut host as *mut trona::types::SockAddrIn as *mut u8,
+                &raw mut host as *mut trona_posix::SockAddrIn as *mut u8,
                 &raw mut host_len,
             );
             if ret >= 0 {
@@ -634,8 +634,8 @@ pub unsafe extern "C" fn sendmsg(fd: i32, msg: *const MsgHdr, _flags: i32) -> is
                     buf.as_ptr(),
                     data_len,
                     0,
-                    &raw const posix_addr as *const trona::types::SockAddrIn as *const u8,
-                    core::mem::size_of::<trona::types::SockAddrIn>() as u32,
+                    &raw const posix_addr as *const trona_posix::SockAddrIn as *const u8,
+                    core::mem::size_of::<trona_posix::SockAddrIn>() as u32,
                 )
             } else {
                 trona_posix::posix_sendto(
@@ -703,15 +703,15 @@ pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isiz
         };
 
         let ret = if domain == Some(AF_INET) && (has_name || has_control) {
-            let mut host_name = trona::types::SockAddrIn::zeroed();
-            let mut name_len = core::mem::size_of::<trona::types::SockAddrIn>() as u32;
+            let mut host_name = trona_posix::SockAddrIn::zeroed();
+            let mut name_len = core::mem::size_of::<trona_posix::SockAddrIn>() as u32;
             let mut timestamp_ns = trona::consts::INET_RECV_TIMESTAMP_NONE;
             let ret = trona_posix::posix_recvmsg_inet(
                 fd,
                 buf.as_mut_ptr(),
                 cap as u64,
                 if has_name {
-                    &raw mut host_name as *mut trona::types::SockAddrIn as *mut u8
+                    &raw mut host_name as *mut trona_posix::SockAddrIn as *mut u8
                 } else {
                     core::ptr::null_mut()
                 },
@@ -761,14 +761,14 @@ pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isiz
         } else if !hdr.msg_name.is_null()
             && hdr.msg_namelen >= core::mem::size_of::<SockAddrIn>() as u32
         {
-            let mut host_name = trona::types::SockAddrIn::zeroed();
-            let mut name_len = core::mem::size_of::<trona::types::SockAddrIn>() as u32;
+            let mut host_name = trona_posix::SockAddrIn::zeroed();
+            let mut name_len = core::mem::size_of::<trona_posix::SockAddrIn>() as u32;
             let ret = trona_posix::posix_recvfrom(
                 fd,
                 buf.as_mut_ptr(),
                 cap,
                 0,
-                &raw mut host_name as *mut trona::types::SockAddrIn as *mut u8,
+                &raw mut host_name as *mut trona_posix::SockAddrIn as *mut u8,
                 &raw mut name_len,
             );
             if ret >= 0 {
@@ -871,11 +871,11 @@ pub unsafe extern "C" fn getsockname(
             return -1;
         }
 
-        let mut host = trona::types::SockAddrIn::zeroed();
-        let mut host_len = core::mem::size_of::<trona::types::SockAddrIn>() as u32;
+        let mut host = trona_posix::SockAddrIn::zeroed();
+        let mut host_len = core::mem::size_of::<trona_posix::SockAddrIn>() as u32;
         let ret = trona_posix::posix_getsockname(
             fd,
-            &raw mut host as *mut trona::types::SockAddrIn as *mut u8,
+            &raw mut host as *mut trona_posix::SockAddrIn as *mut u8,
             &raw mut host_len,
         );
         if ret < 0 {
@@ -906,11 +906,11 @@ pub unsafe extern "C" fn getpeername(
             return -1;
         }
 
-        let mut host = trona::types::SockAddrIn::zeroed();
-        let mut host_len = core::mem::size_of::<trona::types::SockAddrIn>() as u32;
+        let mut host = trona_posix::SockAddrIn::zeroed();
+        let mut host_len = core::mem::size_of::<trona_posix::SockAddrIn>() as u32;
         let ret = trona_posix::posix_getpeername(
             fd,
-            &raw mut host as *mut trona::types::SockAddrIn as *mut u8,
+            &raw mut host as *mut trona_posix::SockAddrIn as *mut u8,
             &raw mut host_len,
         );
         if ret < 0 {
@@ -1018,7 +1018,7 @@ unsafe fn extract_scm_rights(msg: *const MsgHdr, fds: &mut [i32; 4]) -> usize {
     }
 
     let cmsg = unsafe { core::ptr::read_unaligned(hdr.msg_control as *const CmsgHdr) };
-    if !is_sol_socket_level(cmsg.cmsg_level) || cmsg.cmsg_type != trona::consts::SCM_RIGHTS {
+    if !is_sol_socket_level(cmsg.cmsg_level) || cmsg.cmsg_type != trona::consts::posix::SCM_RIGHTS {
         return 0;
     }
 
@@ -1072,7 +1072,7 @@ unsafe fn store_scm_rights(msg: *mut MsgHdr, fds: &[i32]) {
     let cmsg = CmsgHdr {
         cmsg_len: (header_len + fd_count * core::mem::size_of::<i32>()) as u32,
         cmsg_level: cmsg_sol_socket_level(),
-        cmsg_type: trona::consts::SCM_RIGHTS,
+        cmsg_type: trona::consts::posix::SCM_RIGHTS,
     };
     unsafe {
         core::ptr::write_unaligned(hdr.msg_control as *mut CmsgHdr, cmsg);
@@ -1541,11 +1541,11 @@ pub unsafe extern "C" fn epoll_wait(
     timeout: i32,
 ) -> i32 {
     unsafe {
-        // EpollEvent layout matches trona::types::EpollEvent (events: u32, data: u64)
+        // EpollEvent layout matches trona_posix::EpollEvent (events: u32, data: u64)
         // but we have a padding field. Use salty EpollEvent directly via cast.
         let ret = trona_posix::posix_epoll_wait(
             epfd,
-            events as *mut trona::types::EpollEvent,
+            events as *mut trona_posix::EpollEvent,
             maxevents,
             timeout,
         );
