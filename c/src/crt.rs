@@ -24,6 +24,7 @@
 //! Custom auxv tags used by SaltyOS:
 //! - `0x1007` (`AT_TRONA_SLOT_BASE`): slot allocator pool base
 //! - `0x1008` (`AT_TRONA_SLOT_COUNT`): slot allocator pool size
+//! - `0x1009` (`AT_TRONA_EXPAND_EP`): procmgr endpoint used for CSpace expansion
 //! - `0x100B` (`AT_TRONA_MM_EP`): mmsrv endpoint cap slot
 
 use crate::env;
@@ -213,7 +214,9 @@ unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
         // Parse auxv
         let mut slot_base: u64 = 0;
         let mut slot_count: u64 = 0;
+        let mut expand_ep: u64 = 0;
         let mut mm_ep: u64 = 0; // default: no mmsrv (overridden by AT_TRONA_MM_EP)
+        let mut sc_cap: u64 = 0;
 
         loop {
             let tag = *p;
@@ -224,14 +227,17 @@ unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
             match tag {
                 0x1007 => slot_base = val,   // AT_TRONA_SLOT_BASE
                 0x1008 => slot_count = val,  // AT_TRONA_SLOT_COUNT
+                0x1009 => expand_ep = val,   // AT_TRONA_EXPAND_EP
                 0x100B => mm_ep = val,       // AT_TRONA_MM_EP
+                0x100E => sc_cap = val,      // AT_TRONA_SC_CAP
                 _ => {}
             }
             p = p.add(2);
         }
 
-        // Prefer RTLD-exported slot pool info because RTLD advances it past
-        // the slots consumed while loading shared libraries.
+        // Prefer RTLD-exported values because RTLD advances slot pool past
+        // the slots consumed while loading shared libraries, and parses
+        // AT_TRONA_SC_CAP itself.
         let rtld_base = *(&raw const trona::__trona_slot_base);
         let rtld_count = *(&raw const trona::__trona_slot_count);
         if rtld_base != 0 && rtld_count != 0 {
@@ -239,11 +245,21 @@ unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
             slot_count = rtld_count;
         }
 
+        let rtld_sc_cap = *(&raw const trona::__trona_sc_cap);
+        if rtld_sc_cap != 0 {
+            sc_cap = rtld_sc_cap;
+        }
+        // Write to substrate global so TLS init can pick it up
+        *(&raw mut trona::__trona_sc_cap) = sc_cap;
+
         let cspace_ntfn = *(&raw const trona::__trona_cspace_ntfn);
 
         // Initialize per-process slot allocator
         if slot_base != 0 {
             trona::slot_alloc::slot_alloc_init(slot_base, slot_count, cspace_ntfn);
+            if expand_ep != 0 {
+                trona::slot_alloc::slot_alloc_set_procmgr_ep(expand_ep);
+            }
         }
 
         // Initialize posix_mm with the pager endpoint discovered from auxv

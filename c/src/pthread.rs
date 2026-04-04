@@ -123,7 +123,7 @@ pub unsafe extern "C" fn pthread_create(
             start_routine,
             arg,
         );
-        if ret != 0 { errno::EAGAIN } else { 0 }
+        if ret < 0 { (-ret) as i32 } else { 0 }
     }
 }
 
@@ -134,7 +134,7 @@ pub unsafe extern "C" fn pthread_join(thread: PthreadT, retval: *mut *mut u8) ->
             thread as trona_posix::pthread::PthreadT,
             retval,
         );
-        if ret != 0 { errno::EINVAL } else { 0 }
+        if ret < 0 { (-ret) as i32 } else { 0 }
     }
 }
 
@@ -152,7 +152,7 @@ pub extern "C" fn pthread_self() -> PthreadT {
 pub unsafe extern "C" fn pthread_detach(thread: PthreadT) -> i32 {
     unsafe {
         let ret = trona_posix::pthread::pthread_detach(thread as trona_posix::pthread::PthreadT);
-        if ret != 0 { errno::EINVAL } else { 0 }
+        if ret < 0 { (-ret) as i32 } else { 0 }
     }
 }
 
@@ -740,7 +740,7 @@ const PTHREAD_CANCEL_DEFERRED: i32 = 0;
 pub unsafe extern "C" fn pthread_cancel(thread: PthreadT) -> i32 {
     unsafe {
         let ret = trona_posix::pthread::pthread_cancel(thread as trona_posix::pthread::PthreadT);
-        if ret != 0 { errno::ESRCH } else { 0 }
+        if ret < 0 { (-ret) as i32 } else { 0 }
     }
 }
 
@@ -751,7 +751,7 @@ pub unsafe extern "C" fn pthread_setcancelstate(state: i32, oldstate: *mut i32) 
     }
     unsafe {
         let ret = trona_posix::pthread::pthread_setcancelstate(state, oldstate);
-        if ret != 0 { return errno::EINVAL; }
+        if ret < 0 { return (-ret) as i32; }
     }
     0
 }
@@ -763,7 +763,7 @@ pub unsafe extern "C" fn pthread_setcanceltype(ctype: i32, oldtype: *mut i32) ->
     }
     unsafe {
         let ret = trona_posix::pthread::pthread_setcanceltype(ctype, oldtype);
-        if ret != 0 { return errno::EINVAL; }
+        if ret < 0 { return (-ret) as i32; }
     }
     0
 }

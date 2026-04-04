@@ -14,6 +14,7 @@
 
 use crate::errno;
 use core::ffi::VaList;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 const BUF_SIZE: usize = 1024;
 const FILE_READ: u32 = 1;
