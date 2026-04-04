@@ -36,6 +36,9 @@ const ATEXIT_MAX: usize = 32;
 static mut ATEXIT_FUNCS: [Option<unsafe extern "C" fn()>; ATEXIT_MAX] = [None; ATEXIT_MAX];
 static mut ATEXIT_COUNT: usize = 0;
 
+/// Mutex protecting ATEXIT_FUNCS/ATEXIT_COUNT and CXA_ATEXIT_FUNCS/CXA_ATEXIT_COUNT.
+static ATEXIT_LOCK: trona_posix::sync::Mutex = trona_posix::sync::Mutex::new();
+
 /// Saved pointer to the auxv on the initial stack.
 /// Set once by `__libc_start_main`; valid for the process lifetime.
 pub(crate) static mut SAVED_AUXV: *const u64 = core::ptr::null();
@@ -251,27 +254,37 @@ unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
 /// Register a function to be called at exit
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn atexit(func: unsafe extern "C" fn()) -> i32 {
-    unsafe {
+    ATEXIT_LOCK.lock();
+    let result = unsafe {
         if ATEXIT_COUNT >= ATEXIT_MAX {
-            return -1;
+            -1
+        } else {
+            ATEXIT_FUNCS[ATEXIT_COUNT] = Some(func);
+            ATEXIT_COUNT += 1;
+            0
         }
-        ATEXIT_FUNCS[ATEXIT_COUNT] = Some(func);
-        ATEXIT_COUNT += 1;
-        0
-    }
+    };
+    ATEXIT_LOCK.unlock();
+    result
 }
 
 /// Exit the program, calling atexit handlers in reverse order
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn exit(status: i32) -> ! {
     unsafe {
-        // Call atexit handlers in reverse order
+        // Call atexit handlers in reverse order (under lock to prevent
+        // concurrent registration during teardown)
+        ATEXIT_LOCK.lock();
         while ATEXIT_COUNT > 0 {
             ATEXIT_COUNT -= 1;
             if let Some(func) = ATEXIT_FUNCS[ATEXIT_COUNT] {
+                // Release lock while calling handler (handler may call atexit)
+                ATEXIT_LOCK.unlock();
                 func();
+                ATEXIT_LOCK.lock();
             }
         }
+        ATEXIT_LOCK.unlock();
 
         // Call C++ destructors registered via __cxa_atexit
         __cxa_finalize(core::ptr::null_mut());
@@ -296,18 +309,22 @@ pub unsafe extern "C" fn __cxa_atexit(
     arg: *mut core::ffi::c_void,
     dso_handle: *mut core::ffi::c_void,
 ) -> i32 {
-    unsafe {
+    ATEXIT_LOCK.lock();
+    let result = unsafe {
         if CXA_ATEXIT_COUNT >= CXA_ATEXIT_MAX {
-            return -1;
+            -1
+        } else {
+            CXA_ATEXIT_FUNCS[CXA_ATEXIT_COUNT].write(CxaAtexitEntry {
+                destructor,
+                arg,
+                dso_handle,
+            });
+            CXA_ATEXIT_COUNT += 1;
+            0
         }
-        CXA_ATEXIT_FUNCS[CXA_ATEXIT_COUNT].write(CxaAtexitEntry {
-            destructor,
-            arg,
-            dso_handle,
-        });
-        CXA_ATEXIT_COUNT += 1;
-        0
-    }
+    };
+    ATEXIT_LOCK.unlock();
+    result
 }
 
 /// Register a C++ thread-local destructor.
@@ -327,6 +344,7 @@ pub unsafe extern "C" fn __cxa_thread_atexit(
 /// matching the given DSO handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __cxa_finalize(dso_handle: *mut core::ffi::c_void) {
+    ATEXIT_LOCK.lock();
     unsafe {
         // Call in reverse order
         let mut i = CXA_ATEXIT_COUNT;
@@ -334,13 +352,17 @@ pub unsafe extern "C" fn __cxa_finalize(dso_handle: *mut core::ffi::c_void) {
             i -= 1;
             let entry = CXA_ATEXIT_FUNCS[i].assume_init_ref();
             if dso_handle.is_null() || entry.dso_handle == dso_handle {
+                // Release lock while calling destructor (it may register more)
+                ATEXIT_LOCK.unlock();
                 (entry.destructor)(entry.arg);
+                ATEXIT_LOCK.lock();
             }
         }
         if dso_handle.is_null() {
             CXA_ATEXIT_COUNT = 0;
         }
     }
+    ATEXIT_LOCK.unlock();
 }
 
 /// Call all function pointers in the .preinit_array section (forward order)

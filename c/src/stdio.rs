@@ -51,6 +51,10 @@ pub struct FILE {
     ungetc_char: i32,
     /// Buffer mode: `_IOFBF` (full), `_IOLBF` (line), `_IONBF` (unbuffered).
     buf_mode: i32,
+    /// Open-file pool allocation state (used only for OPEN_FILES entries).
+    slot_in_use: u32,
+    /// Per-FILE recursive mutex for stdio locking.
+    lock: trona_posix::sync::TypedMutex,
     /// funopen cookie (opaque user pointer).
     cookie: *mut u8,
     /// funopen read callback.
@@ -73,6 +77,8 @@ impl FILE {
             buf_len: 0,
             ungetc_char: -1,
             buf_mode,
+            slot_in_use: 0,
+            lock: trona_posix::sync::TypedMutex::new(trona_posix::sync::MUTEX_RECURSIVE),
             cookie: core::ptr::null_mut(),
             read_fn: None,
             write_fn: None,
@@ -93,18 +99,18 @@ pub static mut stdout: *mut FILE = core::ptr::null_mut();
 #[unsafe(no_mangle)]
 pub static mut stderr: *mut FILE = core::ptr::null_mut();
 
-// Initialize stdio pointers (called from module init or lazily)
 pub(crate) fn ensure_stdio_init() {
+    STDIO_ONCE.call_once(do_stdio_init);
+}
+
+unsafe extern "C" fn do_stdio_init() {
     unsafe {
-        if stdin.is_null() {
-            stdin = &raw mut STDIN_FILE;
-            stdout = &raw mut STDOUT_FILE;
-            stderr = &raw mut STDERR_FILE;
-            // Sync FreeBSD compatibility aliases
-            crate::compat::freebsd::bsd_stdio::__stdinp = stdin;
-            crate::compat::freebsd::bsd_stdio::__stdoutp = stdout;
-            crate::compat::freebsd::bsd_stdio::__stderrp = stderr;
-        }
+        stdin = &raw mut STDIN_FILE;
+        stdout = &raw mut STDOUT_FILE;
+        stderr = &raw mut STDERR_FILE;
+        crate::compat::freebsd::bsd_stdio::__stdinp = stdin;
+        crate::compat::freebsd::bsd_stdio::__stdoutp = stdout;
+        crate::compat::freebsd::bsd_stdio::__stderrp = stderr;
     }
 }
 
@@ -114,16 +120,54 @@ static mut OPEN_FILES: [FILE; MAX_OPEN_FILES] = {
     [ZERO; MAX_OPEN_FILES]
 };
 
-unsafe fn alloc_file(fd: i32, flags: u32) -> *mut FILE {
+static OPEN_FILES_LOCK: trona_posix::sync::Mutex = trona_posix::sync::Mutex::new();
+static STDIO_ONCE: trona_posix::sync::Once = trona_posix::sync::Once::new();
+
+fn file_lock(f: *mut FILE) {
+    unsafe {
+        let _ = (*f).lock.lock();
+    }
+}
+
+fn file_unlock(f: *mut FILE) {
+    unsafe {
+        let _ = (*f).lock.unlock();
+    }
+}
+
+fn file_trylock(f: *mut FILE) -> bool {
+    unsafe { (*f).lock.try_lock() == 0 }
+}
+
+fn free_open_file_slot(f: *mut FILE) {
+    OPEN_FILES_LOCK.lock();
     unsafe {
         for i in 0..MAX_OPEN_FILES {
-            if OPEN_FILES[i]._file == -1 {
-                OPEN_FILES[i] = FILE::new(fd, flags, _IOFBF);
-                return &raw mut OPEN_FILES[i];
+            let slot = &raw mut OPEN_FILES[i];
+            if core::ptr::eq(f, slot) {
+                OPEN_FILES[i].slot_in_use = 0;
+                break;
             }
         }
-        core::ptr::null_mut()
     }
+    OPEN_FILES_LOCK.unlock();
+}
+
+unsafe fn alloc_file(fd: i32, flags: u32) -> *mut FILE {
+    OPEN_FILES_LOCK.lock();
+    unsafe {
+        for i in 0..MAX_OPEN_FILES {
+            if OPEN_FILES[i].slot_in_use == 0 {
+                OPEN_FILES[i] = FILE::new(fd, flags, _IOFBF);
+                OPEN_FILES[i].slot_in_use = 1;
+                let f = &raw mut OPEN_FILES[i];
+                OPEN_FILES_LOCK.unlock();
+                return f;
+            }
+        }
+    }
+    OPEN_FILES_LOCK.unlock();
+    core::ptr::null_mut()
 }
 
 fn parse_mode(mode: *const u8) -> (u32, i32) {
@@ -207,8 +251,9 @@ pub unsafe extern "C" fn fclose(f: *mut FILE) -> i32 {
     if f.is_null() {
         return EOF;
     }
-    unsafe {
-        fflush(f);
+    file_lock(f);
+    let ret = unsafe {
+        fflush_unlocked(f);
         let ret = if let Some(cfn) = (*f).close_fn {
             cfn((*f).cookie)
         } else if (*f)._file >= 0 {
@@ -223,8 +268,11 @@ pub unsafe extern "C" fn fclose(f: *mut FILE) -> i32 {
         (*f).write_fn = None;
         (*f).seek_fn = None;
         (*f).close_fn = None;
-        if ret < 0 { EOF } else { 0 }
-    }
+        ret
+    };
+    file_unlock(f);
+    free_open_file_slot(f);
+    if ret < 0 { EOF } else { 0 }
 }
 
 #[unsafe(no_mangle)]
@@ -236,14 +284,16 @@ pub unsafe extern "C" fn freopen(
     if f.is_null() {
         return unsafe { fopen(path, mode) };
     }
+    file_lock(f);
     unsafe {
-        fflush(f);
+        fflush_unlocked(f);
         trona_posix::posix_close((*f)._file);
         let (flags, oflags) = parse_mode(mode);
         let open_mode: u32 = if (oflags & trona_posix::O_CREAT as i32) != 0 { 0o644 } else { 0 };
         let fd = trona_posix::posix_open(path, oflags, open_mode);
         if fd < 0 {
             (*f)._file = -1;
+            file_unlock(f);
             return core::ptr::null_mut();
         }
         (*f)._file = fd;
@@ -251,17 +301,12 @@ pub unsafe extern "C" fn freopen(
         (*f).buf_pos = 0;
         (*f).buf_len = 0;
         (*f).ungetc_char = -1;
-        f
     }
+    file_unlock(f);
+    f
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn fflush(f: *mut FILE) -> i32 {
-    if f.is_null() {
-        // Flush all
-        unsafe { fflush_all() };
-        return 0;
-    }
+unsafe fn fflush_unlocked(f: *mut FILE) -> i32 {
     unsafe {
         if (*f).flags & FILE_WRITE != 0 && (*f).buf_pos > 0 {
             let n = if let Some(wfn) = (*f).write_fn {
@@ -279,24 +324,45 @@ pub unsafe extern "C" fn fflush(f: *mut FILE) -> i32 {
     }
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fflush(f: *mut FILE) -> i32 {
+    if f.is_null() {
+        unsafe { fflush_all() };
+        return 0;
+    }
+    file_lock(f);
+    let ret = unsafe { fflush_unlocked(f) };
+    file_unlock(f);
+    ret
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fflush_unlocked_ext(f: *mut FILE) -> i32 {
+    if f.is_null() {
+        unsafe { fflush_all() };
+        return 0;
+    }
+    unsafe { fflush_unlocked(f) }
+}
+
 pub unsafe fn fflush_all() {
     ensure_stdio_init();
     unsafe {
         fflush(&raw mut STDOUT_FILE);
         fflush(&raw mut STDERR_FILE);
         for i in 0..MAX_OPEN_FILES {
-            if OPEN_FILES[i]._file >= 0 {
+            if OPEN_FILES[i].slot_in_use != 0
+                && (OPEN_FILES[i]._file >= 0
+                    || OPEN_FILES[i].read_fn.is_some()
+                    || OPEN_FILES[i].write_fn.is_some())
+            {
                 fflush(&raw mut OPEN_FILES[i]);
             }
         }
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn fgetc(f: *mut FILE) -> i32 {
-    if f.is_null() {
-        return EOF;
-    }
+unsafe fn fgetc_unlocked_impl(f: *mut FILE) -> i32 {
     unsafe {
         if (*f).ungetc_char >= 0 {
             let c = (*f).ungetc_char;
@@ -304,8 +370,6 @@ pub unsafe extern "C" fn fgetc(f: *mut FILE) -> i32 {
             return c;
         }
         if (*f).buf_pos >= (*f).buf_len {
-            // Flush stdout before blocking on stdin (C standard compliance).
-            // Ensures prompts appear before read blocks.
             if !stdout.is_null() && f == stdin {
                 fflush(stdout);
             }
@@ -328,6 +392,25 @@ pub unsafe extern "C" fn fgetc(f: *mut FILE) -> i32 {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn fgetc(f: *mut FILE) -> i32 {
+    if f.is_null() {
+        return EOF;
+    }
+    file_lock(f);
+    let c = unsafe { fgetc_unlocked_impl(f) };
+    file_unlock(f);
+    c
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fgetc_unlocked(f: *mut FILE) -> i32 {
+    if f.is_null() {
+        return EOF;
+    }
+    unsafe { fgetc_unlocked_impl(f) }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn getchar() -> i32 {
     ensure_stdio_init();
     unsafe { fgetc(stdin) }
@@ -339,22 +422,31 @@ pub unsafe extern "C" fn getc(f: *mut FILE) -> i32 {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn getc_unlocked(f: *mut FILE) -> i32 {
+    unsafe { fgetc_unlocked(f) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getchar_unlocked() -> i32 {
+    ensure_stdio_init();
+    unsafe { fgetc_unlocked(stdin) }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn ungetc(c: i32, f: *mut FILE) -> i32 {
     if f.is_null() || c == EOF {
         return EOF;
     }
+    file_lock(f);
     unsafe {
         (*f).ungetc_char = c;
         (*f).flags &= !FILE_EOF;
-        c
     }
+    file_unlock(f);
+    c
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn fputc(c: i32, f: *mut FILE) -> i32 {
-    if f.is_null() {
-        return EOF;
-    }
+unsafe fn fputc_unlocked_impl(c: i32, f: *mut FILE) -> i32 {
     unsafe {
         let byte = c as u8;
         if (*f).buf_mode == _IONBF {
@@ -370,12 +462,31 @@ pub unsafe extern "C" fn fputc(c: i32, f: *mut FILE) -> i32 {
         if (*f).buf_pos >= BUF_SIZE
             || ((*f).buf_mode == _IOLBF && byte == b'\n')
         {
-            if fflush(f) != 0 {
+            if fflush_unlocked(f) != 0 {
                 return EOF;
             }
         }
         c
     }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fputc(c: i32, f: *mut FILE) -> i32 {
+    if f.is_null() {
+        return EOF;
+    }
+    file_lock(f);
+    let ret = unsafe { fputc_unlocked_impl(c, f) };
+    file_unlock(f);
+    ret
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fputc_unlocked(c: i32, f: *mut FILE) -> i32 {
+    if f.is_null() {
+        return EOF;
+    }
+    unsafe { fputc_unlocked_impl(c, f) }
 }
 
 #[unsafe(no_mangle)]
@@ -390,30 +501,53 @@ pub unsafe extern "C" fn putc(c: i32, f: *mut FILE) -> i32 {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn putc_unlocked(c: i32, f: *mut FILE) -> i32 {
+    unsafe { fputc_unlocked(c, f) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn putchar_unlocked(c: i32) -> i32 {
+    ensure_stdio_init();
+    unsafe { fputc_unlocked(c, stdout) }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn fputs(s: *const u8, f: *mut FILE) -> i32 {
     if s.is_null() || f.is_null() {
         return EOF;
     }
+    file_lock(f);
     unsafe {
         let mut i = 0;
         while *s.add(i) != 0 {
-            if fputc(*s.add(i) as i32, f) == EOF {
+            if fputc_unlocked_impl(*s.add(i) as i32, f) == EOF {
+                file_unlock(f);
                 return EOF;
             }
             i += 1;
         }
-        0
     }
+    file_unlock(f);
+    0
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn puts(s: *const u8) -> i32 {
     ensure_stdio_init();
     unsafe {
-        if fputs(s, stdout) == EOF {
-            return EOF;
+        let f = stdout;
+        file_lock(f);
+        let mut i = 0;
+        while *s.add(i) != 0 {
+            if fputc_unlocked_impl(*s.add(i) as i32, f) == EOF {
+                file_unlock(f);
+                return EOF;
+            }
+            i += 1;
         }
-        fputc(b'\n' as i32, stdout)
+        let ret = fputc_unlocked_impl(b'\n' as i32, f);
+        file_unlock(f);
+        ret
     }
 }
 
@@ -422,13 +556,15 @@ pub unsafe extern "C" fn fgets(buf: *mut u8, size: i32, f: *mut FILE) -> *mut u8
     if buf.is_null() || size <= 0 || f.is_null() {
         return core::ptr::null_mut();
     }
+    file_lock(f);
     unsafe {
         let mut i = 0;
         let max = (size - 1) as usize;
         while i < max {
-            let c = fgetc(f);
+            let c = fgetc_unlocked_impl(f);
             if c == EOF {
                 if i == 0 {
+                    file_unlock(f);
                     return core::ptr::null_mut();
                 }
                 break;
@@ -440,7 +576,29 @@ pub unsafe extern "C" fn fgets(buf: *mut u8, size: i32, f: *mut FILE) -> *mut u8
             }
         }
         *buf.add(i) = 0;
-        buf
+    }
+    file_unlock(f);
+    buf
+}
+
+unsafe fn fread_unlocked_impl(
+    ptr: *mut u8,
+    size: usize,
+    nmemb: usize,
+    f: *mut FILE,
+) -> usize {
+    unsafe {
+        let total = size * nmemb;
+        let mut read = 0;
+        while read < total {
+            let c = fgetc_unlocked_impl(f);
+            if c == EOF {
+                break;
+            }
+            *ptr.add(read) = c as u8;
+            read += 1;
+        }
+        read / size
     }
 }
 
@@ -454,18 +612,41 @@ pub unsafe extern "C" fn fread(
     if size == 0 || nmemb == 0 || f.is_null() {
         return 0;
     }
+    file_lock(f);
+    let ret = unsafe { fread_unlocked_impl(ptr, size, nmemb, f) };
+    file_unlock(f);
+    ret
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fread_unlocked(
+    ptr: *mut u8,
+    size: usize,
+    nmemb: usize,
+    f: *mut FILE,
+) -> usize {
+    if size == 0 || nmemb == 0 || f.is_null() {
+        return 0;
+    }
+    unsafe { fread_unlocked_impl(ptr, size, nmemb, f) }
+}
+
+unsafe fn fwrite_unlocked_impl(
+    ptr: *const u8,
+    size: usize,
+    nmemb: usize,
+    f: *mut FILE,
+) -> usize {
     unsafe {
         let total = size * nmemb;
-        let mut read = 0;
-        while read < total {
-            let c = fgetc(f);
-            if c == EOF {
+        let mut written = 0;
+        while written < total {
+            if fputc_unlocked_impl(*ptr.add(written) as i32, f) == EOF {
                 break;
             }
-            *ptr.add(read) = c as u8;
-            read += 1;
+            written += 1;
         }
-        read / size
+        written / size
     }
 }
 
@@ -479,17 +660,23 @@ pub unsafe extern "C" fn fwrite(
     if size == 0 || nmemb == 0 || f.is_null() {
         return 0;
     }
-    unsafe {
-        let total = size * nmemb;
-        let mut written = 0;
-        while written < total {
-            if fputc(*ptr.add(written) as i32, f) == EOF {
-                break;
-            }
-            written += 1;
-        }
-        written / size
+    file_lock(f);
+    let ret = unsafe { fwrite_unlocked_impl(ptr, size, nmemb, f) };
+    file_unlock(f);
+    ret
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fwrite_unlocked(
+    ptr: *const u8,
+    size: usize,
+    nmemb: usize,
+    f: *mut FILE,
+) -> usize {
+    if size == 0 || nmemb == 0 || f.is_null() {
+        return 0;
     }
+    unsafe { fwrite_unlocked_impl(ptr, size, nmemb, f) }
 }
 
 #[unsafe(no_mangle)]
@@ -497,8 +684,9 @@ pub unsafe extern "C" fn fseek(f: *mut FILE, offset: i64, whence: i32) -> i32 {
     if f.is_null() {
         return -1;
     }
-    unsafe {
-        fflush(f);
+    file_lock(f);
+    let ret = unsafe {
+        fflush_unlocked(f);
         (*f).buf_pos = 0;
         (*f).buf_len = 0;
         (*f).ungetc_char = -1;
@@ -509,7 +697,9 @@ pub unsafe extern "C" fn fseek(f: *mut FILE, offset: i64, whence: i32) -> i32 {
             trona_posix::posix_lseek((*f)._file, offset, whence)
         };
         if ret < 0 { -1 } else { 0 }
-    }
+    };
+    file_unlock(f);
+    ret
 }
 
 #[unsafe(no_mangle)]
@@ -517,24 +707,49 @@ pub unsafe extern "C" fn ftell(f: *mut FILE) -> i64 {
     if f.is_null() {
         return -1;
     }
-    unsafe {
-        fflush(f);
+    file_lock(f);
+    let ret = unsafe {
+        fflush_unlocked(f);
         trona_posix::posix_lseek((*f)._file, 0, trona_posix::SEEK_CUR as i32)
-    }
+    };
+    file_unlock(f);
+    ret
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rewind(f: *mut FILE) {
+    if f.is_null() {
+        return;
+    }
+    file_lock(f);
     unsafe {
-        fseek(f, 0, trona_posix::SEEK_SET as i32);
-        if !f.is_null() {
-            (*f).flags &= !(FILE_ERROR | FILE_EOF);
+        fflush_unlocked(f);
+        (*f).buf_pos = 0;
+        (*f).buf_len = 0;
+        (*f).ungetc_char = -1;
+        (*f).flags &= !(FILE_ERROR | FILE_EOF);
+        if let Some(sfn) = (*f).seek_fn {
+            sfn((*f).cookie, 0, trona_posix::SEEK_SET as i32);
+        } else {
+            trona_posix::posix_lseek((*f)._file, 0, trona_posix::SEEK_SET as i32);
         }
     }
+    file_unlock(f);
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fileno(f: *mut FILE) -> i32 {
+    if f.is_null() {
+        return -1;
+    }
+    file_lock(f);
+    let ret = unsafe { (*f)._file };
+    file_unlock(f);
+    ret
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fileno_unlocked(f: *mut FILE) -> i32 {
     if f.is_null() {
         return -1;
     }
@@ -546,6 +761,17 @@ pub unsafe extern "C" fn ferror(f: *mut FILE) -> i32 {
     if f.is_null() {
         return 0;
     }
+    file_lock(f);
+    let ret = unsafe { ((*f).flags & FILE_ERROR != 0) as i32 };
+    file_unlock(f);
+    ret
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ferror_unlocked(f: *mut FILE) -> i32 {
+    if f.is_null() {
+        return 0;
+    }
     unsafe { ((*f).flags & FILE_ERROR != 0) as i32 }
 }
 
@@ -554,11 +780,34 @@ pub unsafe extern "C" fn feof(f: *mut FILE) -> i32 {
     if f.is_null() {
         return 0;
     }
+    file_lock(f);
+    let ret = unsafe { ((*f).flags & FILE_EOF != 0) as i32 };
+    file_unlock(f);
+    ret
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn feof_unlocked(f: *mut FILE) -> i32 {
+    if f.is_null() {
+        return 0;
+    }
     unsafe { ((*f).flags & FILE_EOF != 0) as i32 }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn clearerr(f: *mut FILE) {
+    if f.is_null() {
+        return;
+    }
+    file_lock(f);
+    unsafe {
+        (*f).flags &= !(FILE_ERROR | FILE_EOF);
+    }
+    file_unlock(f);
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn clearerr_unlocked(f: *mut FILE) {
     if !f.is_null() {
         unsafe {
             (*f).flags &= !(FILE_ERROR | FILE_EOF);
@@ -567,14 +816,38 @@ pub unsafe extern "C" fn clearerr(f: *mut FILE) {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn flockfile(f: *mut FILE) {
+    if !f.is_null() {
+        file_lock(f);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn funlockfile(f: *mut FILE) {
+    if !f.is_null() {
+        file_unlock(f);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ftrylockfile(f: *mut FILE) -> i32 {
+    if f.is_null() {
+        return -1;
+    }
+    if file_trylock(f) { 0 } else { -1 }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn setvbuf(f: *mut FILE, _buf: *mut u8, mode: i32, _size: usize) -> i32 {
     if f.is_null() {
         return -1;
     }
+    file_lock(f);
     unsafe {
         (*f).buf_mode = mode;
-        0
     }
+    file_unlock(f);
+    0
 }
 
 #[unsafe(no_mangle)]
@@ -640,11 +913,13 @@ pub unsafe extern "C" fn vfprintf(f: *mut FILE, fmt: *const u8, ap: VaList<'_>) 
     let mut buf = [0u8; 4096];
     unsafe {
         let n = vsnprintf(buf.as_mut_ptr(), 4096, fmt, ap);
-        if n > 0 {
+        if n > 0 && !f.is_null() {
+            file_lock(f);
             let write_len = if (n as usize) < 4096 { n as usize } else { 4095 };
             for i in 0..write_len {
-                fputc(buf[i] as i32, f);
+                fputc_unlocked_impl(buf[i] as i32, f);
             }
+            file_unlock(f);
         }
         n
     }
@@ -730,12 +1005,25 @@ pub unsafe extern "C" fn perror(s: *const u8) {
     ensure_stdio_init();
     unsafe {
         let err = errno::get_errno();
+        let f = stderr;
+        file_lock(f);
         if !s.is_null() && *s != 0 {
-            fputs(s, stderr);
-            fputs(b": \0".as_ptr(), stderr);
+            let mut i = 0;
+            while *s.add(i) != 0 {
+                fputc_unlocked_impl(*s.add(i) as i32, f);
+                i += 1;
+            }
+            fputc_unlocked_impl(b':' as i32, f);
+            fputc_unlocked_impl(b' ' as i32, f);
         }
-        fputs(crate::string::strerror(err), stderr);
-        fputc(b'\n' as i32, stderr);
+        let msg = crate::string::strerror(err);
+        let mut i = 0;
+        while *msg.add(i) != 0 {
+            fputc_unlocked_impl(*msg.add(i) as i32, f);
+            i += 1;
+        }
+        fputc_unlocked_impl(b'\n' as i32, f);
+        file_unlock(f);
     }
 }
 
@@ -1408,15 +1696,13 @@ pub unsafe extern "C" fn mkstemp(template: *mut u8) -> i32 {
         return -1;
     }
     unsafe {
-        // Replace trailing XXXXXX with a simple counter
-        static mut COUNTER: u32 = 0;
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
         let len = crate::string::strlen(template);
         if len < 6 {
             return -1;
         }
         let base = len - 6;
-        let n = COUNTER;
-        COUNTER += 1;
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let digits = b"0123456789abcdef";
         for i in 0..6 {
             *template.add(base + i) = digits[((n >> (i * 4)) & 0xf) as usize];
@@ -1441,16 +1727,17 @@ pub unsafe extern "C" fn getdelim(
         return -1;
     }
 
+    file_lock(stream);
     unsafe {
         let mut buf = *lineptr;
         let mut cap = *n;
 
-        // Allocate initial buffer if needed
         if buf.is_null() || cap == 0 {
             cap = 128;
             buf = crate::malloc::malloc(cap);
             if buf.is_null() {
                 errno::set_errno(errno::ENOMEM);
+                file_unlock(stream);
                 return -1;
             }
             *lineptr = buf;
@@ -1459,20 +1746,21 @@ pub unsafe extern "C" fn getdelim(
 
         let mut pos: usize = 0;
         loop {
-            let c = fgetc(stream);
+            let c = fgetc_unlocked_impl(stream);
             if c == EOF {
                 if pos == 0 {
+                    file_unlock(stream);
                     return -1;
                 }
                 break;
             }
 
-            // Ensure space for this char + null terminator
             if pos + 2 > cap {
                 let new_cap = cap * 2;
                 let new_buf = crate::malloc::realloc(buf, new_cap);
                 if new_buf.is_null() {
                     errno::set_errno(errno::ENOMEM);
+                    file_unlock(stream);
                     return -1;
                 }
                 buf = new_buf;
@@ -1490,6 +1778,7 @@ pub unsafe extern "C" fn getdelim(
         }
 
         *buf.add(pos) = 0;
+        file_unlock(stream);
         pos as isize
     }
 }
@@ -2312,14 +2601,13 @@ pub unsafe extern "C" fn __freading(f: *mut FILE) -> i32 {
     if f.is_null() {
         return 0;
     }
-    unsafe {
+    file_lock(f);
+    let ret = unsafe {
         let flags = (*f).flags;
-        // Read-only (no write flag), or has read flag without write flag
-        if flags & FILE_WRITE == 0 && flags & FILE_READ != 0 {
-            return 1;
-        }
-        0
-    }
+        if flags & FILE_WRITE == 0 && flags & FILE_READ != 0 { 1 } else { 0 }
+    };
+    file_unlock(f);
+    ret
 }
 
 /// Returns non-zero if the stream is write-only or last operation was a write.
@@ -2328,13 +2616,13 @@ pub unsafe extern "C" fn __fwriting(f: *mut FILE) -> i32 {
     if f.is_null() {
         return 0;
     }
-    unsafe {
+    file_lock(f);
+    let ret = unsafe {
         let flags = (*f).flags;
-        if flags & FILE_READ == 0 && flags & FILE_WRITE != 0 {
-            return 1;
-        }
-        0
-    }
+        if flags & FILE_READ == 0 && flags & FILE_WRITE != 0 { 1 } else { 0 }
+    };
+    file_unlock(f);
+    ret
 }
 
 /// Discard the contents of the stream's buffer.
@@ -2343,11 +2631,13 @@ pub unsafe extern "C" fn __fpurge(f: *mut FILE) {
     if f.is_null() {
         return;
     }
+    file_lock(f);
     unsafe {
         (*f).buf_pos = 0;
         (*f).buf_len = 0;
         (*f).ungetc_char = -1;
     }
+    file_unlock(f);
 }
 
 /// Return the buffer size of the stream.
@@ -2365,7 +2655,10 @@ pub unsafe extern "C" fn __flbf(f: *mut FILE) -> i32 {
     if f.is_null() {
         return 0;
     }
-    unsafe { ((*f).buf_mode == _IOLBF) as i32 }
+    file_lock(f);
+    let ret = unsafe { ((*f).buf_mode == _IOLBF) as i32 };
+    file_unlock(f);
+    ret
 }
 
 /// Return the number of pending (buffered, not yet written) bytes.
@@ -2374,11 +2667,10 @@ pub unsafe extern "C" fn __fpending(f: *mut FILE) -> usize {
     if f.is_null() {
         return 0;
     }
-    unsafe {
-        if (*f).flags & FILE_WRITE != 0 {
-            (*f).buf_pos
-        } else {
-            0
-        }
-    }
+    file_lock(f);
+    let ret = unsafe {
+        if (*f).flags & FILE_WRITE != 0 { (*f).buf_pos } else { 0 }
+    };
+    file_unlock(f);
+    ret
 }

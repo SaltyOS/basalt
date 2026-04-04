@@ -48,10 +48,12 @@ pub struct Sigset {
     pub bits: u32,
 }
 
-// SAFETY: single-threaded process; HANDLERS and BLOCKED_MASK are only
-// accessed from the main thread.
 static mut HANDLERS: [SighandlerT; NSIG] = [SIG_DFL; NSIG];
 static mut BLOCKED_MASK: Sigset = Sigset { bits: 0 };
+
+/// Mutex protecting HANDLERS and libtrona signal globals (__sig_sa_mask,
+/// __sig_sa_flags) for thread-safe signal()/sigaction().
+static SIGNAL_LOCK: trona_posix::sync::Mutex = trona_posix::sync::Mutex::new();
 
 /// Install a signal handler for signal `sig`.
 ///
@@ -62,12 +64,13 @@ static mut BLOCKED_MASK: Sigset = Sigset { bits: 0 };
 /// Returns the previous handler on success, or `SIG_ERR` on failure.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn signal(sig: i32, handler: SighandlerT) -> SighandlerT {
-    unsafe {
-        if sig <= 0 || sig >= NSIG as i32 {
-            errno::set_errno(errno::EINVAL);
-            return SIG_ERR;
-        }
+    if sig <= 0 || sig >= NSIG as i32 {
+        errno::set_errno(errno::EINVAL);
+        return SIG_ERR;
+    }
 
+    SIGNAL_LOCK.lock();
+    let result = unsafe {
         let old = *(&raw const HANDLERS)
             .cast::<[SighandlerT; NSIG]>()
             .as_ref()
@@ -75,37 +78,29 @@ pub unsafe extern "C" fn signal(sig: i32, handler: SighandlerT) -> SighandlerT {
             .get_unchecked(sig as usize);
         (*(&raw mut HANDLERS))[sig as usize] = handler;
 
-        // If handler is a catch function (not SIG_DFL or SIG_IGN), register with libtrona
-        if handler != SIG_DFL && handler != SIG_IGN {
-            let result = trona_posix::signals::posix_signal(sig, handler);
-            if result == usize::MAX {
-                // Registration failed, revert
-                (*(&raw mut HANDLERS))[sig as usize] = old;
-                errno::set_errno(errno::EINVAL);
-                return SIG_ERR;
-            }
+        let reg_result = trona_posix::signals::posix_signal(sig, handler);
+        if reg_result == usize::MAX {
+            // Registration failed, revert
+            (*(&raw mut HANDLERS))[sig as usize] = old;
+            errno::set_errno(errno::EINVAL);
+            SIG_ERR
         } else {
-            // Still notify libtrona of disposition change
-            let result = trona_posix::signals::posix_signal(sig, handler);
-            if result == usize::MAX {
-                (*(&raw mut HANDLERS))[sig as usize] = old;
-                errno::set_errno(errno::EINVAL);
-                return SIG_ERR;
-            }
+            old
         }
-
-        old
-    }
+    };
+    SIGNAL_LOCK.unlock();
+    result
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sigaction(sig: i32, act: *const Sigaction, oact: *mut Sigaction) -> i32 {
-    unsafe {
-        if sig <= 0 || sig >= NSIG as i32 {
-            errno::set_errno(errno::EINVAL);
-            return -1;
-        }
+    if sig <= 0 || sig >= NSIG as i32 {
+        errno::set_errno(errno::EINVAL);
+        return -1;
+    }
 
+    SIGNAL_LOCK.lock();
+    let result = unsafe {
         // Fill old action if requested
         if !oact.is_null() {
             (*oact).sa_handler = (*(&raw const HANDLERS))[sig as usize];
@@ -123,11 +118,12 @@ pub unsafe extern "C" fn sigaction(sig: i32, act: *const Sigaction, oact: *mut S
 
             (*(&raw mut HANDLERS))[sig as usize] = new_handler;
 
-            let result = trona_posix::signals::posix_signal(sig, new_handler);
-            if result == usize::MAX {
+            let reg_result = trona_posix::signals::posix_signal(sig, new_handler);
+            if reg_result == usize::MAX {
                 // Revert on failure
                 (*(&raw mut HANDLERS))[sig as usize] = old;
                 errno::set_errno(errno::EINVAL);
+                SIGNAL_LOCK.unlock();
                 return -1;
             }
 
@@ -137,7 +133,9 @@ pub unsafe extern "C" fn sigaction(sig: i32, act: *const Sigaction, oact: *mut S
         }
 
         0
-    }
+    };
+    SIGNAL_LOCK.unlock();
+    result
 }
 
 #[unsafe(no_mangle)]

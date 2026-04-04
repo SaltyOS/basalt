@@ -330,11 +330,17 @@ pub unsafe extern "C" fn strcspn(s: *const u8, reject: *const u8) -> usize {
     }
 }
 
-static mut STRTOK_SAVE: *mut u8 = core::ptr::null_mut();
+/// Fallback strtok save pointer for pre-TLS startup.
+static mut STRTOK_SAVE_FALLBACK: *mut u8 = core::ptr::null_mut();
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn strtok(s: *mut u8, delim: *const u8) -> *mut u8 {
-    unsafe { strtok_r(s, delim, &raw mut STRTOK_SAVE) }
+    let save_ptr = if let Some(tls) = trona_posix::tls::current_tls() {
+        unsafe { &raw mut (*tls).strtok_save }
+    } else {
+        unsafe { &raw mut STRTOK_SAVE_FALLBACK }
+    };
+    unsafe { strtok_r(s, delim, save_ptr) }
 }
 
 #[unsafe(no_mangle)]

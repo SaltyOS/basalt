@@ -13,9 +13,41 @@
 //! fully supported.
 //!
 //! Non-reentrant functions (`localtime`, `gmtime`, `ctime`, `asctime`) use
-//! shared static buffers. The `_r` variants accept caller-provided buffers.
+//! per-thread TLS buffers (with static fallback pre-TLS). The `_r` variants
+//! accept caller-provided buffers.
 
 use crate::errno;
+
+/// Mutex protecting timezone globals (tzname, timezone, daylight, TZ_STD_NAME,
+/// TZ_DST_NAME) during tzset() and DST rule parsing.
+static TZ_LOCK: trona_posix::sync::Mutex = trona_posix::sync::Mutex::new();
+
+/// Get per-thread Tm buffer (TLS), falling back to global static pre-TLS.
+fn get_tls_tm_buf() -> *mut Tm {
+    if let Some(tls) = trona_posix::tls::current_tls() {
+        unsafe { (&raw mut (*tls).libc_tm_buf) as *mut Tm }
+    } else {
+        unsafe { &raw mut TM_BUF }
+    }
+}
+
+/// Get per-thread asctime buffer (TLS), falling back to global static pre-TLS.
+fn get_tls_asctime_buf() -> *mut u8 {
+    if let Some(tls) = trona_posix::tls::current_tls() {
+        unsafe { (&raw mut (*tls).libc_asctime_buf) as *mut u8 }
+    } else {
+        unsafe { (&raw mut ASCTIME_BUF) as *mut u8 }
+    }
+}
+
+/// Get per-thread ctime buffer (TLS), falling back to global static pre-TLS.
+fn get_tls_ctime_buf() -> *mut u8 {
+    if let Some(tls) = trona_posix::tls::current_tls() {
+        unsafe { (&raw mut (*tls).libc_ctime_buf) as *mut u8 }
+    } else {
+        unsafe { (&raw mut CTIME_BUF) as *mut u8 }
+    }
+}
 
 static mut LOGGED_CLOCK_GETTIME_CALLS: u8 = 0;
 
@@ -663,6 +695,7 @@ unsafe fn tz_offset_for(utc: i64) -> i64 {
 /// POSIX format: stdoffset[dst[offset][,start[/time],end[/time]]]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tzset() {
+    TZ_LOCK.lock();
     unsafe {
         *(&raw mut TZ_SET) = true;
 
@@ -688,6 +721,7 @@ pub unsafe extern "C" fn tzset() {
             *(&raw mut timezone) = 0;
             *(&raw mut daylight) = 0;
             *(&raw mut TZ_DST_OFFSET) = 0;
+            TZ_LOCK.unlock();
             return;
         }
 
@@ -699,6 +733,7 @@ pub unsafe extern "C" fn tzset() {
 
         if name_len == 0 {
             // Invalid TZ, fall back to UTC
+            TZ_LOCK.unlock();
             return;
         }
 
@@ -720,6 +755,7 @@ pub unsafe extern "C" fn tzset() {
 
             if dst_len == 0 {
                 *(&raw mut daylight) = 0;
+                TZ_LOCK.unlock();
                 return;
             }
 
@@ -750,6 +786,7 @@ pub unsafe extern "C" fn tzset() {
             (*dst_name)[0] = 0;
         }
     }
+    TZ_LOCK.unlock();
 }
 
 // ---------------------------------------------------------------------------
@@ -872,8 +909,8 @@ pub unsafe extern "C" fn gmtime(timep: *const TimeT) -> *mut Tm {
         if timep.is_null() {
             return core::ptr::null_mut();
         }
-        epoch_to_tm(*timep, &raw mut TM_BUF);
-        &raw mut TM_BUF as *mut Tm
+        let buf = get_tls_tm_buf();
+        gmtime_r(timep, buf)
     }
 }
 
@@ -904,8 +941,8 @@ pub unsafe extern "C" fn localtime(timep: *const TimeT) -> *mut Tm {
         if timep.is_null() {
             return core::ptr::null_mut();
         }
-        localtime_r(timep, &raw mut TM_BUF);
-        &raw mut TM_BUF as *mut Tm
+        let buf = get_tls_tm_buf();
+        localtime_r(timep, buf)
     }
 }
 
@@ -1010,7 +1047,7 @@ pub unsafe extern "C" fn asctime_r(tm: *const Tm, buf: *mut u8) -> *mut u8 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn asctime(tm: *const Tm) -> *mut u8 {
-    unsafe { asctime_r(tm, (&raw mut ASCTIME_BUF) as *mut u8) }
+    unsafe { asctime_r(tm, get_tls_asctime_buf()) }
 }
 
 #[unsafe(no_mangle)]
@@ -1038,7 +1075,7 @@ pub unsafe extern "C" fn ctime_r(timep: *const TimeT, buf: *mut u8) -> *mut u8 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ctime(timep: *const TimeT) -> *mut u8 {
-    unsafe { ctime_r(timep, (&raw mut CTIME_BUF) as *mut u8) }
+    unsafe { ctime_r(timep, get_tls_ctime_buf()) }
 }
 
 #[unsafe(no_mangle)]

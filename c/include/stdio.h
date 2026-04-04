@@ -29,6 +29,11 @@ typedef int  (*funopen_writefn)(void *, const char *, int);
 typedef long long (*funopen_seekfn)(void *, long long, int);
 typedef int  (*funopen_closefn)(void *);
 
+typedef union {
+    unsigned char __opaque[24];
+    unsigned long long __align;
+} __stdio_lock_t;
+
 typedef struct FILE {
     int _file;
     unsigned int flags;
@@ -37,6 +42,8 @@ typedef struct FILE {
     size_t buf_len;
     int ungetc_char;
     int buf_mode;
+    unsigned int __slot_in_use;
+    __stdio_lock_t lock;
     void *cookie;
     funopen_readfn read_fn;
     funopen_writefn write_fn;
@@ -83,6 +90,10 @@ extern int   ferror(FILE *stream);
 extern void  clearerr(FILE *stream);
 extern int   fileno(FILE *stream);
 
+extern void  flockfile(FILE *stream);
+extern void  funlockfile(FILE *stream);
+extern int   ftrylockfile(FILE *stream);
+
 extern int   setvbuf(FILE *stream, char *buf, int mode, size_t size);
 extern void  setbuf(FILE *stream, char *buf);
 extern void  setlinebuf(FILE *stream);
@@ -127,6 +138,21 @@ extern FILE *funopen(const void *cookie,
                      funopen_writefn writefn,
                      funopen_seekfn seekfn,
                      funopen_closefn closefn);
+
+/* _unlocked variants (no per-FILE locking) */
+extern int   fgetc_unlocked(FILE *stream);
+extern int   getc_unlocked(FILE *stream);
+extern int   getchar_unlocked(void);
+extern int   fputc_unlocked(int c, FILE *stream);
+extern int   putc_unlocked(int c, FILE *stream);
+extern int   putchar_unlocked(int c);
+extern size_t fread_unlocked(void *ptr, size_t size, size_t nmemb, FILE *stream);
+extern size_t fwrite_unlocked(const void *ptr, size_t size, size_t nmemb, FILE *stream);
+extern void  clearerr_unlocked(FILE *stream);
+extern int   feof_unlocked(FILE *stream);
+extern int   ferror_unlocked(FILE *stream);
+extern int   fileno_unlocked(FILE *stream);
+extern int   fflush_unlocked_ext(FILE *stream);
 
 __END_DECLS
 

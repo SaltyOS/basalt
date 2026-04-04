@@ -10,29 +10,17 @@
 //! kept sorted by address to enable bidirectional coalescing: on `free()`,
 //! adjacent blocks (both before and after) are merged when contiguous.
 //!
-//! Thread safety: a global spinlock serializes all heap operations.
+//! Thread safety: a futex-based mutex serializes all heap operations.
+//! The mutex uses a three-phase acquire (CAS → spin → futex_wait) so
+//! uncontended allocations never enter the kernel.
 //!
 //! Layout: `[BlockHeader (16 bytes)][user data (aligned to 16)]`
 
 use crate::errno;
 
-/// Spinlock protecting the global free list for thread safety.
-static HEAP_LOCK: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-
-#[inline]
-fn heap_lock_acquire() {
-    use core::sync::atomic::Ordering;
-    while HEAP_LOCK.compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed).is_err() {
-        while HEAP_LOCK.load(Ordering::Relaxed) != 0 {
-            core::hint::spin_loop();
-        }
-    }
-}
-
-#[inline]
-fn heap_lock_release() {
-    HEAP_LOCK.store(0, core::sync::atomic::Ordering::Release);
-}
+/// Futex-based mutex protecting the global free list for thread safety.
+/// Replaces the previous pure spinlock to avoid CPU waste under contention.
+static HEAP_LOCK: trona_posix::sync::Mutex = trona_posix::sync::Mutex::new();
 
 /// Allocation header stored before each allocation
 /// size includes the header itself
@@ -164,17 +152,17 @@ unsafe fn free_inner(ptr: *mut u8) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn malloc(size: usize) -> *mut u8 {
-    heap_lock_acquire();
+    HEAP_LOCK.lock();
     let result = unsafe { malloc_inner(size) };
-    heap_lock_release();
+    HEAP_LOCK.unlock();
     result
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free(ptr: *mut u8) {
-    heap_lock_acquire();
+    HEAP_LOCK.lock();
     unsafe { free_inner(ptr) };
-    heap_lock_release();
+    HEAP_LOCK.unlock();
 }
 
 #[unsafe(no_mangle)]
@@ -187,14 +175,14 @@ pub unsafe extern "C" fn realloc(ptr: *mut u8, size: usize) -> *mut u8 {
         return core::ptr::null_mut();
     }
 
-    heap_lock_acquire();
+    HEAP_LOCK.lock();
     let result = unsafe {
         let header = ptr.sub(HEADER_SIZE) as *const BlockHeader;
         let old_data_size = (*header).size - HEADER_SIZE;
 
         let new_ptr = malloc_inner(size);
         if new_ptr.is_null() {
-            heap_lock_release();
+            HEAP_LOCK.unlock();
             return core::ptr::null_mut();
         }
 
@@ -207,7 +195,7 @@ pub unsafe extern "C" fn realloc(ptr: *mut u8, size: usize) -> *mut u8 {
         free_inner(ptr);
         new_ptr
     };
-    heap_lock_release();
+    HEAP_LOCK.unlock();
     result
 }
 
