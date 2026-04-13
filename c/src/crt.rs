@@ -22,10 +22,16 @@
 //! 10. Call `main(argc, argv, envp)`, then `exit()`
 //!
 //! Custom auxv tags used by SaltyOS:
-//! - `0x1007` (`AT_TRONA_SLOT_BASE`): slot allocator pool base
-//! - `0x1008` (`AT_TRONA_SLOT_COUNT`): slot allocator pool size
-//! - `0x1009` (`AT_TRONA_EXPAND_EP`): procmgr endpoint used for CSpace expansion
-//! - `0x100B` (`AT_TRONA_MM_EP`): mmsrv endpoint cap slot
+//! - `0x1005` (`AT_TRONA_CSPACE_LAYOUT`): pointer to the startup CSpace layout
+//! - `0x100E` (`AT_TRONA_SC_CAP`): main-thread SchedContext slot (fallback
+//!   for static binaries; dynamic binaries receive it via the rtld-populated
+//!   `__trona_sc_cap` weak symbol)
+//! - `0x100A` (`AT_TRONA_CSPACE_NTFN`): CSpace expansion notification cap
+//!
+//! All role-bearing caps (procmgr, vfs, mmsrv, namesrv, ...) arrive through
+//! the role-based startup capability table (`AT_TRONA_CAP_TABLE`) which the
+//! substrate installs into `__trona_cap_*` weak symbols before libc init
+//! runs, so libc does not parse them from auxv directly.
 
 use crate::env;
 
@@ -38,7 +44,7 @@ static mut ATEXIT_FUNCS: [Option<unsafe extern "C" fn()>; ATEXIT_MAX] = [None; A
 static mut ATEXIT_COUNT: usize = 0;
 
 /// Mutex protecting ATEXIT_FUNCS/ATEXIT_COUNT and CXA_ATEXIT_FUNCS/CXA_ATEXIT_COUNT.
-static ATEXIT_LOCK: trona_posix::sync::Mutex = trona_posix::sync::Mutex::new();
+static ATEXIT_LOCK: trona::sync::Mutex = trona::sync::Mutex::new();
 
 /// Saved pointer to the auxv on the initial stack.
 /// Set once by `__libc_start_main`; valid for the process lifetime.
@@ -107,7 +113,9 @@ pub unsafe extern "C" fn __libc_start_main(
             while !(*ep).is_null() {
                 ep = ep.add(1);
             }
-            core::ptr::addr_of_mut!(SAVED_AUXV).write(ep.add(1) as *const u64);
+            let auxv = ep.add(1) as *const u64;
+            core::ptr::addr_of_mut!(SAVED_AUXV).write(auxv);
+            trona::runtime_set_auxv(auxv);
         }
 
         // Common runtime init: IPC buffer, slot allocator, mmsrv, TLS.
@@ -170,6 +178,38 @@ unsafe fn common_init(stack_ptr: *const u64) {
     }
 }
 
+unsafe fn resolve_runtime_mm_state(mut auxv: *const u64) -> (u64, u64) {
+    unsafe {
+        // Walk auxv for the only structural cap tag libc still cares about:
+        // AT_TRONA_SC_CAP. Role-bearing endpoint caps flow through the
+        // startup cap_table installed by the substrate, not individual
+        // AT_TRONA_*_EP tags.
+        let mut sc_cap: u64 = 0;
+
+        while !auxv.is_null() {
+            let tag = *auxv;
+            let val = *auxv.add(1);
+            if tag == 0 {
+                break;
+            }
+            if tag == 0x100E {
+                // AT_TRONA_SC_CAP
+                sc_cap = val;
+            }
+            auxv = auxv.add(2);
+        }
+
+        // Dynamic binaries get sc_cap populated into libtrona's weak
+        // symbol by rtld before libc init runs; prefer that if present.
+        let rtld_sc_cap = *(&raw const trona::__trona_sc_cap);
+        if rtld_sc_cap != 0 {
+            sc_cap = rtld_sc_cap;
+        }
+
+        (sc_cap, *(&raw const trona::__trona_cspace_ntfn))
+    }
+}
+
 /// Parse auxv entries from the stack
 unsafe fn init_ipc_from_auxv(stack_ptr: *const u64) {
     unsafe {
@@ -196,10 +236,11 @@ unsafe fn init_ipc_from_auxv(stack_ptr: *const u64) {
 /// Initialize the per-process slot allocator and POSIX memory manager from auxv.
 ///
 /// Parses SaltyOS-specific auxiliary vector entries (`AT_TRONA_*`) to discover
-/// the slot allocator pool and the mmsrv endpoint capability. The RTLD may
-/// have already consumed some slots, so its exported values take precedence
-/// over raw auxv. The mmsrv endpoint is provided via `AT_TRONA_MM_EP` by
-/// the spawner (init or procmgr). If absent, defaults to 0 (no pager).
+/// the startup CSpace layout and the mmsrv endpoint capability. The RTLD
+/// updates the shared layout descriptor in place after consuming its startup
+/// frame slots, so the allocator sees the post-RTLD alloc range directly.
+/// The mmsrv endpoint is provided via `AT_TRONA_MM_EP` by the spawner (init
+/// or procmgr). If absent, defaults to 0 (no pager).
 unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
     unsafe {
         let argc = *stack_ptr as usize;
@@ -211,59 +252,23 @@ unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
         }
         p = p.add(1);
 
-        // Parse auxv
-        let mut slot_base: u64 = 0;
-        let mut slot_count: u64 = 0;
-        let mut expand_ep: u64 = 0;
-        let mut mm_ep: u64 = 0; // default: no mmsrv (overridden by AT_TRONA_MM_EP)
-        let mut sc_cap: u64 = 0;
+        let (sc_cap, cspace_ntfn) = resolve_runtime_mm_state(p);
 
-        loop {
-            let tag = *p;
-            let val = *p.add(1);
-            if tag == 0 {
-                break; // AT_NULL
-            }
-            match tag {
-                0x1007 => slot_base = val,   // AT_TRONA_SLOT_BASE
-                0x1008 => slot_count = val,  // AT_TRONA_SLOT_COUNT
-                0x1009 => expand_ep = val,   // AT_TRONA_EXPAND_EP
-                0x100B => mm_ep = val,       // AT_TRONA_MM_EP
-                0x100E => sc_cap = val,      // AT_TRONA_SC_CAP
-                _ => {}
-            }
-            p = p.add(2);
-        }
-
-        // Prefer RTLD-exported values because RTLD advances slot pool past
-        // the slots consumed while loading shared libraries, and parses
-        // AT_TRONA_SC_CAP itself.
-        let rtld_base = *(&raw const trona::__trona_slot_base);
-        let rtld_count = *(&raw const trona::__trona_slot_count);
-        if rtld_base != 0 && rtld_count != 0 {
-            slot_base = rtld_base;
-            slot_count = rtld_count;
-        }
-
-        let rtld_sc_cap = *(&raw const trona::__trona_sc_cap);
-        if rtld_sc_cap != 0 {
-            sc_cap = rtld_sc_cap;
-        }
         // Write to substrate global so TLS init can pick it up
         *(&raw mut trona::__trona_sc_cap) = sc_cap;
 
-        let cspace_ntfn = *(&raw const trona::__trona_cspace_ntfn);
-
         // Initialize per-process slot allocator
-        if slot_base != 0 {
-            trona::slot_alloc::slot_alloc_init(slot_base, slot_count, cspace_ntfn);
-            if expand_ep != 0 {
-                trona::slot_alloc::slot_alloc_set_procmgr_ep(expand_ep);
-            }
+        if let Some(cspace_layout) = trona::runtime_get_cspace_layout() {
+            trona::slot_alloc::slot_alloc_init(
+                cspace_layout.alloc_base,
+                cspace_layout.alloc_count(),
+                cspace_ntfn,
+            );
         }
 
-        // Initialize posix_mm with the pager endpoint discovered from auxv
-        trona_posix::mm::posix_mm_init(mm_ep);
+        // posix_mm reads the mmsrv slot directly from `trona::caps::mmsrv_ep()`
+        // (populated from the startup cap_table), so no explicit init call is
+        // needed here.
     }
 }
 

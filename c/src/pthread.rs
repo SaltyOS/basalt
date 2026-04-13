@@ -14,6 +14,21 @@ pub struct Timespec {
     pub tv_nsec: i64,
 }
 
+/// Convert a substrate TRONA_* status code to a positive POSIX errno.
+///
+/// pthread_* functions return positive errno values, not negative ones.
+#[inline]
+fn trona_to_pthread_errno(err: u64) -> i32 {
+    match err {
+        trona::consts::TRONA_OK => 0,
+        trona::consts::TRONA_BUSY => 16,               // EBUSY
+        trona::consts::TRONA_DEADLOCK => 35,            // EDEADLK
+        trona::consts::TRONA_TIMED_OUT => 110,          // ETIMEDOUT
+        trona::consts::TRONA_INVALID_OPERATION => 1,    // EPERM
+        _ => 22,                                        // EINVAL
+    }
+}
+
 /// Convert an absolute timespec to a relative timeout in nanoseconds.
 /// Returns 0 if the deadline has already passed.
 fn timespec_to_relative_ns(abstime: &Timespec) -> u64 {
@@ -199,13 +214,13 @@ pub unsafe extern "C" fn pthread_mutex_init(
 
         let kind = if !attr.is_null() { (*attr).kind } else { 0 };
         if kind == PTHREAD_MUTEX_NORMAL || kind == 0 {
-            let m = &mut *(mutex as *mut trona_posix::sync::Mutex);
-            core::ptr::write(m, trona_posix::sync::Mutex::new());
+            let m = &mut *(mutex as *mut trona::sync::Mutex);
+            core::ptr::write(m, trona::sync::Mutex::new());
             set_mutex_kind(mutex, 0);
         } else {
             let mt = kind as u8;
-            let tm = &mut *(mutex as *mut trona_posix::sync::TypedMutex);
-            core::ptr::write(tm, trona_posix::sync::TypedMutex::new(mt));
+            let tm = &mut *(mutex as *mut trona::sync::TypedMutex);
+            core::ptr::write(tm, trona::sync::TypedMutex::new(mt));
             set_mutex_kind(mutex, mt);
         }
     }
@@ -219,12 +234,12 @@ pub unsafe extern "C" fn pthread_mutex_lock(mutex: *mut PthreadMutexT) -> i32 {
     }
     unsafe {
         if mutex_kind(mutex) == 0 {
-            let m = &*(mutex as *const trona_posix::sync::Mutex);
+            let m = &*(mutex as *const trona::sync::Mutex);
             m.lock();
             0
         } else {
-            let tm = &*(mutex as *const trona_posix::sync::TypedMutex);
-            tm.lock()
+            let tm = &*(mutex as *const trona::sync::TypedMutex);
+            trona_to_pthread_errno(tm.lock())
         }
     }
 }
@@ -236,11 +251,11 @@ pub unsafe extern "C" fn pthread_mutex_trylock(mutex: *mut PthreadMutexT) -> i32
     }
     unsafe {
         if mutex_kind(mutex) == 0 {
-            let m = &*(mutex as *const trona_posix::sync::Mutex);
+            let m = &*(mutex as *const trona::sync::Mutex);
             if m.try_lock() { 0 } else { errno::EBUSY }
         } else {
-            let tm = &*(mutex as *const trona_posix::sync::TypedMutex);
-            tm.try_lock()
+            let tm = &*(mutex as *const trona::sync::TypedMutex);
+            trona_to_pthread_errno(tm.try_lock())
         }
     }
 }
@@ -252,12 +267,12 @@ pub unsafe extern "C" fn pthread_mutex_unlock(mutex: *mut PthreadMutexT) -> i32 
     }
     unsafe {
         if mutex_kind(mutex) == 0 {
-            let m = &*(mutex as *const trona_posix::sync::Mutex);
+            let m = &*(mutex as *const trona::sync::Mutex);
             m.unlock();
             0
         } else {
-            let tm = &*(mutex as *const trona_posix::sync::TypedMutex);
-            tm.unlock()
+            let tm = &*(mutex as *const trona::sync::TypedMutex);
+            trona_to_pthread_errno(tm.unlock())
         }
     }
 }
@@ -277,13 +292,12 @@ pub unsafe extern "C" fn pthread_mutex_timedlock(
         let kind = mutex_kind(mutex);
         if kind == 0 {
             // NORMAL mutex
-            let m = &*(mutex as *const trona_posix::sync::Mutex);
+            let m = &*(mutex as *const trona::sync::Mutex);
             if m.lock_timeout(timespec_to_relative_ns(&*abstime)) { 0 } else { errno::ETIMEDOUT }
         } else {
             // Typed mutex
-            let tm = &*(mutex as *const trona_posix::sync::TypedMutex);
-            let ret = tm.lock_timeout(timespec_to_relative_ns(&*abstime));
-            if ret == 0 { 0 } else { ret }
+            let tm = &*(mutex as *const trona::sync::TypedMutex);
+            trona_to_pthread_errno(tm.lock_timeout(timespec_to_relative_ns(&*abstime)))
         }
     }
 }
@@ -306,8 +320,8 @@ pub unsafe extern "C" fn pthread_cond_init(
         return errno::EINVAL;
     }
     unsafe {
-        let c = &mut *(cond as *mut trona_posix::sync::Condvar);
-        core::ptr::write(c, trona_posix::sync::Condvar::new());
+        let c = &mut *(cond as *mut trona::sync::Condvar);
+        core::ptr::write(c, trona::sync::Condvar::new());
     }
     0
 }
@@ -321,15 +335,15 @@ pub unsafe extern "C" fn pthread_cond_wait(
         return errno::EINVAL;
     }
     unsafe {
-        let c = &*(cond as *const trona_posix::sync::Condvar);
+        let c = &*(cond as *const trona::sync::Condvar);
         let kind = mutex_kind(mutex);
         if kind == 0 {
-            let m = &*(mutex as *const trona_posix::sync::Mutex);
+            let m = &*(mutex as *const trona::sync::Mutex);
             c.wait(m);
             0
         } else {
-            let tm = &*(mutex as *const trona_posix::sync::TypedMutex);
-            c.wait_typed(tm)
+            let tm = &*(mutex as *const trona::sync::TypedMutex);
+            trona_to_pthread_errno(c.wait_typed(tm))
         }
     }
 }
@@ -340,7 +354,7 @@ pub unsafe extern "C" fn pthread_cond_signal(cond: *mut PthreadCondT) -> i32 {
         return errno::EINVAL;
     }
     unsafe {
-        let c = &*(cond as *const trona_posix::sync::Condvar);
+        let c = &*(cond as *const trona::sync::Condvar);
         c.signal();
     }
     0
@@ -352,7 +366,7 @@ pub unsafe extern "C" fn pthread_cond_broadcast(cond: *mut PthreadCondT) -> i32 
         return errno::EINVAL;
     }
     unsafe {
-        let c = &*(cond as *const trona_posix::sync::Condvar);
+        let c = &*(cond as *const trona::sync::Condvar);
         c.broadcast();
     }
     0
@@ -371,28 +385,18 @@ pub unsafe extern "C" fn pthread_cond_timedwait(
         if !validate_timespec(&*abstime) {
             return errno::EINVAL;
         }
-        let c = &*(cond as *const trona_posix::sync::Condvar);
+        let c = &*(cond as *const trona::sync::Condvar);
         let kind = mutex_kind(mutex);
         let timeout_ns = timespec_to_relative_ns(&*abstime);
         if timeout_ns == 0 {
             return errno::ETIMEDOUT;
         }
         if kind == 0 {
-            let m = &*(mutex as *const trona_posix::sync::Mutex);
-            let ret = c.wait_timeout(m, timeout_ns);
-            if ret == 110 {
-                errno::ETIMEDOUT
-            } else {
-                ret
-            }
+            let m = &*(mutex as *const trona::sync::Mutex);
+            trona_to_pthread_errno(c.wait_timeout(m, timeout_ns))
         } else {
-            let tm = &*(mutex as *const trona_posix::sync::TypedMutex);
-            let ret = c.wait_timeout_typed(tm, timeout_ns);
-            if ret == 110 {
-                errno::ETIMEDOUT
-            } else {
-                ret
-            }
+            let tm = &*(mutex as *const trona::sync::TypedMutex);
+            trona_to_pthread_errno(c.wait_timeout_typed(tm, timeout_ns))
         }
     }
 }
@@ -415,8 +419,8 @@ pub unsafe extern "C" fn pthread_rwlock_init(
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &mut *(rwlock as *mut trona_posix::sync::RWLock);
-        core::ptr::write(rw, trona_posix::sync::RWLock::new());
+        let rw = &mut *(rwlock as *mut trona::sync::RWLock);
+        core::ptr::write(rw, trona::sync::RWLock::new());
     }
     0
 }
@@ -427,7 +431,7 @@ pub unsafe extern "C" fn pthread_rwlock_rdlock(rwlock: *mut PthreadRwlockT) -> i
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &*(rwlock as *const trona_posix::sync::RWLock);
+        let rw = &*(rwlock as *const trona::sync::RWLock);
         rw.read_lock();
     }
     0
@@ -439,7 +443,7 @@ pub unsafe extern "C" fn pthread_rwlock_wrlock(rwlock: *mut PthreadRwlockT) -> i
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &*(rwlock as *const trona_posix::sync::RWLock);
+        let rw = &*(rwlock as *const trona::sync::RWLock);
         rw.write_lock();
     }
     0
@@ -454,7 +458,7 @@ pub unsafe extern "C" fn pthread_rwlock_unlock(rwlock: *mut PthreadRwlockT) -> i
         // POSIX says unlock works for both read and write locks.
         // RWLock is #[repr(C)] with `state: AtomicU32` as first field.
         // Bit 31 is the writer flag.
-        let rw = &*(rwlock as *const trona_posix::sync::RWLock);
+        let rw = &*(rwlock as *const trona::sync::RWLock);
         let state_ptr = rwlock as *const core::sync::atomic::AtomicU32;
         let state = (*state_ptr).load(core::sync::atomic::Ordering::Relaxed);
         if state & (1 << 31) != 0 {
@@ -477,7 +481,7 @@ pub unsafe extern "C" fn pthread_rwlock_tryrdlock(rwlock: *mut PthreadRwlockT) -
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &*(rwlock as *const trona_posix::sync::RWLock);
+        let rw = &*(rwlock as *const trona::sync::RWLock);
         if rw.try_read_lock() { 0 } else { errno::EBUSY }
     }
 }
@@ -488,7 +492,7 @@ pub unsafe extern "C" fn pthread_rwlock_trywrlock(rwlock: *mut PthreadRwlockT) -
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &*(rwlock as *const trona_posix::sync::RWLock);
+        let rw = &*(rwlock as *const trona::sync::RWLock);
         if rw.try_write_lock() { 0 } else { errno::EBUSY }
     }
 }
@@ -505,7 +509,7 @@ pub unsafe extern "C" fn pthread_rwlock_timedrdlock(
         if !validate_timespec(&*abstime) {
             return errno::EINVAL;
         }
-        let rw = &*(rwlock as *const trona_posix::sync::RWLock);
+        let rw = &*(rwlock as *const trona::sync::RWLock);
         let timeout_ns = timespec_to_relative_ns(&*abstime);
         if timeout_ns == 0 {
             return if rw.try_read_lock() { 0 } else { errno::ETIMEDOUT };
@@ -526,7 +530,7 @@ pub unsafe extern "C" fn pthread_rwlock_timedwrlock(
         if !validate_timespec(&*abstime) {
             return errno::EINVAL;
         }
-        let rw = &*(rwlock as *const trona_posix::sync::RWLock);
+        let rw = &*(rwlock as *const trona::sync::RWLock);
         let timeout_ns = timespec_to_relative_ns(&*abstime);
         if timeout_ns == 0 {
             return if rw.try_write_lock() { 0 } else { errno::ETIMEDOUT };
@@ -549,8 +553,8 @@ pub unsafe extern "C" fn pthread_barrier_init(
         return errno::EINVAL;
     }
     unsafe {
-        let b = &mut *(barrier as *mut trona_posix::sync::Barrier);
-        core::ptr::write(b, trona_posix::sync::Barrier::new(count));
+        let b = &mut *(barrier as *mut trona::sync::Barrier);
+        core::ptr::write(b, trona::sync::Barrier::new(count));
     }
     0
 }
@@ -564,7 +568,7 @@ pub unsafe extern "C" fn pthread_barrier_wait(barrier: *mut PthreadBarrierT) -> 
         return errno::EINVAL;
     }
     unsafe {
-        let b = &*(barrier as *const trona_posix::sync::Barrier);
+        let b = &*(barrier as *const trona::sync::Barrier);
         if b.wait() {
             PTHREAD_BARRIER_SERIAL_THREAD
         } else {
@@ -591,7 +595,7 @@ pub unsafe extern "C" fn pthread_once(
         return errno::EINVAL;
     }
     unsafe {
-        let o = &*(once_control as *const trona_posix::sync::Once);
+        let o = &*(once_control as *const trona::sync::Once);
         o.call_once(init_routine);
     }
     0
@@ -952,7 +956,7 @@ pub unsafe extern "C" fn pthread_setspecific(key: u32, value: *mut u8) -> i32 {
 }
 
 // =========================================================================
-// POSIX semaphores — backed by trona_posix::sync::Semaphore
+// POSIX semaphores — backed by trona::sync::Semaphore
 // =========================================================================
 
 #[unsafe(no_mangle)]
@@ -965,14 +969,14 @@ pub unsafe extern "C" fn sem_init(sem: *mut u8, pshared: i32, value: u32) -> i32
         errno::set_errno(errno::ENOSYS);
         return -1;
     }
-    if value > trona_posix::sync::SEM_VALUE_MAX {
+    if value > trona::sync::SEM_VALUE_MAX {
         errno::set_errno(errno::EINVAL);
         return -1;
     }
     unsafe {
         core::ptr::write(
-            sem as *mut trona_posix::sync::Semaphore,
-            trona_posix::sync::Semaphore::new(value),
+            sem as *mut trona::sync::Semaphore,
+            trona::sync::Semaphore::new(value),
         );
     }
     0
@@ -990,7 +994,7 @@ pub unsafe extern "C" fn sem_wait(sem: *mut u8) -> i32 {
         return -1;
     }
     unsafe {
-        let s = &*(sem as *const trona_posix::sync::Semaphore);
+        let s = &*(sem as *const trona::sync::Semaphore);
         s.wait();
     }
     0
@@ -1003,7 +1007,7 @@ pub unsafe extern "C" fn sem_trywait(sem: *mut u8) -> i32 {
         return -1;
     }
     unsafe {
-        let s = &*(sem as *const trona_posix::sync::Semaphore);
+        let s = &*(sem as *const trona::sync::Semaphore);
         if s.try_wait() {
             0
         } else {
@@ -1024,7 +1028,7 @@ pub unsafe extern "C" fn sem_timedwait(sem: *mut u8, abstime: *const Timespec) -
             errno::set_errno(errno::EINVAL);
             return -1;
         }
-        let s = &*(sem as *const trona_posix::sync::Semaphore);
+        let s = &*(sem as *const trona::sync::Semaphore);
         let timeout_ns = timespec_to_relative_ns(&*abstime);
         if timeout_ns == 0 {
             if s.try_wait() {
@@ -1049,7 +1053,7 @@ pub unsafe extern "C" fn sem_post(sem: *mut u8) -> i32 {
         return -1;
     }
     unsafe {
-        let s = &*(sem as *const trona_posix::sync::Semaphore);
+        let s = &*(sem as *const trona::sync::Semaphore);
         let ret = s.post();
         if ret < 0 {
             errno::set_errno(errno::EOVERFLOW);
@@ -1066,7 +1070,7 @@ pub unsafe extern "C" fn sem_getvalue(sem: *mut u8, sval: *mut i32) -> i32 {
         return -1;
     }
     unsafe {
-        let s = &*(sem as *const trona_posix::sync::Semaphore);
+        let s = &*(sem as *const trona::sync::Semaphore);
         *sval = s.get_value();
     }
     0
