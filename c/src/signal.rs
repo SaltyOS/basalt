@@ -53,7 +53,7 @@ static mut BLOCKED_MASK: Sigset = Sigset { bits: 0 };
 
 /// Mutex protecting HANDLERS and libtrona signal globals (__sig_sa_mask,
 /// __sig_sa_flags) for thread-safe signal()/sigaction().
-static SIGNAL_LOCK: trona_posix::sync::Mutex = trona_posix::sync::Mutex::new();
+static SIGNAL_LOCK: trona::sync::Mutex = trona::sync::Mutex::new();
 
 /// Install a signal handler for signal `sig`.
 ///

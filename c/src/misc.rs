@@ -157,17 +157,24 @@ pub unsafe extern "C" fn getpagesize() -> i32 {
 }
 
 // ---------------------------------------------------------------------------
-// fsync / fdatasync — correct no-ops for ramfs
+// fsync / fdatasync — sync file data to persistent storage
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fsync(_fd: i32) -> i32 {
-    0
+pub unsafe extern "C" fn fsync(fd: i32) -> i32 {
+    unsafe {
+        let ret = trona_posix::posix_fsync(fd);
+        if ret < 0 {
+            crate::errno::set_errno(-ret);
+            return -1;
+        }
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fdatasync(_fd: i32) -> i32 {
-    0
+pub unsafe extern "C" fn fdatasync(fd: i32) -> i32 {
+    unsafe { fsync(fd) }
 }
 
 // ---------------------------------------------------------------------------
@@ -523,3 +530,180 @@ pub unsafe extern "C" fn mkstemps(template: *mut u8, suffixlen: i32) -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setproctitle(_fmt: *const u8, mut _args: ...) {}
+
+// ---------------------------------------------------------------------------
+// catopen / catgets / catclose — POSIX message catalogs (nl_types.h)
+// ---------------------------------------------------------------------------
+
+pub type NlCatd = isize;
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn catopen(_name: *const u8, _oflag: i32) -> NlCatd {
+    1
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn catgets(
+    _catd: NlCatd,
+    _set_id: i32,
+    _msg_id: i32,
+    s: *const u8,
+) -> *const u8 {
+    s
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn catclose(_catd: NlCatd) -> i32 {
+    0
+}
+
+// ---------------------------------------------------------------------------
+// __b64_ntop / __b64_pton — Base64 encode/decode (resolv.h, RFC 4648)
+// ---------------------------------------------------------------------------
+
+const B64_ENCODE: [u8; 64] = *b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+const fn build_b64_decode_table() -> [u8; 256] {
+    let mut t = [0xFFu8; 256];
+    let mut i = 0u8;
+    loop {
+        if i >= 64 { break; }
+        t[B64_ENCODE[i as usize] as usize] = i;
+        i += 1;
+    }
+    t[b'=' as usize] = 0xFE;
+    t
+}
+
+const B64_DECODE: [u8; 256] = build_b64_decode_table();
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __b64_ntop(
+    src: *const u8,
+    srclength: usize,
+    target: *mut u8,
+    targsize: usize,
+) -> i32 {
+    unsafe {
+        let needed = ((srclength + 2) / 3) * 4 + 1;
+        if targsize < needed { return -1; }
+
+        let mut si = 0usize;
+        let mut di = 0usize;
+
+        while si + 2 < srclength {
+            let a = *src.add(si) as u32;
+            let b = *src.add(si + 1) as u32;
+            let c = *src.add(si + 2) as u32;
+            let n = (a << 16) | (b << 8) | c;
+            *target.add(di)     = B64_ENCODE[((n >> 18) & 0x3F) as usize];
+            *target.add(di + 1) = B64_ENCODE[((n >> 12) & 0x3F) as usize];
+            *target.add(di + 2) = B64_ENCODE[((n >>  6) & 0x3F) as usize];
+            *target.add(di + 3) = B64_ENCODE[(n         & 0x3F) as usize];
+            si += 3;
+            di += 4;
+        }
+
+        let rem = srclength - si;
+        if rem == 1 {
+            let a = *src.add(si) as u32;
+            let n = a << 16;
+            *target.add(di)     = B64_ENCODE[((n >> 18) & 0x3F) as usize];
+            *target.add(di + 1) = B64_ENCODE[((n >> 12) & 0x3F) as usize];
+            *target.add(di + 2) = b'=';
+            *target.add(di + 3) = b'=';
+            di += 4;
+        } else if rem == 2 {
+            let a = *src.add(si) as u32;
+            let b = *src.add(si + 1) as u32;
+            let n = (a << 16) | (b << 8);
+            *target.add(di)     = B64_ENCODE[((n >> 18) & 0x3F) as usize];
+            *target.add(di + 1) = B64_ENCODE[((n >> 12) & 0x3F) as usize];
+            *target.add(di + 2) = B64_ENCODE[((n >>  6) & 0x3F) as usize];
+            *target.add(di + 3) = b'=';
+            di += 4;
+        }
+
+        *target.add(di) = 0;
+        di as i32
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __b64_pton(
+    src: *const u8,
+    target: *mut u8,
+    targsize: usize,
+) -> i32 {
+    unsafe {
+        let mut si = 0usize;
+        let mut di = 0usize;
+        let mut buf: u32 = 0;
+        let mut bits: u32 = 0;
+
+        loop {
+            let ch = *src.add(si);
+            if ch == 0 { break; }
+            si += 1;
+
+            if ch == b' ' || ch == b'\t' || ch == b'\n' || ch == b'\r' { continue; }
+            if ch == b'=' { break; }
+
+            let val = B64_DECODE[ch as usize];
+            if val == 0xFF { return -1; }
+
+            buf = (buf << 6) | val as u32;
+            bits += 6;
+
+            if bits >= 8 {
+                bits -= 8;
+                if di >= targsize { return -1; }
+                *target.add(di) = ((buf >> bits) & 0xFF) as u8;
+                di += 1;
+            }
+        }
+
+        di as i32
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Unwind stubs — SaltyOS uses panic=abort so unwinding never runs,
+// but Rust std's backtrace code references these symbols.
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn _Unwind_Backtrace(
+    _trace: unsafe extern "C" fn(*mut u8, *mut u8) -> i32,
+    _data: *mut u8,
+) -> i32 {
+    5 // _URC_END_OF_STACK
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn _Unwind_GetIP(_context: *mut u8) -> usize {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn _Unwind_FindEnclosingFunction(_pc: *mut u8) -> *mut u8 {
+    core::ptr::null_mut()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn _Unwind_RaiseException(_exception: *mut u8) -> i32 {
+    // SAFETY: unreachable with panic=abort
+    #[cfg(target_arch = "x86_64")]
+    unsafe { core::arch::asm!("ud2", options(noreturn)) }
+    #[cfg(target_arch = "aarch64")]
+    unsafe { core::arch::asm!("udf #0", options(noreturn)) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn _Unwind_Resume(_exception: *mut u8) {
+    // SAFETY: unreachable with panic=abort
+    #[cfg(target_arch = "x86_64")]
+    unsafe { core::arch::asm!("ud2", options(noreturn)) }
+    #[cfg(target_arch = "aarch64")]
+    unsafe { core::arch::asm!("udf #0", options(noreturn)) }
+}

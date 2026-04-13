@@ -55,7 +55,7 @@ pub struct FILE {
     /// Open-file pool allocation state (used only for OPEN_FILES entries).
     slot_in_use: u32,
     /// Per-FILE recursive mutex for stdio locking.
-    lock: trona_posix::sync::TypedMutex,
+    lock: trona::sync::TypedMutex,
     /// funopen cookie (opaque user pointer).
     cookie: *mut u8,
     /// funopen read callback.
@@ -79,7 +79,7 @@ impl FILE {
             ungetc_char: -1,
             buf_mode,
             slot_in_use: 0,
-            lock: trona_posix::sync::TypedMutex::new(trona_posix::sync::MUTEX_RECURSIVE),
+            lock: trona::sync::TypedMutex::new(trona::sync::MUTEX_RECURSIVE),
             cookie: core::ptr::null_mut(),
             read_fn: None,
             write_fn: None,
@@ -121,8 +121,8 @@ static mut OPEN_FILES: [FILE; MAX_OPEN_FILES] = {
     [ZERO; MAX_OPEN_FILES]
 };
 
-static OPEN_FILES_LOCK: trona_posix::sync::Mutex = trona_posix::sync::Mutex::new();
-static STDIO_ONCE: trona_posix::sync::Once = trona_posix::sync::Once::new();
+static OPEN_FILES_LOCK: trona::sync::Mutex = trona::sync::Mutex::new();
+static STDIO_ONCE: trona::sync::Once = trona::sync::Once::new();
 
 fn file_lock(f: *mut FILE) {
     unsafe {
@@ -363,6 +363,53 @@ pub unsafe fn fflush_all() {
     }
 }
 
+unsafe fn flush_line_buffered_tty_stream_if_needed(f: *mut FILE) {
+    unsafe {
+        if f.is_null()
+            || (*f).buf_mode != _IOLBF
+            || (*f).buf_pos == 0
+            || ((*f).flags & FILE_WRITE) == 0
+        {
+            return;
+        }
+
+        let fd = (*f)._file;
+        if fd < 0 || trona_posix::posix_isatty(fd) != 1 {
+            return;
+        }
+
+        file_lock(f);
+        if (*f).buf_mode == _IOLBF
+            && (*f).buf_pos > 0
+            && ((*f).flags & FILE_WRITE) != 0
+            && (*f)._file >= 0
+            && trona_posix::posix_isatty((*f)._file) == 1
+        {
+            let _ = fflush_unlocked(f);
+        }
+        file_unlock(f);
+    }
+}
+
+/// Before blocking on terminal input, POSIX stdio should expose any pending
+/// line-buffered terminal output so prompts are visible to the user.
+pub(crate) fn flush_line_buffered_tty_outputs_for_fd(fd: i32) {
+    ensure_stdio_init();
+    if fd < 0 || unsafe { trona_posix::posix_isatty(fd) } != 1 {
+        return;
+    }
+
+    unsafe {
+        flush_line_buffered_tty_stream_if_needed(stdout);
+        flush_line_buffered_tty_stream_if_needed(stderr);
+        for i in 0..MAX_OPEN_FILES {
+            if OPEN_FILES[i].slot_in_use != 0 {
+                flush_line_buffered_tty_stream_if_needed(&raw mut OPEN_FILES[i]);
+            }
+        }
+    }
+}
+
 unsafe fn fgetc_unlocked_impl(f: *mut FILE) -> i32 {
     unsafe {
         if (*f).ungetc_char >= 0 {
@@ -371,8 +418,8 @@ unsafe fn fgetc_unlocked_impl(f: *mut FILE) -> i32 {
             return c;
         }
         if (*f).buf_pos >= (*f).buf_len {
-            if !stdout.is_null() && f == stdin {
-                fflush(stdout);
+            if f == stdin {
+                flush_line_buffered_tty_outputs_for_fd((*f)._file);
             }
             let n = if let Some(rfn) = (*f).read_fn {
                 rfn((*f).cookie, (*f).buf.as_mut_ptr(), BUF_SIZE as i32) as i64
@@ -1710,6 +1757,13 @@ pub unsafe extern "C" fn mkstemp(template: *mut u8) -> i32 {
         }
         trona_posix::posix_open(template, (trona_posix::O_RDWR | trona_posix::O_CREAT | trona_posix::O_EXCL) as i32, 0o600)
     }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mkostemp(template: *mut u8, _flags: i32) -> i32 {
+    // SAFETY: delegates to mkstemp; extra flags (O_CLOEXEC etc.) are ignored
+    // for now since SaltyOS fd table doesn't support them at create time.
+    unsafe { mkstemp(template) }
 }
 
 // ======================================================================

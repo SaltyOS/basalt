@@ -2,8 +2,8 @@
 //! SPDX-License-Identifier: GPL-2.0-only
 //!
 //! Thin wrappers around `trona_posix::posix_setpgid` / `posix_setsid` /
-//! `posix_getpgrp`. Terminal process group functions (`tcgetpgrp`,
-//! `tcsetpgrp`) return stubs since SaltyOS has no controlling terminal.
+//! `posix_getpgrp`. Terminal process group functions route through
+//! tty ioctls exposed by the VFS/PTTY path.
 
 use crate::errno;
 use trona::serial::LineBuf;

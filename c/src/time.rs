@@ -20,7 +20,7 @@ use crate::errno;
 
 /// Mutex protecting timezone globals (tzname, timezone, daylight, TZ_STD_NAME,
 /// TZ_DST_NAME) during tzset() and DST rule parsing.
-static TZ_LOCK: trona_posix::sync::Mutex = trona_posix::sync::Mutex::new();
+static TZ_LOCK: trona::sync::Mutex = trona::sync::Mutex::new();
 
 /// Get per-thread Tm buffer (TLS), falling back to global static pre-TLS.
 fn get_tls_tm_buf() -> *mut Tm {

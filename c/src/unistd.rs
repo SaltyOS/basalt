@@ -126,6 +126,7 @@ pub unsafe extern "C" fn close(fd: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn read(fd: i32, buf: *mut u8, count: usize) -> isize {
     unsafe {
+        crate::stdio::flush_line_buffered_tty_outputs_for_fd(fd);
         let ret = trona_posix::posix_read(fd, buf, count as u64);
         if ret < 0 {
             errno::set_errno((-ret) as i32);
@@ -497,6 +498,7 @@ pub unsafe extern "C" fn readv(fd: i32, iov: *const Iovec, iovcnt: i32) -> isize
         return -1;
     }
     unsafe {
+        crate::stdio::flush_line_buffered_tty_outputs_for_fd(fd);
         let mut total: isize = 0;
         for i in 0..iovcnt as usize {
             let v = &*iov.add(i);
@@ -821,7 +823,8 @@ pub unsafe extern "C" fn mkfifo(path: *const u8, mode: u32) -> i32 {
 // TTY name
 // ---------------------------------------------------------------------------
 
-static TTY_NAME: [u8; 9] = *b"/dev/tty\0";
+static CONSOLE_TTY_NAME: [u8; 13] = *b"/dev/console\0";
+static mut TTY_NAME_BUF: [u8; 16] = [0; 16];
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ttyname(fd: i32) -> *mut u8 {
@@ -829,7 +832,12 @@ pub unsafe extern "C" fn ttyname(fd: i32) -> *mut u8 {
         if isatty(fd) == 0 {
             return core::ptr::null_mut();
         }
-        TTY_NAME.as_ptr() as *mut u8
+        let buf = &raw mut TTY_NAME_BUF;
+        if crate::pty::ptsname_r(fd, (*buf).as_mut_ptr(), (*buf).len()) == 0 {
+            (*buf).as_mut_ptr()
+        } else {
+            CONSOLE_TTY_NAME.as_ptr() as *mut u8
+        }
     }
 }
 
@@ -839,10 +847,16 @@ pub unsafe extern "C" fn ttyname_r(fd: i32, buf: *mut u8, len: usize) -> i32 {
         if isatty(fd) == 0 {
             return errno::ENOTTY;
         }
-        if buf.is_null() || len < 9 {
+        if buf.is_null() || len == 0 {
             return errno::ERANGE;
         }
-        core::ptr::copy_nonoverlapping(TTY_NAME.as_ptr(), buf, 9);
+        if crate::pty::ptsname_r(fd, buf, len) == 0 {
+            return 0;
+        }
+        if len < CONSOLE_TTY_NAME.len() {
+            return errno::ERANGE;
+        }
+        core::ptr::copy_nonoverlapping(CONSOLE_TTY_NAME.as_ptr(), buf, CONSOLE_TTY_NAME.len());
         0
     }
 }

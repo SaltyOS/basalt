@@ -83,6 +83,8 @@ extern uid_t   getuid(void);
 extern uid_t   geteuid(void);
 extern gid_t   getgid(void);
 extern gid_t   getegid(void);
+extern int     getresuid(uid_t *ruid, uid_t *euid, uid_t *suid);
+extern int     getresgid(gid_t *rgid, gid_t *egid, gid_t *sgid);
 
 extern int     setuid(uid_t uid);
 extern int     setgid(gid_t gid);
@@ -90,7 +92,10 @@ extern int     seteuid(uid_t euid);
 extern int     setegid(gid_t egid);
 extern int     setreuid(uid_t ruid, uid_t euid);
 extern int     setregid(gid_t rgid, gid_t egid);
+extern int     setresuid(uid_t ruid, uid_t euid, uid_t suid);
+extern int     setresgid(gid_t rgid, gid_t egid, gid_t sgid);
 extern int     getgroups(int size, gid_t list[]);
+extern int     initgroups(const char *user, gid_t group);
 
 extern int     setpgid(pid_t pid, pid_t pgid);
 extern pid_t   getpgid(pid_t pid);
@@ -138,6 +143,11 @@ extern int     pause(void);
 extern int     isatty(int fd);
 extern char   *ttyname(int fd);
 extern int     ttyname_r(int fd, char *buf, size_t buflen);
+extern pid_t   tcgetsid(int fd);
+extern int     grantpt(int fd);
+extern int     unlockpt(int fd);
+extern char   *ptsname(int fd);
+extern int     ptsname_r(int fd, char *buf, size_t buflen);
 
 extern long    pathconf(const char *path, int name);
 extern long    fpathconf(int fd, int name);
@@ -145,6 +155,7 @@ extern size_t  confstr(int name, char *buf, size_t len);
 extern long    sysconf(int name);
 
 extern int     gethostname(char *name, size_t len);
+extern int     getdomainname(char *name, size_t len);
 
 extern int     faccessat(int dirfd, const char *pathname, int mode, int flags);
 extern int     unlinkat(int dirfd, const char *pathname, int flags);
@@ -189,6 +200,14 @@ extern ssize_t copy_file_range(int fd_in, off_t *off_in,
 
 /* getentropy — fill buffer with random bytes */
 extern int getentropy(void *buf, size_t buflen);
+
+/* usershell — enumerate valid login shells from /etc/shells */
+extern char *getusershell(void);
+extern void setusershell(void);
+extern void endusershell(void);
+
+/* BSD issetugid — check if process has elevated privileges */
+extern int issetugid(void);
 
 __END_DECLS
 

@@ -124,6 +124,7 @@ extern int   rename(const char *oldpath, const char *newpath);
 
 extern FILE *tmpfile(void);
 extern int   mkstemp(char *tmpl);
+extern int   mkostemp(char *tmpl, int flags);
 
 extern FILE *open_memstream(char **ptr, size_t *sizeloc);
 
