@@ -224,6 +224,17 @@ pub unsafe extern "C" fn getgrouplist(
     }
 }
 
+/// innetgr — netgroup lookup. SaltyOS has no NIS netgroups.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn innetgr(
+    _netgroup: *const u8,
+    _host: *const u8,
+    _user: *const u8,
+    _domain: *const u8,
+) -> i32 {
+    0
+}
+
 /// pledge — OpenBSD security model. No-op on SaltyOS (uses capabilities).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pledge(_promises: *const u8, _execpromises: *const u8) -> i32 {
@@ -494,3 +505,19 @@ pub unsafe extern "C" fn rpmatch(response: *const u8) -> i32 {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// issetugid — BSD setuid detection
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn issetugid() -> i32 {
+    unsafe {
+        let uid = crate::process::getuid();
+        let euid = crate::process::geteuid();
+        let gid = crate::process::getgid();
+        let egid = crate::process::getegid();
+        if uid != euid || gid != egid { 1 } else { 0 }
+    }
+}
+

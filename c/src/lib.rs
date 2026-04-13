@@ -60,6 +60,10 @@ pub mod inet;
 pub mod getopt;
 pub mod getrandom;
 pub mod iconv;
+pub mod sha512;
+pub mod crypt;
+pub mod pty;
+pub mod ttyent;
 pub mod stack_protector;
 
 // Panic handler is provided by libtrona (our dependency)

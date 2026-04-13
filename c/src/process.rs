@@ -382,33 +382,167 @@ pub unsafe extern "C" fn getgroups(size: i32, list: *mut u32) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn setuid(_uid: u32) -> i32 {
+pub unsafe extern "C" fn setuid(uid: u32) -> i32 {
+    let ret = unsafe { trona_posix::posix_setuid(uid) };
+    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
     0
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn setgid(_gid: u32) -> i32 {
+pub unsafe extern "C" fn setgid(gid: u32) -> i32 {
+    let ret = unsafe { trona_posix::posix_setgid(gid) };
+    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
     0
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn seteuid(_uid: u32) -> i32 {
+pub unsafe extern "C" fn seteuid(uid: u32) -> i32 {
+    let ret = unsafe { trona_posix::posix_seteuid(uid) };
+    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
     0
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn setegid(_gid: u32) -> i32 {
+pub unsafe extern "C" fn setegid(gid: u32) -> i32 {
+    let ret = unsafe { trona_posix::posix_setegid(gid) };
+    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
     0
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn setreuid(_ruid: u32, _euid: u32) -> i32 {
+pub unsafe extern "C" fn setreuid(ruid: u32, euid: u32) -> i32 {
+    let ret = unsafe { trona_posix::posix_setreuid(ruid, euid) };
+    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
     0
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn setregid(_rgid: u32, _egid: u32) -> i32 {
+pub unsafe extern "C" fn setregid(rgid: u32, egid: u32) -> i32 {
+    let ret = unsafe { trona_posix::posix_setregid(rgid, egid) };
+    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
     0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn setresuid(ruid: u32, euid: u32, suid: u32) -> i32 {
+    let ret = unsafe { trona_posix::posix_setresuid(ruid, euid, suid) };
+    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn setresgid(rgid: u32, egid: u32, sgid: u32) -> i32 {
+    let ret = unsafe { trona_posix::posix_setresgid(rgid, egid, sgid) };
+    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getresuid(ruid: *mut u32, euid: *mut u32, suid: *mut u32) -> i32 {
+    let ret = unsafe { trona_posix::posix_getresuid(ruid, euid, suid) };
+    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getresgid(rgid: *mut u32, egid: *mut u32, sgid: *mut u32) -> i32 {
+    let ret = unsafe { trona_posix::posix_getresgid(rgid, egid, sgid) };
+    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn setgroups(size: i32, list: *const u32) -> i32 {
+    let ret = unsafe { trona_posix::posix_setgroups(size as usize, list) };
+    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    0
+}
+
+/// POSIX `initgroups(3)` — set supplementary group list from /etc/group.
+///
+/// Walks the group database and collects every gid where `user` appears as
+/// a member, always prepending `group` (the primary gid) at position 0, then
+/// invokes `setgroups()` with the deduplicated list. Caps at NGROUPS_MAX = 16
+/// per Linux/POSIX.1-2008.
+///
+/// errno mapping:
+/// - `EINVAL (22)` — `user` is null
+/// - kernel errno passthrough — from `setgroups`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn initgroups(user: *const u8, group: u32) -> i32 {
+    const NGROUPS_MAX: usize = 16;
+    const EINVAL: i32 = 22;
+
+    if user.is_null() {
+        crate::errno::set_errno(EINVAL);
+        return -1;
+    }
+
+    let mut gids = [0u32; NGROUPS_MAX];
+    // groups_for_user guarantees: gids[0] = group, no duplicates, count >= 1.
+    let count = unsafe { crate::pwd::groups_for_user(user, group, &mut gids) };
+    if count == 0 {
+        // Empty list is invalid for setgroups — at minimum the primary gid
+        // must be present. This can only happen if out.is_empty() which we
+        // prevent above, but guard defensively.
+        crate::errno::set_errno(EINVAL);
+        return -1;
+    }
+
+    let ret = unsafe { trona_posix::posix_setgroups(count, gids.as_ptr()) };
+    if ret < 0 {
+        crate::errno::set_errno(-ret);
+        return -1;
+    }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// Priority (stubs — SaltyOS uses EDF scheduling, not nice values)
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getpriority(_which: i32, _who: i32) -> i32 {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn setpriority(_which: i32, _who: i32, _prio: i32) -> i32 {
+    0
+}
+
+// ---------------------------------------------------------------------------
+// User shell enumeration (stub — returns /bin/sh then NULL)
+// ---------------------------------------------------------------------------
+
+static USERSHELL_SHELLS: [&[u8]; 2] = [b"/bin/sh\0", b"/bin/bash\0"];
+static mut USERSHELL_INDEX: usize = 0;
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getusershell() -> *mut u8 {
+    unsafe {
+        let idx = core::ptr::addr_of!(USERSHELL_INDEX).read_volatile();
+        if idx < USERSHELL_SHELLS.len() {
+            core::ptr::addr_of_mut!(USERSHELL_INDEX).write_volatile(idx + 1);
+            USERSHELL_SHELLS[idx].as_ptr() as *mut u8
+        } else {
+            core::ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn setusershell() {
+    unsafe {
+        core::ptr::addr_of_mut!(USERSHELL_INDEX).write_volatile(0);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn endusershell() {
+    unsafe {
+        core::ptr::addr_of_mut!(USERSHELL_INDEX).write_volatile(0);
+    }
 }
 
 // ---------------------------------------------------------------------------

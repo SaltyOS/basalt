@@ -20,6 +20,10 @@
 #define RLIMIT_AS      9
 #define RLIM_NLIMITS   10
 
+#define PRIO_PROCESS    0
+#define PRIO_PGRP       1
+#define PRIO_USER       2
+
 #define RUSAGE_SELF     0
 #define RUSAGE_CHILDREN (-1)
 
@@ -54,6 +58,8 @@ __BEGIN_DECLS
 extern int getrlimit(int resource, struct rlimit *rlim);
 extern int setrlimit(int resource, const struct rlimit *rlim);
 extern int getrusage(int who, struct rusage *usage);
+extern int getpriority(int which, int who);
+extern int setpriority(int which, int who, int prio);
 
 __END_DECLS
 

@@ -19,3 +19,33 @@ unsafe extern "C" {
 pub unsafe extern "C" fn __srget(stream: *mut u8) -> i32 {
     fgetc(stream)
 }
+
+// FreeBSD libc internal aliases — used by contrib/ sources that call the
+// underscore-prefixed POSIX wrappers instead of the public names.
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn _open(path: *const u8, flags: i32, mode: u32) -> i32 {
+    unsafe { trona_posix::posix_open(path, flags, mode) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn _read(fd: i32, buf: *mut u8, count: u64) -> i64 {
+    unsafe { trona_posix::posix_read(fd, buf, count) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn _close(fd: i32) -> i32 {
+    unsafe { trona_posix::posix_close(fd) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn _write(fd: i32, buf: *const u8, count: u64) -> i64 {
+    unsafe { trona_posix::posix_write(fd, buf, count) }
+}
+
+/// FreeBSD `__error()` — returns pointer to thread-local errno.
+/// On FreeBSD, errno is `*__error()` not `*__errno_location()`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __error() -> *mut i32 {
+    crate::errno::__errno_location()
+}

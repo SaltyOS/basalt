@@ -4,6 +4,8 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <termios.h>
+#include <sys/ioctl.h>
 #include <sys/cdefs.h>
 
 __BEGIN_DECLS
@@ -26,6 +28,8 @@ char *getbsize(int *headerlenp, long *blocksizep);
 int humanize_number(char *buf, size_t len, int64_t bytes,
                     const char *suffix, int scale, int flags);
 int dehumanize_number(const char *str, int64_t *size);
+int openpty(int *amaster, int *aslave, char *name,
+            const struct termios *termp, const struct winsize *winp);
 
 __END_DECLS
 

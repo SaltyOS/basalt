@@ -95,6 +95,27 @@ pub unsafe extern "C" fn gethostname(name: *mut u8, len: usize) -> i32 {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn getdomainname(name: *mut u8, len: usize) -> i32 {
+    if name.is_null() || len == 0 {
+        errno::set_errno(errno::EINVAL);
+        return -1;
+    }
+    unsafe {
+        let domain = b"localdomain\0";
+        let copy_len = if domain.len() < len { domain.len() } else { len };
+        let mut i = 0;
+        while i < copy_len {
+            *name.add(i) = domain[i];
+            i += 1;
+        }
+        if copy_len == len {
+            *name.add(len - 1) = 0;
+        }
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn sysconf(name: i32) -> i64 {
     match name {
         _SC_CLK_TCK => 100,

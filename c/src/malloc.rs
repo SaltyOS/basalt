@@ -20,7 +20,7 @@ use crate::errno;
 
 /// Futex-based mutex protecting the global free list for thread safety.
 /// Replaces the previous pure spinlock to avoid CPU waste under contention.
-static HEAP_LOCK: trona_posix::sync::Mutex = trona_posix::sync::Mutex::new();
+static HEAP_LOCK: trona::sync::Mutex = trona::sync::Mutex::new();
 
 /// Allocation header stored before each allocation
 /// size includes the header itself

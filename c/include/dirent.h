@@ -31,6 +31,7 @@ typedef struct __DIR DIR;
 __BEGIN_DECLS
 
 extern DIR           *opendir(const char *name);
+extern DIR           *fdopendir(int fd);
 extern struct dirent *readdir(DIR *dirp);
 extern int            closedir(DIR *dirp);
 extern int            dirfd(DIR *dirp);

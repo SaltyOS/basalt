@@ -127,6 +127,27 @@ pub unsafe extern "C" fn opendir(path: *const u8) -> *mut DIR {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn fdopendir(fd: i32) -> *mut DIR {
+    if fd < 0 {
+        errno::set_errno(errno::EBADF);
+        return core::ptr::null_mut();
+    }
+
+    unsafe {
+        let dir = alloc_dir();
+        if dir.is_null() {
+            errno::set_errno(errno::ENOMEM);
+            return core::ptr::null_mut();
+        }
+
+        (*dir).fd = fd;
+        (*dir).has_entry = false;
+        (*dir).pos = 0;
+        dir
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn readdir(dir: *mut DIR) -> *mut Dirent {
     if dir.is_null() {
         errno::set_errno(errno::EBADF);

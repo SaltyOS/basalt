@@ -79,6 +79,8 @@ extern int   getnameinfo(const struct sockaddr *sa, socklen_t salen,
                          char *serv, socklen_t servlen, int flags);
 extern struct hostent *gethostbyname(const char *name);
 extern struct servent *getservbyname(const char *name, const char *proto);
+extern int            innetgr(const char *netgroup, const char *host,
+                              const char *user, const char *domain);
 
 __END_DECLS
 
