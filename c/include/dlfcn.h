@@ -34,6 +34,10 @@ typedef struct {
 
 extern int dladdr(const void *addr, Dl_info *info);
 
+/* FreeBSD dlfunc — dlsym for function pointers (avoids void*-to-fnptr cast UB) */
+typedef void (*dlfunc_t)(void);
+extern dlfunc_t dlfunc(void *handle, const char *symbol);
+
 __END_DECLS
 
 #endif /* __DLFCN_H__ */
