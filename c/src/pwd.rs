@@ -936,8 +936,9 @@ unsafe fn fill_group_r(
             member_total += cstr_len(&e.gr_members[j]) + 1;
         }
         let ptrs_size = (e.gr_member_count + 1) * core::mem::size_of::<*const u8>();
+        let align = core::mem::align_of::<*const u8>();
 
-        let need = name_len + passwd_len + member_total + ptrs_size;
+        let need = name_len + passwd_len + member_total + ptrs_size + align.saturating_sub(1);
         if buflen < need {
             *result = ptr::null_mut();
             return ERANGE;
@@ -963,8 +964,11 @@ unsafe fn fill_group_r(
         }
 
         // Align offset for pointer array
-        let align = core::mem::align_of::<*const u8>();
         off = (off + align - 1) & !(align - 1);
+        if off.checked_add(ptrs_size).is_none_or(|end| end > buflen) {
+            *result = ptr::null_mut();
+            return ERANGE;
+        }
 
         // Write pointer array into buffer
         let mem_arr = buf.add(off) as *mut *const u8;

@@ -73,6 +73,26 @@ unsafe fn next_token(mut p: *const u8) -> Option<(*const u8, usize, *const u8)> 
     }
 }
 
+unsafe fn comment_slice(mut p: *const u8) -> Option<(*const u8, usize)> {
+    unsafe {
+        while !p.is_null() && *p != 0 {
+            if *p == b'#' {
+                p = p.add(1);
+                while *p != 0 && is_space(*p) {
+                    p = p.add(1);
+                }
+                let start = p;
+                while *p != 0 {
+                    p = p.add(1);
+                }
+                return Some((start, p.offset_from(start) as usize));
+            }
+            p = p.add(1);
+        }
+        None
+    }
+}
+
 unsafe fn line_matches(name: *const u8, line: *const u8) -> bool {
     unsafe {
         let Some((tok, len, _)) = next_token(line) else {
@@ -110,6 +130,14 @@ pub unsafe extern "C" fn getttynam(name: *const u8) -> *mut Ttyent {
                 if line_matches(name, line.as_ptr()) {
                     let mut status = 0i32;
                     let mut cursor = line.as_ptr();
+                    clear_buf(core::ptr::addr_of_mut!(NAME_BUF) as *mut u8, 128);
+                    clear_buf(core::ptr::addr_of_mut!(GETTY_BUF) as *mut u8, 128);
+                    clear_buf(core::ptr::addr_of_mut!(TYPE_BUF) as *mut u8, 128);
+                    clear_buf(core::ptr::addr_of_mut!(COMMENT_BUF) as *mut u8, 128);
+
+                    if let Some((comment, len)) = comment_slice(line.as_ptr()) {
+                        copy_token(core::ptr::addr_of_mut!(COMMENT_BUF) as *mut u8, 128, comment, len);
+                    }
 
                     if let Some((tok, len, next)) = next_token(cursor) {
                         copy_token(core::ptr::addr_of_mut!(NAME_BUF) as *mut u8, 128, tok, len);
@@ -131,14 +159,6 @@ pub unsafe extern "C" fn getttynam(name: *const u8) -> *mut Ttyent {
                             && crate::string::strncmp(tok, b"secure\0".as_ptr(), 6) == 0
                         {
                             status |= TTY_SECURE;
-                        } else if *tok == b'#' {
-                            copy_token(
-                                core::ptr::addr_of_mut!(COMMENT_BUF) as *mut u8,
-                                128,
-                                tok.add(1),
-                                len.saturating_sub(1),
-                            );
-                            break;
                         }
                         cursor = next;
                     }

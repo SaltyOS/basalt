@@ -10,7 +10,8 @@
 //! loader itself only supports static TLS established at process startup.
 
 use crate::{errno, malloc, string};
-use core::mem::{MaybeUninit, size_of};
+use core::convert::TryFrom;
+use core::mem::{align_of, MaybeUninit, size_of};
 use core::ptr;
 
 const PAGE_SIZE: usize = trona::consts::kernel::ELF_PAGE_SIZE as usize;
@@ -539,16 +540,64 @@ unsafe fn addr_to_dso(addr: u64) -> *const LinkMap {
     }
 }
 
+unsafe fn map_contains_range(map: *const LinkMap, addr: usize, size: usize) -> bool {
+    unsafe {
+        if map.is_null() {
+            return false;
+        }
+        let Ok(map_base) = usize::try_from((*map).base) else {
+            return false;
+        };
+        let Ok(load_size) = usize::try_from((*map).load_size) else {
+            return false;
+        };
+        let Some(map_end) = map_base.checked_add(load_size) else {
+            return false;
+        };
+        let Some(range_end) = addr.checked_add(size) else {
+            return false;
+        };
+        addr >= map_base && range_end <= map_end
+    }
+}
+
+unsafe fn safe_symtab_count(map: *const LinkMap) -> Option<usize> {
+    unsafe {
+        if map.is_null() || (*map).symtab.is_null() {
+            return None;
+        }
+        if (*map).symtab_count != 0 {
+            return usize::try_from((*map).symtab_count).ok();
+        }
+        let ent_size = usize::try_from((*map).sym_ent_size).ok()?;
+        if ent_size < size_of::<Elf64Sym>() {
+            return None;
+        }
+        let symtab = (*map).symtab as usize;
+        let strtab = (*map).strtab as usize;
+        // Fall back to (strtab - symtab) / ent_size, assuming the linker
+        // emitted .strtab immediately after .symtab (true for ld/lld output).
+        // Any layout that violates this returns None and disables lookup —
+        // fail-closed rather than risk an out-of-bounds symbol scan.
+        if (*map).strtab.is_null()
+            || strtab <= symtab
+            || !map_contains_range(map, symtab, size_of::<Elf64Sym>())
+            || !map_contains_range(map, strtab, 1)
+        {
+            return None;
+        }
+        Some((strtab - symtab) / ent_size)
+    }
+}
+
 unsafe fn find_nearest_symbol(map: *const LinkMap, addr: u64) -> (*const u8, u64) {
     unsafe {
         if map.is_null() || (*map).symtab.is_null() || (*map).strtab.is_null() {
             return (ptr::null(), 0);
         }
 
-        let count = if (*map).symtab_count != 0 {
-            (*map).symtab_count as usize
-        } else {
-            4096
+        let Some(count) = safe_symtab_count(map) else {
+            return (ptr::null(), 0);
         };
 
         let mut best_name = ptr::null();
@@ -588,6 +637,9 @@ unsafe fn gnu_hash_lookup(map: *const LinkMap, name: *const u8) -> u64 {
         if map.is_null() || (*map).gnu_hash.is_null() || (*map).symtab.is_null() || (*map).strtab.is_null() {
             return 0;
         }
+        let Some(symtab_count) = safe_symtab_count(map) else {
+            return 0;
+        };
 
         let hashtab = (*map).gnu_hash;
         let nbuckets = *hashtab.add(0);
@@ -597,7 +649,7 @@ unsafe fn gnu_hash_lookup(map: *const LinkMap, name: *const u8) -> u64 {
         if nbuckets == 0 || bloom_size == 0 {
             return 0;
         }
-        if (*map).symtab_count != 0 && symoffset as u64 >= (*map).symtab_count {
+        if symoffset as usize >= symtab_count {
             return 0;
         }
 
@@ -616,15 +668,11 @@ unsafe fn gnu_hash_lookup(map: *const LinkMap, name: *const u8) -> u64 {
         if idx < symoffset {
             return 0;
         }
-        if (*map).symtab_count != 0 && idx as u64 >= (*map).symtab_count {
+        if idx as usize >= symtab_count {
             return 0;
         }
 
-        let max_steps = if (*map).symtab_count != 0 && (*map).symtab_count > symoffset as u64 {
-            ((*map).symtab_count - symoffset as u64) as u32
-        } else {
-            4096
-        };
+        let max_steps = core::cmp::min((symtab_count - symoffset as usize) as u64, u32::MAX as u64) as u32;
 
         let mut steps = 0u32;
         loop {
@@ -648,7 +696,7 @@ unsafe fn gnu_hash_lookup(map: *const LinkMap, name: *const u8) -> u64 {
                 break;
             }
             idx += 1;
-            if (*map).symtab_count != 0 && idx as u64 >= (*map).symtab_count {
+            if idx as usize >= symtab_count {
                 break;
             }
         }
@@ -662,10 +710,8 @@ unsafe fn linear_lookup(map: *const LinkMap, name: *const u8) -> u64 {
         if map.is_null() || (*map).symtab.is_null() || (*map).strtab.is_null() {
             return 0;
         }
-        let limit = if (*map).symtab_count != 0 {
-            (*map).symtab_count as usize
-        } else {
-            4096
+        let Some(limit) = safe_symtab_count(map) else {
+            return 0;
         };
         for i in 0..limit {
             let sym = &*(*map).symtab.add(i);
@@ -745,7 +791,21 @@ unsafe fn process_relocation(handle: *mut DlHandle, rela: *const Elf64Rela) -> R
     unsafe {
         let map = &mut (*handle).map;
         let reloc = &*rela;
-        let target = (map.base + reloc.r_offset) as *mut u64;
+        let Some(target_addr) = map.base.checked_add(reloc.r_offset) else {
+            report_relocation_failure(handle, rela, ptr::null(), b"target out of range");
+            return Err(());
+        };
+        let Ok(target_addr_usize) = usize::try_from(target_addr) else {
+            report_relocation_failure(handle, rela, ptr::null(), b"target out of range");
+            return Err(());
+        };
+        if target_addr % align_of::<u64>() as u64 != 0
+            || !map_contains_range(map as *const LinkMap, target_addr_usize, size_of::<u64>())
+        {
+            report_relocation_failure(handle, rela, ptr::null(), b"target out of range");
+            return Err(());
+        }
+        let target = target_addr as *mut u64;
         let rtype = elf_r_type(reloc.r_info);
         let sym_idx = elf_r_sym(reloc.r_info) as usize;
         let mut symbol_name: *const u8 = ptr::null();
@@ -760,7 +820,11 @@ unsafe fn process_relocation(handle: *mut DlHandle, rela: *const Elf64Rela) -> R
                     report_relocation_failure(handle, rela, ptr::null(), b"missing symtab");
                     return Err(());
                 }
-                if map.symtab_count != 0 && sym_idx >= map.symtab_count as usize {
+                let Some(symtab_count) = safe_symtab_count(map as *const LinkMap) else {
+                    report_relocation_failure(handle, rela, ptr::null(), b"invalid symtab metadata");
+                    return Err(());
+                };
+                if sym_idx >= symtab_count {
                     report_relocation_failure(handle, rela, ptr::null(), b"symbol index out of range");
                     return Err(());
                 }

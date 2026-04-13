@@ -4,8 +4,9 @@
 use crate::errno;
 
 const PTMX_PATH: &[u8] = b"/dev/ptmx\0";
+pub const TTY_PATH_BUF_LEN: usize = 64;
 
-static mut PTSNAME_BUF: [u8; 16] = [0; 16];
+static mut PTSNAME_BUF: [u8; TTY_PATH_BUF_LEN] = [0; TTY_PATH_BUF_LEN];
 
 #[repr(C)]
 pub struct Winsize {
@@ -162,7 +163,7 @@ pub unsafe extern "C" fn openpty(
             return -1;
         }
 
-        let mut path = [0u8; 16];
+        let mut path = [0u8; TTY_PATH_BUF_LEN];
         let Some(path_len) = build_pts_path(pty_no as u32, &mut path) else {
             let _ = trona_posix::posix_close(master);
             errno::set_errno(errno::ERANGE);

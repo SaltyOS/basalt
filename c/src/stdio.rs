@@ -351,6 +351,11 @@ pub unsafe fn fflush_all() {
     unsafe {
         fflush(&raw mut STDOUT_FILE);
         fflush(&raw mut STDERR_FILE);
+        // Lock order: OPEN_FILES_LOCK → per-FILE lock (fflush takes the
+        // per-FILE lock internally). fclose uses the reverse access pattern
+        // but only after dropping its per-FILE lock first, so the two paths
+        // never hold both locks simultaneously and cannot AB/BA-deadlock.
+        OPEN_FILES_LOCK.lock();
         for i in 0..MAX_OPEN_FILES {
             if OPEN_FILES[i].slot_in_use != 0
                 && (OPEN_FILES[i]._file >= 0
@@ -360,6 +365,7 @@ pub unsafe fn fflush_all() {
                 fflush(&raw mut OPEN_FILES[i]);
             }
         }
+        OPEN_FILES_LOCK.unlock();
     }
 }
 
@@ -402,11 +408,15 @@ pub(crate) fn flush_line_buffered_tty_outputs_for_fd(fd: i32) {
     unsafe {
         flush_line_buffered_tty_stream_if_needed(stdout);
         flush_line_buffered_tty_stream_if_needed(stderr);
+        // Hold the pool lock while enumerating OPEN_FILES so slots cannot be
+        // concurrently freed or reused out from under this scan.
+        OPEN_FILES_LOCK.lock();
         for i in 0..MAX_OPEN_FILES {
             if OPEN_FILES[i].slot_in_use != 0 {
                 flush_line_buffered_tty_stream_if_needed(&raw mut OPEN_FILES[i]);
             }
         }
+        OPEN_FILES_LOCK.unlock();
     }
 }
 
@@ -1738,12 +1748,11 @@ pub unsafe extern "C" fn tmpfile() -> *mut FILE {
     unsafe { fopen(b"/tmp/basaltc_tmp\0".as_ptr(), b"w+\0".as_ptr()) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn mkstemp(template: *mut u8) -> i32 {
-    if template.is_null() {
-        return -1;
-    }
+unsafe fn mkstemp_with_flags(template: *mut u8, extra_flags: i32) -> i32 {
     unsafe {
+        if template.is_null() {
+            return -1;
+        }
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let len = crate::string::strlen(template);
         if len < 6 {
@@ -1755,15 +1764,27 @@ pub unsafe extern "C" fn mkstemp(template: *mut u8) -> i32 {
         for i in 0..6 {
             *template.add(base + i) = digits[((n >> (i * 4)) & 0xf) as usize];
         }
-        trona_posix::posix_open(template, (trona_posix::O_RDWR | trona_posix::O_CREAT | trona_posix::O_EXCL) as i32, 0o600)
+        trona_posix::posix_open(
+            template,
+            (trona_posix::O_RDWR | trona_posix::O_CREAT | trona_posix::O_EXCL) as i32 | extra_flags,
+            0o600,
+        )
     }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn mkostemp(template: *mut u8, _flags: i32) -> i32 {
-    // SAFETY: delegates to mkstemp; extra flags (O_CLOEXEC etc.) are ignored
-    // for now since SaltyOS fd table doesn't support them at create time.
-    unsafe { mkstemp(template) }
+pub unsafe extern "C" fn mkstemp(template: *mut u8) -> i32 {
+    unsafe { mkstemp_with_flags(template, 0) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mkostemp(template: *mut u8, flags: i32) -> i32 {
+    let supported = trona::consts::posix::O_CLOEXEC as i32;
+    if flags & !supported != 0 {
+        errno::set_errno(errno::EINVAL);
+        return -1;
+    }
+    unsafe { mkstemp_with_flags(template, flags & supported) }
 }
 
 // ======================================================================

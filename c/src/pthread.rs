@@ -21,11 +21,11 @@ pub struct Timespec {
 fn trona_to_pthread_errno(err: u64) -> i32 {
     match err {
         trona::consts::TRONA_OK => 0,
-        trona::consts::TRONA_BUSY => 16,               // EBUSY
-        trona::consts::TRONA_DEADLOCK => 35,            // EDEADLK
-        trona::consts::TRONA_TIMED_OUT => 110,          // ETIMEDOUT
-        trona::consts::TRONA_INVALID_OPERATION => 1,    // EPERM
-        _ => 22,                                        // EINVAL
+        trona::consts::TRONA_BUSY => errno::EBUSY,
+        trona::consts::TRONA_DEADLOCK => errno::EDEADLK,
+        trona::consts::TRONA_TIMED_OUT => errno::ETIMEDOUT,
+        trona::consts::TRONA_INVALID_OPERATION => errno::EPERM,
+        _ => errno::EINVAL,
     }
 }
 

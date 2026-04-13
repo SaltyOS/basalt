@@ -824,7 +824,7 @@ pub unsafe extern "C" fn mkfifo(path: *const u8, mode: u32) -> i32 {
 // ---------------------------------------------------------------------------
 
 static CONSOLE_TTY_NAME: [u8; 13] = *b"/dev/console\0";
-static mut TTY_NAME_BUF: [u8; 16] = [0; 16];
+static mut TTY_NAME_BUF: [u8; crate::pty::TTY_PATH_BUF_LEN] = [0; crate::pty::TTY_PATH_BUF_LEN];
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ttyname(fd: i32) -> *mut u8 {
@@ -833,11 +833,15 @@ pub unsafe extern "C" fn ttyname(fd: i32) -> *mut u8 {
             return core::ptr::null_mut();
         }
         let buf = &raw mut TTY_NAME_BUF;
-        if crate::pty::ptsname_r(fd, (*buf).as_mut_ptr(), (*buf).len()) == 0 {
-            (*buf).as_mut_ptr()
-        } else {
-            CONSOLE_TTY_NAME.as_ptr() as *mut u8
+        let ret = crate::pty::ptsname_r(fd, (*buf).as_mut_ptr(), (*buf).len());
+        if ret == 0 {
+            return (*buf).as_mut_ptr();
         }
+        if ret == errno::ENOTTY || ret == errno::EINVAL {
+            return CONSOLE_TTY_NAME.as_ptr() as *mut u8;
+        }
+        errno::set_errno(ret);
+        core::ptr::null_mut()
     }
 }
 
@@ -847,11 +851,18 @@ pub unsafe extern "C" fn ttyname_r(fd: i32, buf: *mut u8, len: usize) -> i32 {
         if isatty(fd) == 0 {
             return errno::ENOTTY;
         }
-        if buf.is_null() || len == 0 {
+        if buf.is_null() {
+            return errno::EINVAL;
+        }
+        if len == 0 {
             return errno::ERANGE;
         }
-        if crate::pty::ptsname_r(fd, buf, len) == 0 {
+        let ret = crate::pty::ptsname_r(fd, buf, len);
+        if ret == 0 {
             return 0;
+        }
+        if ret != errno::ENOTTY && ret != errno::EINVAL {
+            return ret;
         }
         if len < CONSOLE_TTY_NAME.len() {
             return errno::ERANGE;
