@@ -1,0 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+#ifndef SECURITY_OPENPAM_VERSION_H_INCLUDED
+#define SECURITY_OPENPAM_VERSION_H_INCLUDED
+
+#define OPENPAM
+#define OPENPAM_VERSION 20230627
+#define OPENPAM_RELEASE "Ximenia"
+
+#endif

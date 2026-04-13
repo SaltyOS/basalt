@@ -1,0 +1,92 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+#ifndef SECURITY_PAM_CONSTANTS_H_INCLUDED
+#define SECURITY_PAM_CONSTANTS_H_INCLUDED
+
+#include <security/openpam_version.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+enum {
+    PAM_SUCCESS = 0,
+    PAM_OPEN_ERR = 1,
+    PAM_SYMBOL_ERR = 2,
+    PAM_SERVICE_ERR = 3,
+    PAM_SYSTEM_ERR = 4,
+    PAM_BUF_ERR = 5,
+    PAM_CONV_ERR = 6,
+    PAM_PERM_DENIED = 7,
+    PAM_MAXTRIES = 8,
+    PAM_AUTH_ERR = 9,
+    PAM_NEW_AUTHTOK_REQD = 10,
+    PAM_CRED_INSUFFICIENT = 11,
+    PAM_AUTHINFO_UNAVAIL = 12,
+    PAM_USER_UNKNOWN = 13,
+    PAM_CRED_UNAVAIL = 14,
+    PAM_CRED_EXPIRED = 15,
+    PAM_CRED_ERR = 16,
+    PAM_ACCT_EXPIRED = 17,
+    PAM_AUTHTOK_EXPIRED = 18,
+    PAM_SESSION_ERR = 19,
+    PAM_AUTHTOK_ERR = 20,
+    PAM_AUTHTOK_RECOVERY_ERR = 21,
+    PAM_AUTHTOK_LOCK_BUSY = 22,
+    PAM_AUTHTOK_DISABLE_AGING = 23,
+    PAM_NO_MODULE_DATA = 24,
+    PAM_IGNORE = 25,
+    PAM_ABORT = 26,
+    PAM_TRY_AGAIN = 27,
+    PAM_MODULE_UNKNOWN = 28,
+    PAM_DOMAIN_UNKNOWN = 29,
+    PAM_BAD_HANDLE = 30,
+    PAM_BAD_ITEM = 31,
+    PAM_BAD_FEATURE = 32,
+    PAM_BAD_CONSTANT = 33,
+    PAM_NUM_ERRORS
+};
+
+enum {
+    PAM_PROMPT_ECHO_OFF = 1,
+    PAM_PROMPT_ECHO_ON = 2,
+    PAM_ERROR_MSG = 3,
+    PAM_TEXT_INFO = 4,
+    PAM_MAX_NUM_MSG = 32,
+    PAM_MAX_MSG_SIZE = 512,
+    PAM_MAX_RESP_SIZE = 512
+};
+
+enum {
+    PAM_SILENT = (-0x7fffffff - 1),
+    PAM_DISALLOW_NULL_AUTHTOK = 0x1,
+    PAM_ESTABLISH_CRED = 0x1,
+    PAM_DELETE_CRED = 0x2,
+    PAM_REINITIALIZE_CRED = 0x4,
+    PAM_REFRESH_CRED = 0x8,
+    PAM_PRELIM_CHECK = 0x1,
+    PAM_UPDATE_AUTHTOK = 0x2,
+    PAM_CHANGE_EXPIRED_AUTHTOK = 0x4
+};
+
+enum {
+    PAM_SERVICE = 1,
+    PAM_USER = 2,
+    PAM_TTY = 3,
+    PAM_RHOST = 4,
+    PAM_CONV = 5,
+    PAM_AUTHTOK = 6,
+    PAM_OLDAUTHTOK = 7,
+    PAM_RUSER = 8,
+    PAM_USER_PROMPT = 9,
+    PAM_REPOSITORY = 10,
+    PAM_AUTHTOK_PROMPT = 11,
+    PAM_OLDAUTHTOK_PROMPT = 12,
+    PAM_HOST = 13,
+    PAM_NUM_ITEMS
+};
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
