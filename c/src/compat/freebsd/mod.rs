@@ -27,3 +27,4 @@ pub mod cap_fileargs;
 pub mod xo;
 pub mod md5;
 pub mod libutil;
+pub mod login_cap;

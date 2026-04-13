@@ -301,3 +301,16 @@ pub unsafe extern "C" fn fgetln(fp: *mut crate::stdio::FILE, lenp: *mut usize) -
         *buf_ptr
     }
 }
+
+/// FreeBSD `dbopen(3)` — stub that always returns NULL.
+/// SaltyOS reads /etc/passwd as a flat file; the BSD DB interface is unused.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dbopen(
+    _file: *const u8,
+    _flags: i32,
+    _mode: i32,
+    _type: i32,
+    _openinfo: *const u8,
+) -> *mut u8 {
+    core::ptr::null_mut()
+}
