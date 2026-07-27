@@ -10,23 +10,38 @@
 use crate::dirent::{closedir, opendir, readdir};
 
 // fnmatch/glob constants — some may only be referenced by C callers
-#[allow(dead_code)] const FNM_PATHNAME: i32 = 1;
-#[allow(dead_code)] const FNM_NOESCAPE: i32 = 2;
-#[allow(dead_code)] const FNM_PERIOD: i32 = 4;
-#[allow(dead_code)] const FNM_CASEFOLD: i32 = 16;
-#[allow(dead_code)] const FNM_NOMATCH: i32 = 1;
+#[allow(dead_code)]
+const FNM_PATHNAME: i32 = 1;
+#[allow(dead_code)]
+const FNM_NOESCAPE: i32 = 2;
+#[allow(dead_code)]
+const FNM_PERIOD: i32 = 4;
+#[allow(dead_code)]
+const FNM_CASEFOLD: i32 = 16;
+#[allow(dead_code)]
+const FNM_NOMATCH: i32 = 1;
 
-#[allow(dead_code)] const GLOB_ERR: i32 = 1;
-#[allow(dead_code)] const GLOB_MARK: i32 = 2;
-#[allow(dead_code)] const GLOB_NOSORT: i32 = 4;
-#[allow(dead_code)] const GLOB_NOCHECK: i32 = 8;
-#[allow(dead_code)] const GLOB_DOOFFS: i32 = 16;
-#[allow(dead_code)] const GLOB_APPEND: i32 = 32;
-#[allow(dead_code)] const GLOB_NOESCAPE: i32 = 64;
+#[allow(dead_code)]
+const GLOB_ERR: i32 = 1;
+#[allow(dead_code)]
+const GLOB_MARK: i32 = 2;
+#[allow(dead_code)]
+const GLOB_NOSORT: i32 = 4;
+#[allow(dead_code)]
+const GLOB_NOCHECK: i32 = 8;
+#[allow(dead_code)]
+const GLOB_DOOFFS: i32 = 16;
+#[allow(dead_code)]
+const GLOB_APPEND: i32 = 32;
+#[allow(dead_code)]
+const GLOB_NOESCAPE: i32 = 64;
 
-#[allow(dead_code)] const GLOB_NOSPACE: i32 = 1;
-#[allow(dead_code)] const GLOB_ABORTED: i32 = 2;
-#[allow(dead_code)] const GLOB_NOMATCH: i32 = 3;
+#[allow(dead_code)]
+const GLOB_NOSPACE: i32 = 1;
+#[allow(dead_code)]
+const GLOB_ABORTED: i32 = 2;
+#[allow(dead_code)]
+const GLOB_NOMATCH: i32 = 3;
 
 #[repr(C)]
 pub struct GlobT {
@@ -36,11 +51,7 @@ pub struct GlobT {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fnmatch(
-    pattern: *const u8,
-    string: *const u8,
-    flags: i32,
-) -> i32 {
+pub unsafe extern "C" fn fnmatch(pattern: *const u8, string: *const u8, flags: i32) -> i32 {
     if pattern.is_null() || string.is_null() {
         return FNM_NOMATCH;
     }
@@ -153,7 +164,10 @@ unsafe fn fnmatch_impl(
                         first = false;
 
                         // Check for range: a-z
-                        if *pat.add(pi + 1) == b'-' && *pat.add(pi + 2) != b']' && *pat.add(pi + 2) != 0 {
+                        if *pat.add(pi + 1) == b'-'
+                            && *pat.add(pi + 2) != b']'
+                            && *pat.add(pi + 2) != 0
+                        {
                             let lo = c;
                             let hi = *pat.add(pi + 2);
                             let test_c = if (flags & FNM_CASEFOLD) != 0 {
@@ -161,8 +175,16 @@ unsafe fn fnmatch_impl(
                             } else {
                                 sc
                             };
-                            let lo_c = if (flags & FNM_CASEFOLD) != 0 { to_lower(lo) } else { lo };
-                            let hi_c = if (flags & FNM_CASEFOLD) != 0 { to_lower(hi) } else { hi };
+                            let lo_c = if (flags & FNM_CASEFOLD) != 0 {
+                                to_lower(lo)
+                            } else {
+                                lo
+                            };
+                            let hi_c = if (flags & FNM_CASEFOLD) != 0 {
+                                to_lower(hi)
+                            } else {
+                                hi
+                            };
                             if test_c >= lo_c && test_c <= hi_c {
                                 matched = true;
                             }
@@ -235,11 +257,7 @@ unsafe fn fnmatch_impl(
 }
 
 fn to_lower(c: u8) -> u8 {
-    if c >= b'A' && c <= b'Z' {
-        c + 32
-    } else {
-        c
-    }
+    if c >= b'A' && c <= b'Z' { c + 32 } else { c }
 }
 
 #[unsafe(no_mangle)]
@@ -445,10 +463,7 @@ unsafe fn add_glob_result(pglob: *mut GlobT, path: *const u8, len: usize, _flags
         let new_pathv = if (*pglob).gl_pathv.is_null() {
             crate::malloc::malloc(new_size) as *mut *mut u8
         } else {
-            crate::malloc::realloc(
-                (*pglob).gl_pathv as *mut u8,
-                new_size,
-            ) as *mut *mut u8
+            crate::malloc::realloc((*pglob).gl_pathv as *mut u8, new_size) as *mut *mut u8
         };
 
         if new_pathv.is_null() {

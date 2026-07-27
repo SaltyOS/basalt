@@ -17,7 +17,7 @@ pub static mut environ: *mut *const u8 = core::ptr::null_mut();
 
 /// RWLock protecting ENV_PTRS/ENV_COUNT. Readers (getenv) can run
 /// concurrently; writers (setenv/unsetenv/putenv/clearenv) are exclusive.
-static ENV_LOCK: trona::sync::RWLock = trona::sync::RWLock::new();
+static ENV_LOCK: trona_runtime::thread::sync::RWLock = trona_runtime::thread::sync::RWLock::new();
 
 /// Initialize environ from the stack-provided envp
 pub unsafe fn init_environ(envp: *const *const u8) {

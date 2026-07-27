@@ -136,7 +136,12 @@ pub unsafe extern "C" fn getttynam(name: *const u8) -> *mut Ttyent {
                     clear_buf(core::ptr::addr_of_mut!(COMMENT_BUF) as *mut u8, 128);
 
                     if let Some((comment, len)) = comment_slice(line.as_ptr()) {
-                        copy_token(core::ptr::addr_of_mut!(COMMENT_BUF) as *mut u8, 128, comment, len);
+                        copy_token(
+                            core::ptr::addr_of_mut!(COMMENT_BUF) as *mut u8,
+                            128,
+                            comment,
+                            len,
+                        );
                     }
 
                     if let Some((tok, len, next)) = next_token(cursor) {

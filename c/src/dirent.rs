@@ -213,7 +213,9 @@ pub unsafe extern "C" fn dirfd(dir: *mut DIR) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rewinddir(dir: *mut DIR) {
     if !dir.is_null() {
-        unsafe { (*dir).pos = 0; }
+        unsafe {
+            (*dir).pos = 0;
+        }
     }
 }
 
@@ -228,7 +230,9 @@ pub unsafe extern "C" fn telldir(dir: *mut DIR) -> i64 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn seekdir(dir: *mut DIR, loc: i64) {
     if !dir.is_null() {
-        unsafe { (*dir).pos = loc; }
+        unsafe {
+            (*dir).pos = loc;
+        }
     }
 }
 

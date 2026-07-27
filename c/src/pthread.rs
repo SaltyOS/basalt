@@ -6,6 +6,9 @@
 //! reader-writer locks, barriers, and once-initialization.
 
 use crate::errno;
+use trona_protocol::common::{
+    TRONA_BUSY, TRONA_DEADLOCK, TRONA_INVALID_OPERATION, TRONA_OK, TRONA_TIMED_OUT,
+};
 
 /// Timespec for timed operations (matches time.rs layout)
 #[repr(C)]
@@ -20,11 +23,11 @@ pub struct Timespec {
 #[inline]
 fn trona_to_pthread_errno(err: u64) -> i32 {
     match err {
-        trona::consts::TRONA_OK => 0,
-        trona::consts::TRONA_BUSY => errno::EBUSY,
-        trona::consts::TRONA_DEADLOCK => errno::EDEADLK,
-        trona::consts::TRONA_TIMED_OUT => errno::ETIMEDOUT,
-        trona::consts::TRONA_INVALID_OPERATION => errno::EPERM,
+        x if x == TRONA_OK as u64 => 0,
+        x if x == TRONA_BUSY as u64 => errno::EBUSY,
+        x if x == TRONA_DEADLOCK as u64 => errno::EDEADLK,
+        x if x == TRONA_TIMED_OUT => errno::ETIMEDOUT,
+        x if x == TRONA_INVALID_OPERATION as u64 => errno::EPERM,
         _ => errno::EINVAL,
     }
 }
@@ -32,9 +35,12 @@ fn trona_to_pthread_errno(err: u64) -> i32 {
 /// Convert an absolute timespec to a relative timeout in nanoseconds.
 /// Returns 0 if the deadline has already passed.
 fn timespec_to_relative_ns(abstime: &Timespec) -> u64 {
-    let now = trona::syscall::syscall(trona::consts::SYS_CLOCK_GETTIME, 0, 0, 0, 0, 0, 0);
-    let now_ns = now.value;
-    let target_ns = (abstime.tv_sec as u64).saturating_mul(1_000_000_000).saturating_add(abstime.tv_nsec as u64);
+    let now_ns = trona_kernel::syscall::clock_read_monotonic(
+        trona_runtime::client::caps::clock_cap().addr(),
+    );
+    let target_ns = (abstime.tv_sec as u64)
+        .saturating_mul(1_000_000_000)
+        .saturating_add(abstime.tv_nsec as u64);
     target_ns.saturating_sub(now_ns)
 }
 
@@ -145,17 +151,22 @@ pub unsafe extern "C" fn pthread_create(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_join(thread: PthreadT, retval: *mut *mut u8) -> i32 {
     unsafe {
-        let ret = trona_posix::pthread::pthread_join(
-            thread as trona_posix::pthread::PthreadT,
-            retval,
-        );
+        let ret =
+            trona_posix::pthread::pthread_join(thread as trona_posix::pthread::PthreadT, retval);
         if ret < 0 { (-ret) as i32 } else { 0 }
     }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_exit(retval: *mut u8) -> ! {
-    unsafe { trona_posix::pthread::pthread_exit(retval) }
+    unsafe {
+        // Free per-thread DTV slabs before substrate clears the TLS pointer.
+        // No-op when no dlopen has issued a dynamic module yet.
+        if let Some(table) = trona_runtime::loader_dlfcn() {
+            (table.tls_destroy)(0, core::ptr::null_mut(), 0);
+        }
+        trona_posix::pthread::pthread_exit(retval)
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -197,7 +208,9 @@ unsafe fn mutex_kind(mutex: *const PthreadMutexT) -> u8 {
 /// Write the kind byte into a PthreadMutexT
 #[inline]
 unsafe fn set_mutex_kind(mutex: *mut PthreadMutexT, kind: u8) {
-    unsafe { *((mutex as *mut u8).add(MUTEX_KIND_OFFSET)) = kind; }
+    unsafe {
+        *((mutex as *mut u8).add(MUTEX_KIND_OFFSET)) = kind;
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -212,15 +225,19 @@ pub unsafe extern "C" fn pthread_mutex_init(
         // Zero the entire structure first
         core::ptr::write_bytes(mutex as *mut u8, 0, core::mem::size_of::<PthreadMutexT>());
 
-        let kind = if !attr.is_null() { (*attr).kind } else { 0 };
-        if kind == PTHREAD_MUTEX_NORMAL || kind == 0 {
-            let m = &mut *(mutex as *mut trona::sync::Mutex);
-            core::ptr::write(m, trona::sync::Mutex::new());
+        let kind = if !attr.is_null() {
+            (*attr).kind
+        } else {
+            PTHREAD_MUTEX_NORMAL
+        };
+        if kind == PTHREAD_MUTEX_NORMAL {
+            let m = &mut *(mutex as *mut trona_runtime::thread::sync::Mutex);
+            core::ptr::write(m, trona_runtime::thread::sync::Mutex::new());
             set_mutex_kind(mutex, 0);
         } else {
             let mt = kind as u8;
-            let tm = &mut *(mutex as *mut trona::sync::TypedMutex);
-            core::ptr::write(tm, trona::sync::TypedMutex::new(mt));
+            let tm = &mut *(mutex as *mut trona_runtime::thread::sync::TypedMutex);
+            core::ptr::write(tm, trona_runtime::thread::sync::TypedMutex::new(mt));
             set_mutex_kind(mutex, mt);
         }
     }
@@ -234,11 +251,11 @@ pub unsafe extern "C" fn pthread_mutex_lock(mutex: *mut PthreadMutexT) -> i32 {
     }
     unsafe {
         if mutex_kind(mutex) == 0 {
-            let m = &*(mutex as *const trona::sync::Mutex);
+            let m = &*(mutex as *const trona_runtime::thread::sync::Mutex);
             m.lock();
             0
         } else {
-            let tm = &*(mutex as *const trona::sync::TypedMutex);
+            let tm = &*(mutex as *const trona_runtime::thread::sync::TypedMutex);
             trona_to_pthread_errno(tm.lock())
         }
     }
@@ -251,10 +268,10 @@ pub unsafe extern "C" fn pthread_mutex_trylock(mutex: *mut PthreadMutexT) -> i32
     }
     unsafe {
         if mutex_kind(mutex) == 0 {
-            let m = &*(mutex as *const trona::sync::Mutex);
+            let m = &*(mutex as *const trona_runtime::thread::sync::Mutex);
             if m.try_lock() { 0 } else { errno::EBUSY }
         } else {
-            let tm = &*(mutex as *const trona::sync::TypedMutex);
+            let tm = &*(mutex as *const trona_runtime::thread::sync::TypedMutex);
             trona_to_pthread_errno(tm.try_lock())
         }
     }
@@ -267,11 +284,11 @@ pub unsafe extern "C" fn pthread_mutex_unlock(mutex: *mut PthreadMutexT) -> i32 
     }
     unsafe {
         if mutex_kind(mutex) == 0 {
-            let m = &*(mutex as *const trona::sync::Mutex);
+            let m = &*(mutex as *const trona_runtime::thread::sync::Mutex);
             m.unlock();
             0
         } else {
-            let tm = &*(mutex as *const trona::sync::TypedMutex);
+            let tm = &*(mutex as *const trona_runtime::thread::sync::TypedMutex);
             trona_to_pthread_errno(tm.unlock())
         }
     }
@@ -292,11 +309,15 @@ pub unsafe extern "C" fn pthread_mutex_timedlock(
         let kind = mutex_kind(mutex);
         if kind == 0 {
             // NORMAL mutex
-            let m = &*(mutex as *const trona::sync::Mutex);
-            if m.lock_timeout(timespec_to_relative_ns(&*abstime)) { 0 } else { errno::ETIMEDOUT }
+            let m = &*(mutex as *const trona_runtime::thread::sync::Mutex);
+            if m.lock_timeout(timespec_to_relative_ns(&*abstime)) {
+                0
+            } else {
+                errno::ETIMEDOUT
+            }
         } else {
             // Typed mutex
-            let tm = &*(mutex as *const trona::sync::TypedMutex);
+            let tm = &*(mutex as *const trona_runtime::thread::sync::TypedMutex);
             trona_to_pthread_errno(tm.lock_timeout(timespec_to_relative_ns(&*abstime)))
         }
     }
@@ -320,8 +341,8 @@ pub unsafe extern "C" fn pthread_cond_init(
         return errno::EINVAL;
     }
     unsafe {
-        let c = &mut *(cond as *mut trona::sync::Condvar);
-        core::ptr::write(c, trona::sync::Condvar::new());
+        let c = &mut *(cond as *mut trona_runtime::thread::sync::Condvar);
+        core::ptr::write(c, trona_runtime::thread::sync::Condvar::new());
     }
     0
 }
@@ -335,14 +356,14 @@ pub unsafe extern "C" fn pthread_cond_wait(
         return errno::EINVAL;
     }
     unsafe {
-        let c = &*(cond as *const trona::sync::Condvar);
+        let c = &*(cond as *const trona_runtime::thread::sync::Condvar);
         let kind = mutex_kind(mutex);
         if kind == 0 {
-            let m = &*(mutex as *const trona::sync::Mutex);
+            let m = &*(mutex as *const trona_runtime::thread::sync::Mutex);
             c.wait(m);
             0
         } else {
-            let tm = &*(mutex as *const trona::sync::TypedMutex);
+            let tm = &*(mutex as *const trona_runtime::thread::sync::TypedMutex);
             trona_to_pthread_errno(c.wait_typed(tm))
         }
     }
@@ -354,7 +375,7 @@ pub unsafe extern "C" fn pthread_cond_signal(cond: *mut PthreadCondT) -> i32 {
         return errno::EINVAL;
     }
     unsafe {
-        let c = &*(cond as *const trona::sync::Condvar);
+        let c = &*(cond as *const trona_runtime::thread::sync::Condvar);
         c.signal();
     }
     0
@@ -366,7 +387,7 @@ pub unsafe extern "C" fn pthread_cond_broadcast(cond: *mut PthreadCondT) -> i32 
         return errno::EINVAL;
     }
     unsafe {
-        let c = &*(cond as *const trona::sync::Condvar);
+        let c = &*(cond as *const trona_runtime::thread::sync::Condvar);
         c.broadcast();
     }
     0
@@ -385,17 +406,17 @@ pub unsafe extern "C" fn pthread_cond_timedwait(
         if !validate_timespec(&*abstime) {
             return errno::EINVAL;
         }
-        let c = &*(cond as *const trona::sync::Condvar);
+        let c = &*(cond as *const trona_runtime::thread::sync::Condvar);
         let kind = mutex_kind(mutex);
         let timeout_ns = timespec_to_relative_ns(&*abstime);
         if timeout_ns == 0 {
             return errno::ETIMEDOUT;
         }
         if kind == 0 {
-            let m = &*(mutex as *const trona::sync::Mutex);
+            let m = &*(mutex as *const trona_runtime::thread::sync::Mutex);
             trona_to_pthread_errno(c.wait_timeout(m, timeout_ns))
         } else {
-            let tm = &*(mutex as *const trona::sync::TypedMutex);
+            let tm = &*(mutex as *const trona_runtime::thread::sync::TypedMutex);
             trona_to_pthread_errno(c.wait_timeout_typed(tm, timeout_ns))
         }
     }
@@ -419,8 +440,8 @@ pub unsafe extern "C" fn pthread_rwlock_init(
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &mut *(rwlock as *mut trona::sync::RWLock);
-        core::ptr::write(rw, trona::sync::RWLock::new());
+        let rw = &mut *(rwlock as *mut trona_runtime::thread::sync::RWLock);
+        core::ptr::write(rw, trona_runtime::thread::sync::RWLock::new());
     }
     0
 }
@@ -431,7 +452,7 @@ pub unsafe extern "C" fn pthread_rwlock_rdlock(rwlock: *mut PthreadRwlockT) -> i
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &*(rwlock as *const trona::sync::RWLock);
+        let rw = &*(rwlock as *const trona_runtime::thread::sync::RWLock);
         rw.read_lock();
     }
     0
@@ -443,7 +464,7 @@ pub unsafe extern "C" fn pthread_rwlock_wrlock(rwlock: *mut PthreadRwlockT) -> i
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &*(rwlock as *const trona::sync::RWLock);
+        let rw = &*(rwlock as *const trona_runtime::thread::sync::RWLock);
         rw.write_lock();
     }
     0
@@ -458,7 +479,7 @@ pub unsafe extern "C" fn pthread_rwlock_unlock(rwlock: *mut PthreadRwlockT) -> i
         // POSIX says unlock works for both read and write locks.
         // RWLock is #[repr(C)] with `state: AtomicU32` as first field.
         // Bit 31 is the writer flag.
-        let rw = &*(rwlock as *const trona::sync::RWLock);
+        let rw = &*(rwlock as *const trona_runtime::thread::sync::RWLock);
         let state_ptr = rwlock as *const core::sync::atomic::AtomicU32;
         let state = (*state_ptr).load(core::sync::atomic::Ordering::Relaxed);
         if state & (1 << 31) != 0 {
@@ -481,7 +502,7 @@ pub unsafe extern "C" fn pthread_rwlock_tryrdlock(rwlock: *mut PthreadRwlockT) -
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &*(rwlock as *const trona::sync::RWLock);
+        let rw = &*(rwlock as *const trona_runtime::thread::sync::RWLock);
         if rw.try_read_lock() { 0 } else { errno::EBUSY }
     }
 }
@@ -492,7 +513,7 @@ pub unsafe extern "C" fn pthread_rwlock_trywrlock(rwlock: *mut PthreadRwlockT) -
         return errno::EINVAL;
     }
     unsafe {
-        let rw = &*(rwlock as *const trona::sync::RWLock);
+        let rw = &*(rwlock as *const trona_runtime::thread::sync::RWLock);
         if rw.try_write_lock() { 0 } else { errno::EBUSY }
     }
 }
@@ -509,12 +530,20 @@ pub unsafe extern "C" fn pthread_rwlock_timedrdlock(
         if !validate_timespec(&*abstime) {
             return errno::EINVAL;
         }
-        let rw = &*(rwlock as *const trona::sync::RWLock);
+        let rw = &*(rwlock as *const trona_runtime::thread::sync::RWLock);
         let timeout_ns = timespec_to_relative_ns(&*abstime);
         if timeout_ns == 0 {
-            return if rw.try_read_lock() { 0 } else { errno::ETIMEDOUT };
+            return if rw.try_read_lock() {
+                0
+            } else {
+                errno::ETIMEDOUT
+            };
         }
-        if rw.read_lock_timeout(timeout_ns) { 0 } else { errno::ETIMEDOUT }
+        if rw.read_lock_timeout(timeout_ns) {
+            0
+        } else {
+            errno::ETIMEDOUT
+        }
     }
 }
 
@@ -530,12 +559,20 @@ pub unsafe extern "C" fn pthread_rwlock_timedwrlock(
         if !validate_timespec(&*abstime) {
             return errno::EINVAL;
         }
-        let rw = &*(rwlock as *const trona::sync::RWLock);
+        let rw = &*(rwlock as *const trona_runtime::thread::sync::RWLock);
         let timeout_ns = timespec_to_relative_ns(&*abstime);
         if timeout_ns == 0 {
-            return if rw.try_write_lock() { 0 } else { errno::ETIMEDOUT };
+            return if rw.try_write_lock() {
+                0
+            } else {
+                errno::ETIMEDOUT
+            };
         }
-        if rw.write_lock_timeout(timeout_ns) { 0 } else { errno::ETIMEDOUT }
+        if rw.write_lock_timeout(timeout_ns) {
+            0
+        } else {
+            errno::ETIMEDOUT
+        }
     }
 }
 
@@ -553,8 +590,8 @@ pub unsafe extern "C" fn pthread_barrier_init(
         return errno::EINVAL;
     }
     unsafe {
-        let b = &mut *(barrier as *mut trona::sync::Barrier);
-        core::ptr::write(b, trona::sync::Barrier::new(count));
+        let b = &mut *(barrier as *mut trona_runtime::thread::sync::Barrier);
+        core::ptr::write(b, trona_runtime::thread::sync::Barrier::new(count));
     }
     0
 }
@@ -568,7 +605,7 @@ pub unsafe extern "C" fn pthread_barrier_wait(barrier: *mut PthreadBarrierT) -> 
         return errno::EINVAL;
     }
     unsafe {
-        let b = &*(barrier as *const trona::sync::Barrier);
+        let b = &*(barrier as *const trona_runtime::thread::sync::Barrier);
         if b.wait() {
             PTHREAD_BARRIER_SERIAL_THREAD
         } else {
@@ -595,7 +632,7 @@ pub unsafe extern "C" fn pthread_once(
         return errno::EINVAL;
     }
     unsafe {
-        let o = &*(once_control as *const trona::sync::Once);
+        let o = &*(once_control as *const trona_runtime::thread::sync::Once);
         o.call_once(init_routine);
     }
     0
@@ -638,7 +675,9 @@ pub unsafe extern "C" fn pthread_attr_setdetachstate(
     if detachstate != PTHREAD_CREATE_JOINABLE && detachstate != PTHREAD_CREATE_DETACHED {
         return errno::EINVAL;
     }
-    unsafe { (*attr).detach_state = detachstate as u32; }
+    unsafe {
+        (*attr).detach_state = detachstate as u32;
+    }
     0
 }
 
@@ -650,7 +689,9 @@ pub unsafe extern "C" fn pthread_attr_getdetachstate(
     if attr.is_null() || detachstate.is_null() {
         return errno::EINVAL;
     }
-    unsafe { *detachstate = (*attr).detach_state as i32; }
+    unsafe {
+        *detachstate = (*attr).detach_state as i32;
+    }
     0
 }
 
@@ -666,7 +707,9 @@ pub unsafe extern "C" fn pthread_attr_setstacksize(
     if stacksize < 16384 {
         return errno::EINVAL;
     }
-    unsafe { (*attr).stack_size = stacksize as u64; }
+    unsafe {
+        (*attr).stack_size = stacksize as u64;
+    }
     0
 }
 
@@ -680,7 +723,11 @@ pub unsafe extern "C" fn pthread_attr_getstacksize(
     }
     unsafe {
         let sz = (*attr).stack_size;
-        *stacksize = if sz == 0 { 2 * 1024 * 1024 } else { sz as usize };
+        *stacksize = if sz == 0 {
+            2 * 1024 * 1024
+        } else {
+            sz as usize
+        };
     }
     0
 }
@@ -690,7 +737,9 @@ pub unsafe extern "C" fn pthread_mutexattr_init(attr: *mut PthreadMutexattrT) ->
     if attr.is_null() {
         return errno::EINVAL;
     }
-    unsafe { (*attr).kind = PTHREAD_MUTEX_NORMAL; }
+    unsafe {
+        (*attr).kind = PTHREAD_MUTEX_NORMAL;
+    }
     0
 }
 
@@ -700,17 +749,19 @@ pub unsafe extern "C" fn pthread_mutexattr_destroy(_attr: *mut PthreadMutexattrT
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pthread_mutexattr_settype(
-    attr: *mut PthreadMutexattrT,
-    kind: i32,
-) -> i32 {
+pub unsafe extern "C" fn pthread_mutexattr_settype(attr: *mut PthreadMutexattrT, kind: i32) -> i32 {
     if attr.is_null() {
         return errno::EINVAL;
     }
-    if kind < 0 || kind > 2 {
+    if !matches!(
+        kind,
+        PTHREAD_MUTEX_NORMAL | PTHREAD_MUTEX_RECURSIVE | PTHREAD_MUTEX_ERRORCHECK
+    ) {
         return errno::EINVAL;
     }
-    unsafe { (*attr).kind = kind; }
+    unsafe {
+        (*attr).kind = kind;
+    }
     0
 }
 
@@ -722,16 +773,15 @@ pub unsafe extern "C" fn pthread_mutexattr_gettype(
     if attr.is_null() || kind.is_null() {
         return errno::EINVAL;
     }
-    unsafe { *kind = (*attr).kind; }
+    unsafe {
+        *kind = (*attr).kind;
+    }
     0
 }
 
 // =========================================================================
 // Cancellation
 // =========================================================================
-
-/// PTHREAD_CANCELED sentinel value
-const PTHREAD_CANCELED: *mut u8 = usize::MAX as *mut u8;
 
 /// Cancel state constants
 const PTHREAD_CANCEL_ENABLE: i32 = 0;
@@ -755,7 +805,9 @@ pub unsafe extern "C" fn pthread_setcancelstate(state: i32, oldstate: *mut i32) 
     }
     unsafe {
         let ret = trona_posix::pthread::pthread_setcancelstate(state, oldstate);
-        if ret < 0 { return (-ret) as i32; }
+        if ret < 0 {
+            return (-ret) as i32;
+        }
     }
     0
 }
@@ -767,14 +819,18 @@ pub unsafe extern "C" fn pthread_setcanceltype(ctype: i32, oldtype: *mut i32) ->
     }
     unsafe {
         let ret = trona_posix::pthread::pthread_setcanceltype(ctype, oldtype);
-        if ret < 0 { return (-ret) as i32; }
+        if ret < 0 {
+            return (-ret) as i32;
+        }
     }
     0
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_testcancel() {
-    unsafe { trona_posix::pthread::pthread_testcancel(); }
+    unsafe {
+        trona_posix::pthread::pthread_testcancel();
+    }
 }
 
 /// Cleanup handler node (stack-allocated by caller).
@@ -801,10 +857,7 @@ pub unsafe extern "C" fn __pthread_cleanup_push(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __pthread_cleanup_pop(
-    _handler: *mut PthreadCleanupHandler,
-    execute: i32,
-) {
+pub unsafe extern "C" fn __pthread_cleanup_pop(_handler: *mut PthreadCleanupHandler, execute: i32) {
     unsafe {
         trona_posix::pthread::pthread_cleanup_pop_impl(execute);
     }
@@ -841,19 +894,24 @@ static KEY_LOCK: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::
 
 /// Key metadata table (protected by KEY_LOCK for create/delete).
 static mut KEY_TABLE: [KeyEntry; PTHREAD_KEYS_MAX] = {
-    const EMPTY: KeyEntry = KeyEntry { in_use: false, destructor: None };
+    const EMPTY: KeyEntry = KeyEntry {
+        in_use: false,
+        destructor: None,
+    };
     [EMPTY; PTHREAD_KEYS_MAX]
 };
 
 /// Per-thread key values. Indexed as [key][thread_id].
 /// Thread ID is obtained from the TLS block's thread_id field.
-static mut KEY_VALUES: [[*mut u8; KEY_MAX_THREADS]; PTHREAD_KEYS_MAX] = {
-    [[core::ptr::null_mut(); KEY_MAX_THREADS]; PTHREAD_KEYS_MAX]
-};
+static mut KEY_VALUES: [[*mut u8; KEY_MAX_THREADS]; PTHREAD_KEYS_MAX] =
+    [[core::ptr::null_mut(); KEY_MAX_THREADS]; PTHREAD_KEYS_MAX];
 
 fn key_lock_acquire() {
     use core::sync::atomic::Ordering;
-    while KEY_LOCK.compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed).is_err() {
+    while KEY_LOCK
+        .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
         while KEY_LOCK.load(Ordering::Relaxed) != 0 {
             core::hint::spin_loop();
         }
@@ -951,12 +1009,14 @@ pub unsafe extern "C" fn pthread_setspecific(key: u32, value: *mut u8) -> i32 {
     }
     let tid = current_thread_index();
     // SAFETY: key and tid are bounds-checked, in_use is confirmed.
-    unsafe { (*(&raw mut KEY_VALUES))[key as usize][tid] = value; }
+    unsafe {
+        (*(&raw mut KEY_VALUES))[key as usize][tid] = value;
+    }
     0
 }
 
 // =========================================================================
-// POSIX semaphores — backed by trona::sync::Semaphore
+// POSIX semaphores — backed by trona_runtime::thread::sync::Semaphore
 // =========================================================================
 
 #[unsafe(no_mangle)]
@@ -969,14 +1029,14 @@ pub unsafe extern "C" fn sem_init(sem: *mut u8, pshared: i32, value: u32) -> i32
         errno::set_errno(errno::ENOSYS);
         return -1;
     }
-    if value > trona::sync::SEM_VALUE_MAX {
+    if value > trona_runtime::thread::sync::SEM_VALUE_MAX {
         errno::set_errno(errno::EINVAL);
         return -1;
     }
     unsafe {
         core::ptr::write(
-            sem as *mut trona::sync::Semaphore,
-            trona::sync::Semaphore::new(value),
+            sem as *mut trona_runtime::thread::sync::Semaphore,
+            trona_runtime::thread::sync::Semaphore::new(value),
         );
     }
     0
@@ -994,7 +1054,7 @@ pub unsafe extern "C" fn sem_wait(sem: *mut u8) -> i32 {
         return -1;
     }
     unsafe {
-        let s = &*(sem as *const trona::sync::Semaphore);
+        let s = &*(sem as *const trona_runtime::thread::sync::Semaphore);
         s.wait();
     }
     0
@@ -1007,7 +1067,7 @@ pub unsafe extern "C" fn sem_trywait(sem: *mut u8) -> i32 {
         return -1;
     }
     unsafe {
-        let s = &*(sem as *const trona::sync::Semaphore);
+        let s = &*(sem as *const trona_runtime::thread::sync::Semaphore);
         if s.try_wait() {
             0
         } else {
@@ -1028,7 +1088,7 @@ pub unsafe extern "C" fn sem_timedwait(sem: *mut u8, abstime: *const Timespec) -
             errno::set_errno(errno::EINVAL);
             return -1;
         }
-        let s = &*(sem as *const trona::sync::Semaphore);
+        let s = &*(sem as *const trona_runtime::thread::sync::Semaphore);
         let timeout_ns = timespec_to_relative_ns(&*abstime);
         if timeout_ns == 0 {
             if s.try_wait() {
@@ -1053,7 +1113,7 @@ pub unsafe extern "C" fn sem_post(sem: *mut u8) -> i32 {
         return -1;
     }
     unsafe {
-        let s = &*(sem as *const trona::sync::Semaphore);
+        let s = &*(sem as *const trona_runtime::thread::sync::Semaphore);
         let ret = s.post();
         if ret < 0 {
             errno::set_errno(errno::EOVERFLOW);
@@ -1070,7 +1130,7 @@ pub unsafe extern "C" fn sem_getvalue(sem: *mut u8, sval: *mut i32) -> i32 {
         return -1;
     }
     unsafe {
-        let s = &*(sem as *const trona::sync::Semaphore);
+        let s = &*(sem as *const trona_runtime::thread::sync::Semaphore);
         *sval = s.get_value();
     }
     0
@@ -1081,7 +1141,7 @@ pub unsafe extern "C" fn sem_getvalue(sem: *mut u8, sval: *mut i32) -> i32 {
 // =========================================================================
 
 #[repr(C)]
-struct TlsIndex {
+pub struct TlsIndex {
     ti_module: u64,
     ti_offset: u64,
 }
@@ -1089,6 +1149,18 @@ struct TlsIndex {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __tls_get_addr(ti: *const TlsIndex) -> *mut core::ffi::c_void {
     unsafe {
-        trona_posix::tls::tls_addr((*ti).ti_module, (*ti).ti_offset) as *mut core::ffi::c_void
+        let module = (*ti).ti_module;
+        let offset = (*ti).ti_offset;
+        // Dynamic modules (runtime dlopen) go through the rtld so it can lazy-
+        // allocate per-thread DTV slabs. Static modules use the substrate fast
+        // path that consumes the rtld-published static TLS layout.
+        if module >= trona_kernel::core_types::DYNAMIC_TLS_MODULE_BASE {
+            if let Some(table) = trona_runtime::loader_dlfcn() {
+                return (table.tls_addr)(module, offset, core::ptr::null_mut(), 0)
+                    as *mut core::ffi::c_void;
+            }
+            return core::ptr::null_mut();
+        }
+        trona_posix::tls::tls_addr(module, offset) as *mut core::ffi::c_void
     }
 }

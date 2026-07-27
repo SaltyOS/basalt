@@ -8,7 +8,14 @@
 //! All functions delegate to `trona_posix::*` or `trona_posix::dns::*`.
 
 use crate::errno;
-use trona::consts::posix::SOL_SOCKET;
+use trona_protocol::common::{
+    TRONA_BUSY, TRONA_CANCELLED, TRONA_INVALID_CAPABILITY, TRONA_INVALID_OPERATION,
+    TRONA_NOT_FOUND, TRONA_TIMED_OUT,
+};
+use trona_protocol::posix::{
+    INET_RECV_FLAG_PEEK, INET_RECV_TIMESTAMP_NONE, TRONA_DNS_NXDOMAIN, TRONA_DNS_SERVER_FAIL,
+};
+use trona_protocol::posix_abi::socket::{AF_UNIX, SOL_SOCKET};
 
 static mut LOGGED_SOCKET_META_CALLS: u8 = 0;
 static mut LOGGED_RECVMSG_INET_RESULTS: u8 = 0;
@@ -32,7 +39,7 @@ fn log_socket_meta(op: &[u8], fd: i32, a: i32, b: i32) {
         }
         *(&raw mut LOGGED_SOCKET_META_CALLS) += 1;
     }
-    trona::udebug!(|_lb| {
+    trona_runtime::udebug!(|_lb| {
         _lb.str(b"[libc] ");
         _lb.str(op);
         _lb.str(b" fd=");
@@ -56,7 +63,7 @@ fn log_recvmsg_inet_result(fd: i32, ret: isize, data: &[u8], user_data: Option<&
         }
         *(&raw mut LOGGED_RECVMSG_INET_RESULTS) += 1;
     }
-    trona::udebug!(|_lb| {
+    trona_runtime::udebug!(|_lb| {
         _lb.str(b"[libc] recvmsg inet fd=");
         _lb.dec(fd as u64);
         _lb.str(b" ret=");
@@ -116,30 +123,10 @@ fn log_recvmsg_inet_result(fd: i32, ret: isize, data: &[u8], user_data: Option<&
     });
 }
 
-unsafe fn decode_sockaddr_in(addr: *const u8, addrlen: u32) -> Option<(u32, u16)> {
-    if addr.is_null() || addrlen < 8 {
-        return None;
-    }
-
-    let family = unsafe { core::ptr::read_unaligned(addr as *const u16) };
-    if family == AF_INET as u16 {
-        let port = unsafe { u16::from_be(core::ptr::read_unaligned(addr.add(2) as *const u16)) };
-        let ip = unsafe { u32::from_be(core::ptr::read_unaligned(addr.add(4) as *const u32)) };
-        return Some((ip, port));
-    }
-
-    let sa_len = unsafe { *addr };
-    let sa_family = unsafe { *addr.add(1) };
-    if sa_family == AF_INET as u8 && sa_len as u32 >= 8 {
-        let port = unsafe { u16::from_be(core::ptr::read_unaligned(addr.add(2) as *const u16)) };
-        let ip = unsafe { u32::from_be(core::ptr::read_unaligned(addr.add(4) as *const u32)) };
-        return Some((ip, port));
-    }
-
-    None
-}
-
-unsafe fn decode_posix_sockaddr_in(addr: *const u8, addrlen: u32) -> Option<trona_posix::SockAddrIn> {
+unsafe fn decode_posix_sockaddr_in(
+    addr: *const u8,
+    addrlen: u32,
+) -> Option<trona_posix::SockAddrIn> {
     if addr.is_null() || addrlen < 8 {
         return None;
     }
@@ -273,7 +260,7 @@ unsafe fn socket_domain(fd: i32) -> Option<i32> {
         let ret = trona_posix::posix_getsockopt(
             fd,
             SOL_SOCKET,
-            trona::consts::posix::SO_DOMAIN,
+            trona_posix::consts::SO_DOMAIN,
             &raw mut domain as *mut u32 as *mut u8,
             &raw mut domain_len,
         );
@@ -299,7 +286,7 @@ unsafe fn store_timestamp_cmsg(msg: *mut MsgHdr, timestamp_ns: u64) {
         return;
     }
 
-    if timestamp_ns == trona::consts::INET_RECV_TIMESTAMP_NONE {
+    if timestamp_ns == INET_RECV_TIMESTAMP_NONE {
         hdr.msg_controllen = 0;
         return;
     }
@@ -311,7 +298,7 @@ unsafe fn store_timestamp_cmsg(msg: *mut MsgHdr, timestamp_ns: u64) {
     let cmsg = CmsgHdr {
         cmsg_len: cmsg_len(core::mem::size_of::<TimeSpec>()) as u32,
         cmsg_level: cmsg_sol_socket_level(),
-        cmsg_type: trona::consts::posix::SCM_TIMESTAMP,
+        cmsg_type: trona_posix::consts::SCM_TIMESTAMP,
     };
     unsafe {
         core::ptr::write_unaligned(hdr.msg_control as *mut CmsgHdr, cmsg);
@@ -373,13 +360,16 @@ const SERVICES: &[(&[u8], u16, i32)] = &[
 #[inline]
 fn dns_label_to_eai(label: u64) -> i32 {
     match label {
-        trona::consts::TRONA_TIMED_OUT => EAI_AGAIN,
-        trona::consts::TRONA_DNS_SERVER_FAIL => EAI_FAIL,
-        trona::consts::TRONA_DNS_NXDOMAIN | trona::consts::TRONA_NOT_FOUND => EAI_NONAME,
-        trona::consts::TRONA_INVALID_OPERATION
-        | trona::consts::TRONA_INVALID_CAPABILITY
-        | trona::consts::TRONA_BUSY
-        | trona::consts::TRONA_CANCELLED => EAI_AGAIN,
+        x if x == TRONA_TIMED_OUT => EAI_AGAIN,
+        x if x == TRONA_DNS_SERVER_FAIL => EAI_FAIL,
+        x if x == TRONA_DNS_NXDOMAIN || x == TRONA_NOT_FOUND as u64 => EAI_NONAME,
+        x if x == TRONA_INVALID_OPERATION as u64
+            || x == TRONA_INVALID_CAPABILITY as u64
+            || x == TRONA_BUSY as u64
+            || x == TRONA_CANCELLED as u64 =>
+        {
+            EAI_AGAIN
+        }
         _ => EAI_AGAIN,
     }
 }
@@ -388,13 +378,16 @@ fn dns_label_to_eai(label: u64) -> i32 {
 unsafe fn set_h_errno_from_dns_label(label: u64) {
     unsafe {
         crate::inet::h_errno = match label {
-            trona::consts::TRONA_TIMED_OUT => TRY_AGAIN,
-            trona::consts::TRONA_DNS_SERVER_FAIL => NO_RECOVERY,
-            trona::consts::TRONA_DNS_NXDOMAIN | trona::consts::TRONA_NOT_FOUND => HOST_NOT_FOUND,
-            trona::consts::TRONA_INVALID_OPERATION
-            | trona::consts::TRONA_INVALID_CAPABILITY
-            | trona::consts::TRONA_BUSY
-            | trona::consts::TRONA_CANCELLED => TRY_AGAIN,
+            x if x == TRONA_TIMED_OUT => TRY_AGAIN,
+            x if x == TRONA_DNS_SERVER_FAIL => NO_RECOVERY,
+            x if x == TRONA_DNS_NXDOMAIN || x == TRONA_NOT_FOUND as u64 => HOST_NOT_FOUND,
+            x if x == TRONA_INVALID_OPERATION as u64
+                || x == TRONA_INVALID_CAPABILITY as u64
+                || x == TRONA_BUSY as u64
+                || x == TRONA_CANCELLED as u64 =>
+            {
+                TRY_AGAIN
+            }
             _ => TRY_AGAIN,
         };
     }
@@ -507,7 +500,7 @@ pub unsafe extern "C" fn socketpair(
     sv: *mut i32,
 ) -> i32 {
     unsafe {
-        let ret = trona_posix::posix_socketpair(sv);
+        let ret = trona_posix::posix_socketpair(_domain, _sock_type, _protocol, sv);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -535,8 +528,22 @@ pub unsafe extern "C" fn send(fd: i32, buf: *const u8, len: usize, _flags: i32) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn recv(fd: i32, buf: *mut u8, len: usize, _flags: i32) -> isize {
     unsafe {
-        let ret = if (_flags & POSIX_MSG_PEEK) != 0 && socket_domain(fd) == Some(AF_INET) {
-            trona_posix::posix_recv_inet(fd, buf, len, _flags)
+        let ret = if (_flags & POSIX_MSG_PEEK) != 0 {
+            match socket_domain(fd) {
+                Some(AF_INET) => trona_posix::posix_recv_inet(fd, buf, len, _flags),
+                Some(AF_UNIX) => {
+                    let mut rights_len = 0u32;
+                    trona_posix::posix_recvmsg(
+                        fd,
+                        buf,
+                        len as u64,
+                        core::ptr::null_mut(),
+                        &raw mut rights_len,
+                        _flags,
+                    )
+                }
+                _ => trona_posix::posix_read(fd, buf, len as u64),
+            }
         } else {
             trona_posix::posix_read(fd, buf, len as u64)
         };
@@ -588,24 +595,26 @@ pub unsafe extern "C" fn recvfrom(
     addrlen: *mut u32,
 ) -> isize {
     unsafe {
-        let ret = if !addr.is_null() && !addrlen.is_null() && socket_domain(fd) == Some(AF_INET) {
-            let mut host = trona_posix::SockAddrIn::zeroed();
-            let mut host_len = core::mem::size_of::<trona_posix::SockAddrIn>() as u32;
-            let ret = trona_posix::posix_recvfrom(
-                fd,
-                buf,
-                len,
-                flags,
-                &raw mut host as *mut trona_posix::SockAddrIn as *mut u8,
-                &raw mut host_len,
-            );
-            if ret >= 0 {
-                fill_sockaddr_in(addr, u32::from_be(host.addr), u16::from_be(host.port));
-                *addrlen = core::mem::size_of::<SockAddrIn>() as u32;
+        let ret = match socket_domain(fd) {
+            Some(AF_INET) if !addr.is_null() && !addrlen.is_null() => {
+                let mut host = trona_posix::SockAddrIn::zeroed();
+                let mut host_len = core::mem::size_of::<trona_posix::SockAddrIn>() as u32;
+                let ret = trona_posix::posix_recvfrom(
+                    fd,
+                    buf,
+                    len,
+                    flags,
+                    &raw mut host as *mut trona_posix::SockAddrIn as *mut u8,
+                    &raw mut host_len,
+                );
+                if ret >= 0 {
+                    fill_sockaddr_in(addr, u32::from_be(host.addr), u16::from_be(host.port));
+                    *addrlen = core::mem::size_of::<SockAddrIn>() as u32;
+                }
+                ret
             }
-            ret
-        } else {
-            trona_posix::posix_recvfrom(fd, buf, len, flags, addr, addrlen)
+            Some(AF_UNIX) => trona_posix::posix_recvfrom_local(fd, buf, len, flags, addr, addrlen),
+            _ => trona_posix::posix_recvfrom(fd, buf, len, flags, addr, addrlen),
         };
         if ret < 0 {
             errno::set_errno((-ret) as i32);
@@ -625,10 +634,27 @@ pub unsafe extern "C" fn sendmsg(fd: i32, msg: *const MsgHdr, _flags: i32) -> is
         let hdr = &*msg;
         let mut buf = [0u8; 120];
         let data_len = gather_iovecs(hdr.msg_iov, hdr.msg_iovlen as usize, &mut buf);
-        let ret = if !hdr.msg_name.is_null()
-            && hdr.msg_namelen >= core::mem::size_of::<SockAddrIn>() as u32
-        {
-            if let Some(posix_addr) = decode_posix_sockaddr_in(hdr.msg_name as *const u8, hdr.msg_namelen) {
+        let domain = if !hdr.msg_name.is_null() {
+            socket_domain(fd)
+        } else {
+            None
+        };
+        let ret = if !hdr.msg_name.is_null() && hdr.msg_namelen >= 2 {
+            let mut rights = [0i32; 4];
+            let rights_count = extract_scm_rights(msg, &mut rights);
+            if domain == Some(AF_UNIX) {
+                trona_posix::posix_sendmsg_local(
+                    fd,
+                    buf.as_ptr(),
+                    data_len as u64,
+                    rights.as_ptr(),
+                    rights_count as u32,
+                    hdr.msg_name as *const u8,
+                    hdr.msg_namelen,
+                )
+            } else if let Some(posix_addr) =
+                decode_posix_sockaddr_in(hdr.msg_name as *const u8, hdr.msg_namelen)
+            {
                 trona_posix::posix_sendto(
                     fd,
                     buf.as_ptr(),
@@ -671,7 +697,7 @@ pub unsafe extern "C" fn sendmsg(fd: i32, msg: *const MsgHdr, _flags: i32) -> is
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isize {
+pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, flags: i32) -> isize {
     if msg.is_null() {
         errno::set_errno(errno::EINVAL);
         return -1;
@@ -692,10 +718,9 @@ pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isiz
         let cap = core::cmp::min(cap, 152);
         let mut buf = [0u8; 152];
 
-        let has_name = !hdr.msg_name.is_null()
-            && hdr.msg_namelen >= core::mem::size_of::<SockAddrIn>() as u32;
-        let has_control = !hdr.msg_control.is_null()
-            && (hdr.msg_controllen as usize) >= cmsg_len(core::mem::size_of::<TimeSpec>());
+        let has_name = !hdr.msg_name.is_null() && hdr.msg_namelen >= 2;
+        let has_control =
+            !hdr.msg_control.is_null() && (hdr.msg_controllen as usize) >= cmsg_header_len();
         let domain = if has_name || has_control {
             socket_domain(fd)
         } else {
@@ -705,7 +730,7 @@ pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isiz
         let ret = if domain == Some(AF_INET) && (has_name || has_control) {
             let mut host_name = trona_posix::SockAddrIn::zeroed();
             let mut name_len = core::mem::size_of::<trona_posix::SockAddrIn>() as u32;
-            let mut timestamp_ns = trona::consts::INET_RECV_TIMESTAMP_NONE;
+            let mut timestamp_ns = INET_RECV_TIMESTAMP_NONE;
             let ret = trona_posix::posix_recvmsg_inet(
                 fd,
                 buf.as_mut_ptr(),
@@ -715,14 +740,18 @@ pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isiz
                 } else {
                     core::ptr::null_mut()
                 },
-                if has_name { &raw mut name_len } else { core::ptr::null_mut() },
+                if has_name {
+                    &raw mut name_len
+                } else {
+                    core::ptr::null_mut()
+                },
                 if has_control {
                     &raw mut timestamp_ns
                 } else {
                     core::ptr::null_mut()
                 },
-                if (_flags & POSIX_MSG_PEEK) != 0 {
-                    trona::consts::INET_RECV_FLAG_PEEK
+                if (flags & POSIX_MSG_PEEK) != 0 {
+                    INET_RECV_FLAG_PEEK
                 } else {
                     0
                 },
@@ -758,32 +787,76 @@ pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isiz
             };
             log_recvmsg_inet_result(fd, ret as isize, &buf[..preview_len], user_preview);
             ret
-        } else if !hdr.msg_name.is_null()
-            && hdr.msg_namelen >= core::mem::size_of::<SockAddrIn>() as u32
-        {
-            let mut host_name = trona_posix::SockAddrIn::zeroed();
-            let mut name_len = core::mem::size_of::<trona_posix::SockAddrIn>() as u32;
-            let ret = trona_posix::posix_recvfrom(
+        } else if domain == Some(AF_UNIX) && (has_name || has_control) {
+            let mut rights = [0i32; 4];
+            let mut rights_len = rights.len() as u32;
+            let mut name_len = hdr.msg_namelen;
+            let ret = trona_posix::posix_recvmsg_local(
                 fd,
                 buf.as_mut_ptr(),
-                cap,
-                0,
-                &raw mut host_name as *mut trona_posix::SockAddrIn as *mut u8,
-                &raw mut name_len,
+                cap as u64,
+                if has_control {
+                    rights.as_mut_ptr()
+                } else {
+                    core::ptr::null_mut()
+                },
+                if has_control {
+                    &raw mut rights_len
+                } else {
+                    core::ptr::null_mut()
+                },
+                flags,
+                if has_name {
+                    hdr.msg_name
+                } else {
+                    core::ptr::null_mut()
+                },
+                if has_name {
+                    &raw mut name_len
+                } else {
+                    core::ptr::null_mut()
+                },
             );
             if ret >= 0 {
-                fill_sockaddr_in(
-                    hdr.msg_name,
-                    u32::from_be(host_name.addr),
-                    u16::from_be(host_name.port),
-                );
-                hdr.msg_namelen = core::mem::size_of::<SockAddrIn>() as u32;
+                if has_name {
+                    hdr.msg_namelen = name_len;
+                }
+                if has_control {
+                    store_scm_rights(msg, &rights[..rights_len as usize]);
+                } else {
+                    hdr.msg_controllen = 0;
+                }
+            } else {
+                hdr.msg_controllen = 0;
             }
+            ret
+        } else if !hdr.msg_name.is_null() {
+            let ret = if hdr.msg_namelen >= core::mem::size_of::<SockAddrIn>() as u32 {
+                let mut host_name = trona_posix::SockAddrIn::zeroed();
+                let mut name_len = core::mem::size_of::<trona_posix::SockAddrIn>() as u32;
+                let ret = trona_posix::posix_recvfrom(
+                    fd,
+                    buf.as_mut_ptr(),
+                    cap,
+                    flags,
+                    &raw mut host_name as *mut trona_posix::SockAddrIn as *mut u8,
+                    &raw mut name_len,
+                );
+                if ret >= 0 {
+                    fill_sockaddr_in(
+                        hdr.msg_name,
+                        u32::from_be(host_name.addr),
+                        u16::from_be(host_name.port),
+                    );
+                    hdr.msg_namelen = core::mem::size_of::<SockAddrIn>() as u32;
+                }
+                ret
+            } else {
+                -(errno::EINVAL as i64)
+            };
             hdr.msg_controllen = 0;
             ret
-        } else if !hdr.msg_control.is_null()
-            && (hdr.msg_controllen as usize) >= cmsg_header_len()
-        {
+        } else if !hdr.msg_control.is_null() && (hdr.msg_controllen as usize) >= cmsg_header_len() {
             let mut rights = [0i32; 4];
             let mut rights_len = rights.len() as u32;
             let ret = trona_posix::posix_recvmsg(
@@ -792,6 +865,7 @@ pub unsafe extern "C" fn recvmsg(fd: i32, msg: *mut MsgHdr, _flags: i32) -> isiz
                 cap as u64,
                 rights.as_mut_ptr(),
                 &raw mut rights_len,
+                flags,
             );
             if ret >= 0 {
                 store_scm_rights(msg, &rights[..rights_len as usize]);
@@ -855,16 +929,41 @@ pub unsafe extern "C" fn getsockopt(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn getsockname(
-    fd: i32,
-    addr: *mut u8,
-    addrlen: *mut u32,
-) -> i32 {
+pub unsafe extern "C" fn getsockname(fd: i32, addr: *mut u8, addrlen: *mut u32) -> i32 {
     log_socket_meta(b"getsockname", fd, -1, -1);
     unsafe {
         if addr.is_null() || addrlen.is_null() {
             errno::set_errno(errno::EFAULT);
             return -1;
+        }
+        let domain = socket_domain(fd);
+        if domain == Some(AF_UNIX) {
+            if *addrlen < 2 {
+                errno::set_errno(errno::EINVAL);
+                return -1;
+            }
+            let mut host = trona_posix::SockAddrUn::zeroed();
+            let mut host_len = core::mem::size_of::<trona_posix::SockAddrUn>() as u32;
+            let ret = trona_posix::posix_getsockname(
+                fd,
+                &raw mut host as *mut trona_posix::SockAddrUn as *mut u8,
+                &raw mut host_len,
+            );
+            if ret < 0 {
+                errno::set_errno(-ret);
+                return -1;
+            }
+            let copy_len = core::cmp::min(
+                *addrlen as usize,
+                core::mem::size_of::<trona_posix::SockAddrUn>(),
+            );
+            core::ptr::copy_nonoverlapping(
+                &raw const host as *const trona_posix::SockAddrUn as *const u8,
+                addr,
+                copy_len,
+            );
+            *addrlen = host_len;
+            return 0;
         }
         if *addrlen < core::mem::size_of::<SockAddrIn>() as u32 {
             errno::set_errno(errno::EINVAL);
@@ -890,16 +989,41 @@ pub unsafe extern "C" fn getsockname(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn getpeername(
-    fd: i32,
-    addr: *mut u8,
-    addrlen: *mut u32,
-) -> i32 {
+pub unsafe extern "C" fn getpeername(fd: i32, addr: *mut u8, addrlen: *mut u32) -> i32 {
     log_socket_meta(b"getpeername", fd, -1, -1);
     unsafe {
         if addr.is_null() || addrlen.is_null() {
             errno::set_errno(errno::EFAULT);
             return -1;
+        }
+        let domain = socket_domain(fd);
+        if domain == Some(AF_UNIX) {
+            if *addrlen < 2 {
+                errno::set_errno(errno::EINVAL);
+                return -1;
+            }
+            let mut host = trona_posix::SockAddrUn::zeroed();
+            let mut host_len = core::mem::size_of::<trona_posix::SockAddrUn>() as u32;
+            let ret = trona_posix::posix_getpeername(
+                fd,
+                &raw mut host as *mut trona_posix::SockAddrUn as *mut u8,
+                &raw mut host_len,
+            );
+            if ret < 0 {
+                errno::set_errno(-ret);
+                return -1;
+            }
+            let copy_len = core::cmp::min(
+                *addrlen as usize,
+                core::mem::size_of::<trona_posix::SockAddrUn>(),
+            );
+            core::ptr::copy_nonoverlapping(
+                &raw const host as *const trona_posix::SockAddrUn as *const u8,
+                addr,
+                copy_len,
+            );
+            *addrlen = host_len;
+            return 0;
         }
         if *addrlen < core::mem::size_of::<SockAddrIn>() as u32 {
             errno::set_errno(errno::EINVAL);
@@ -1018,7 +1142,7 @@ unsafe fn extract_scm_rights(msg: *const MsgHdr, fds: &mut [i32; 4]) -> usize {
     }
 
     let cmsg = unsafe { core::ptr::read_unaligned(hdr.msg_control as *const CmsgHdr) };
-    if !is_sol_socket_level(cmsg.cmsg_level) || cmsg.cmsg_type != trona::consts::posix::SCM_RIGHTS {
+    if !is_sol_socket_level(cmsg.cmsg_level) || cmsg.cmsg_type != trona_posix::consts::SCM_RIGHTS {
         return 0;
     }
 
@@ -1072,7 +1196,7 @@ unsafe fn store_scm_rights(msg: *mut MsgHdr, fds: &[i32]) {
     let cmsg = CmsgHdr {
         cmsg_len: (header_len + fd_count * core::mem::size_of::<i32>()) as u32,
         cmsg_level: cmsg_sol_socket_level(),
-        cmsg_type: trona::consts::posix::SCM_RIGHTS,
+        cmsg_type: trona_posix::consts::SCM_RIGHTS,
     };
     unsafe {
         core::ptr::write_unaligned(hdr.msg_control as *mut CmsgHdr, cmsg);
@@ -1196,7 +1320,7 @@ pub unsafe extern "C" fn getaddrinfo(
 
         // Resolve addresses
         let mut addrs = [0u32; 4];
-        let mut addr_count: usize = 0;
+        let addr_count: usize;
 
         if node.is_null() || *node == 0 {
             // No node specified
@@ -1230,10 +1354,8 @@ pub unsafe extern "C" fn getaddrinfo(
             if dns.count == 0 {
                 return EAI_NONAME;
             }
-            addr_count = dns.count as usize;
-            if addr_count > 4 {
-                addr_count = 4;
-            }
+            let dns_addr_count = (dns.count as usize).min(4);
+            addr_count = dns_addr_count;
             for i in 0..addr_count {
                 addrs[i] = dns.addrs[i];
             }
@@ -1481,7 +1603,11 @@ pub unsafe extern "C" fn ppoll(
             -1i32
         } else {
             let ms = (*timeout).tv_sec * 1000 + (*timeout).tv_nsec / 1_000_000;
-            if ms > i32::MAX as i64 { i32::MAX } else { ms as i32 }
+            if ms > i32::MAX as i64 {
+                i32::MAX
+            } else {
+                ms as i32
+            }
         };
         poll(fds, nfds, timeout_ms)
     }
@@ -1512,12 +1638,7 @@ pub unsafe extern "C" fn epoll_create1(_flags: i32) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn epoll_ctl(
-    epfd: i32,
-    op: i32,
-    fd: i32,
-    event: *mut EpollEvent,
-) -> i32 {
+pub unsafe extern "C" fn epoll_ctl(epfd: i32, op: i32, fd: i32, event: *mut EpollEvent) -> i32 {
     unsafe {
         let (events, data) = if event.is_null() {
             (0u32, 0u64)
@@ -1598,7 +1719,9 @@ static mut HOSTENT: Hostent = Hostent {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gethostbyname(name: *const u8) -> *mut Hostent {
     if name.is_null() {
-        unsafe { crate::inet::h_errno = HOST_NOT_FOUND; }
+        unsafe {
+            crate::inet::h_errno = HOST_NOT_FOUND;
+        }
         return core::ptr::null_mut();
     }
     unsafe {
@@ -1655,9 +1778,6 @@ pub struct Servent {
 
 /// getservbyname stub — returns NULL (no /etc/services on SaltyOS).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn getservbyname(
-    _name: *const u8,
-    _proto: *const u8,
-) -> *mut Servent {
+pub unsafe extern "C" fn getservbyname(_name: *const u8, _proto: *const u8) -> *mut Servent {
     core::ptr::null_mut()
 }

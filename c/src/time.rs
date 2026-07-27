@@ -20,14 +20,14 @@ use crate::errno;
 
 /// Mutex protecting timezone globals (tzname, timezone, daylight, TZ_STD_NAME,
 /// TZ_DST_NAME) during tzset() and DST rule parsing.
-static TZ_LOCK: trona::sync::Mutex = trona::sync::Mutex::new();
+static TZ_LOCK: trona_runtime::thread::sync::Mutex = trona_runtime::thread::sync::Mutex::new();
 
 /// Get per-thread Tm buffer (TLS), falling back to global static pre-TLS.
 fn get_tls_tm_buf() -> *mut Tm {
     if let Some(tls) = trona_posix::tls::current_tls() {
         unsafe { (&raw mut (*tls).libc_tm_buf) as *mut Tm }
     } else {
-        unsafe { &raw mut TM_BUF }
+        &raw mut TM_BUF
     }
 }
 
@@ -36,7 +36,7 @@ fn get_tls_asctime_buf() -> *mut u8 {
     if let Some(tls) = trona_posix::tls::current_tls() {
         unsafe { (&raw mut (*tls).libc_asctime_buf) as *mut u8 }
     } else {
-        unsafe { (&raw mut ASCTIME_BUF) as *mut u8 }
+        (&raw mut ASCTIME_BUF) as *mut u8
     }
 }
 
@@ -45,20 +45,20 @@ fn get_tls_ctime_buf() -> *mut u8 {
     if let Some(tls) = trona_posix::tls::current_tls() {
         unsafe { (&raw mut (*tls).libc_ctime_buf) as *mut u8 }
     } else {
-        unsafe { (&raw mut CTIME_BUF) as *mut u8 }
+        (&raw mut CTIME_BUF) as *mut u8
     }
 }
 
 static mut LOGGED_CLOCK_GETTIME_CALLS: u8 = 0;
 
-fn log_clock_gettime(clock_id: i32, ret: i32, ts: &trona::types::Timespec) {
+fn log_clock_gettime(clock_id: i32, ret: i32, ts: &trona_posix::types::Timespec) {
     unsafe {
         if *(&raw const LOGGED_CLOCK_GETTIME_CALLS) >= 32 {
             return;
         }
         *(&raw mut LOGGED_CLOCK_GETTIME_CALLS) += 1;
     }
-    trona::udebug!(|_lb| {
+    trona_runtime::udebug!(|_lb| {
         _lb.str(b"[libc] clock_gettime id=");
         _lb.dec(clock_id as u64);
         _lb.str(b" ret=");
@@ -195,8 +195,18 @@ struct TzRule {
     time: i32,  // transition time in seconds from midnight (default 7200 = 02:00)
 }
 
-static mut DST_START: TzRule = TzRule { month: 0, week: 0, wday: 0, time: 7200 };
-static mut DST_END: TzRule = TzRule { month: 0, week: 0, wday: 0, time: 7200 };
+static mut DST_START: TzRule = TzRule {
+    month: 0,
+    week: 0,
+    wday: 0,
+    time: 7200,
+};
+static mut DST_END: TzRule = TzRule {
+    month: 0,
+    week: 0,
+    wday: 0,
+    time: 7200,
+};
 
 // ---------------------------------------------------------------------------
 // Day and month name tables
@@ -244,11 +254,7 @@ fn is_leap_year(year: i32) -> bool {
 }
 
 fn days_in_year(year: i32) -> i32 {
-    if is_leap_year(year) {
-        366
-    } else {
-        365
-    }
+    if is_leap_year(year) { 366 } else { 365 }
 }
 
 fn days_in_month(month: i32, year: i32) -> i32 {
@@ -459,7 +465,7 @@ unsafe fn write_str(buf: *mut u8, max: usize, s: &[u8]) -> usize {
 /// Helper to get time value from salty
 unsafe fn get_epoch_secs() -> TimeT {
     unsafe {
-        let mut ts = trona::types::Timespec::zeroed();
+        let mut ts = trona_posix::types::Timespec::zeroed();
         let ret = trona_posix::posix_clock_gettime(0, &raw mut ts);
         if ret < 0 {
             return 0;
@@ -476,7 +482,12 @@ unsafe fn get_epoch_secs() -> TimeT {
 /// - 3+ alphabetic characters (e.g., EST, KST)
 /// - Angle-bracket form: <...> (e.g., <+09>)
 /// Returns (number of bytes consumed into dst_name, rest position in src).
-unsafe fn parse_tz_name(src: *const u8, pos: usize, dst_name: *mut u8, max: usize) -> (usize, usize) {
+unsafe fn parse_tz_name(
+    src: *const u8,
+    pos: usize,
+    dst_name: *mut u8,
+    max: usize,
+) -> (usize, usize) {
     unsafe {
         let mut p = pos;
         let mut n = 0usize;
@@ -608,8 +619,8 @@ unsafe fn parse_tz_rule(src: *const u8, pos: usize, rule: *mut TzRule) -> usize 
 unsafe fn rule_to_epoch(rule: *const TzRule, year: i32, utc_offset: i64) -> i64 {
     unsafe {
         let month = (*rule).month; // 1-12
-        let week = (*rule).week;   // 1-5
-        let wday = (*rule).wday;   // 0-6
+        let week = (*rule).week; // 1-5
+        let wday = (*rule).wday; // 0-6
 
         // Epoch of the 1st of the target month
         let mut days: i64 = 0;
@@ -807,7 +818,7 @@ pub unsafe extern "C" fn time(t: *mut TimeT) -> TimeT {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gettimeofday(tv: *mut Timeval, _tz: *mut u8) -> i32 {
     unsafe {
-        let mut stv = trona::types::Timeval::zeroed();
+        let mut stv = trona_posix::types::Timeval::zeroed();
         let ret = trona_posix::posix_gettimeofday(&raw mut stv);
         if ret < 0 {
             errno::set_errno(-ret);
@@ -824,7 +835,7 @@ pub unsafe extern "C" fn gettimeofday(tv: *mut Timeval, _tz: *mut u8) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn clock_gettime(clock_id: i32, tp: *mut Timespec) -> i32 {
     unsafe {
-        let mut sts = trona::types::Timespec::zeroed();
+        let mut sts = trona_posix::types::Timespec::zeroed();
         let ret = trona_posix::posix_clock_gettime(clock_id, &raw mut sts);
         log_clock_gettime(clock_id, ret, &sts);
         if ret < 0 {
@@ -1428,7 +1439,11 @@ pub unsafe extern "C" fn setitimer(
         let ret = trona_posix::posix_setitimer(
             which,
             &raw const trona_new,
-            if old_value.is_null() { core::ptr::null_mut() } else { &raw mut trona_old },
+            if old_value.is_null() {
+                core::ptr::null_mut()
+            } else {
+                &raw mut trona_old
+            },
         );
         if ret != 0 {
             errno::set_errno(-ret);

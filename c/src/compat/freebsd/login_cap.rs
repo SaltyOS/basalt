@@ -32,9 +32,6 @@ const MAX_CAP_VALUE: usize = 1024;
 const MAX_TC_DEPTH: usize = 8;
 /// Maximum length of a class name.
 const MAX_CLASS_NAME: usize = 64;
-/// Maximum number of entries in an allow/deny list.
-const MAX_LIST_ENTRIES: usize = 16;
-
 // ===========================================================================
 // C ABI types
 // ===========================================================================
@@ -79,8 +76,7 @@ const ZERO_CLASS: LoginClassEntry = LoginClassEntry {
     },
 };
 
-static mut LOGIN_CLASSES: [LoginClassEntry; MAX_LOGIN_CLASSES] =
-    [ZERO_CLASS; MAX_LOGIN_CLASSES];
+static mut LOGIN_CLASSES: [LoginClassEntry; MAX_LOGIN_CLASSES] = [ZERO_CLASS; MAX_LOGIN_CLASSES];
 static mut LOGIN_CLASS_COUNT: usize = 0;
 static mut LOGIN_CONF_LOADED: bool = false;
 
@@ -111,47 +107,8 @@ unsafe fn cstr_len(p: *const u8) -> usize {
     }
 }
 
-unsafe fn cstr_eq(a: *const u8, b: *const u8) -> bool {
-    unsafe {
-        let mut i = 0usize;
-        loop {
-            let ca = *a.add(i);
-            let cb = *b.add(i);
-            if ca != cb {
-                return false;
-            }
-            if ca == 0 {
-                return true;
-            }
-            i += 1;
-        }
-    }
-}
-
-/// Case-insensitive C string equality.
-unsafe fn cstr_eq_icase(a: *const u8, b: *const u8) -> bool {
-    unsafe {
-        let mut i = 0usize;
-        loop {
-            let ca = to_lower(*a.add(i));
-            let cb = to_lower(*b.add(i));
-            if ca != cb {
-                return false;
-            }
-            if ca == 0 {
-                return true;
-            }
-            i += 1;
-        }
-    }
-}
-
 fn to_lower(c: u8) -> u8 {
-    if c >= b'A' && c <= b'Z' {
-        c + 32
-    } else {
-        c
-    }
+    if c >= b'A' && c <= b'Z' { c + 32 } else { c }
 }
 
 /// Match a target class name against the `name|alias1|alias2:` header of
@@ -176,11 +133,7 @@ unsafe fn class_name_matches(target: *const u8, record: &[u8]) -> bool {
         while i < record.len() && record[i] != b':' && record[i] != 0 {
             // Delimit this alias: up to `|` or `:` or NUL.
             let start = i;
-            while i < record.len()
-                && record[i] != b'|'
-                && record[i] != b':'
-                && record[i] != 0
-            {
+            while i < record.len() && record[i] != b'|' && record[i] != b':' && record[i] != 0 {
                 i += 1;
             }
             let alias = &record[start..i];
@@ -204,25 +157,6 @@ unsafe fn class_name_matches(target: *const u8, record: &[u8]) -> bool {
         }
         false
     }
-}
-
-/// Compare a C string against a capability name (up to first terminator
-/// in `name_bytes` — NUL, `:`, `=`, `#`, or `@`).
-fn cap_name_matches(needle: &[u8], haystack: &[u8]) -> bool {
-    if haystack.len() < needle.len() {
-        return false;
-    }
-    for i in 0..needle.len() {
-        if haystack[i] != needle[i] {
-            return false;
-        }
-    }
-    // After the matched prefix, the next byte must be a terminator.
-    if haystack.len() == needle.len() {
-        return true;
-    }
-    let term = haystack[needle.len()];
-    matches!(term, 0 | b':' | b'=' | b'#' | b'@')
 }
 
 // ===========================================================================
@@ -314,9 +248,7 @@ unsafe fn parse_records(data: &[u8]) {
                 // line to match FreeBSD's behavior (indented continuation).
                 let mut seg_start = line_start;
                 if line_len > 0 {
-                    while seg_start < end
-                        && (data[seg_start] == b' ' || data[seg_start] == b'\t')
-                    {
+                    while seg_start < end && (data[seg_start] == b' ' || data[seg_start] == b'\t') {
                         seg_start += 1;
                     }
                 }
@@ -664,9 +596,7 @@ unsafe fn cgetcap(record: &[u8], cap: &[u8], type_char: u8) -> Option<usize> {
     // Scan capabilities.
     loop {
         // Skip any leading whitespace inside a field.
-        while bp < record.len() && record[bp] != 0
-            && (record[bp] == b' ' || record[bp] == b'\t')
-        {
+        while bp < record.len() && record[bp] != 0 && (record[bp] == b' ' || record[bp] == b'\t') {
             bp += 1;
         }
         if bp >= record.len() || record[bp] == 0 {
@@ -756,7 +686,7 @@ unsafe fn cgetstr(record: &[u8], cap: &[u8], out: &mut [u8]) -> i32 {
     if out.is_empty() {
         return -2;
     }
-    let start = match cgetcap(record, cap, b'=') {
+    let start = match unsafe { cgetcap(record, cap, b'=') } {
         Some(s) => s,
         None => return -1,
     };
@@ -805,11 +735,7 @@ unsafe fn cgetstr(record: &[u8], cap: &[u8], out: &mut [u8]) -> i32 {
                     // Octal escape: up to 3 digits including this one.
                     let mut val: u8 = nc - b'0';
                     let mut cnt = 1;
-                    while cnt < 3
-                        && sp < record.len()
-                        && record[sp] >= b'0'
-                        && record[sp] <= b'7'
-                    {
+                    while cnt < 3 && sp < record.len() && record[sp] >= b'0' && record[sp] <= b'7' {
                         val = val.wrapping_mul(8).wrapping_add(record[sp] - b'0');
                         sp += 1;
                         cnt += 1;
@@ -842,7 +768,7 @@ unsafe fn cgetstr(record: &[u8], cap: &[u8], out: &mut [u8]) -> i32 {
 /// Extract a numeric capability (type `#`).
 /// Returns the parsed number, or `None` if absent.
 unsafe fn cgetnum_raw(record: &[u8], cap: &[u8]) -> Option<i64> {
-    let start = cgetcap(record, cap, b'#')?;
+    let start = unsafe { cgetcap(record, cap, b'#') }?;
     let bytes = &record[start..];
     Some(parse_signed_decimal(bytes))
 }
@@ -867,11 +793,7 @@ fn parse_signed_decimal(s: &[u8]) -> i64 {
         val = val.wrapping_mul(10).wrapping_add((s[i] - b'0') as i64);
         i += 1;
     }
-    if neg {
-        -val
-    } else {
-        val
-    }
+    if neg { -val } else { val }
 }
 
 // ===========================================================================
@@ -881,13 +803,7 @@ fn parse_signed_decimal(s: &[u8]) -> i64 {
 /// Check whether a C string equals one of FreeBSD's infinity aliases:
 /// "infinity", "inf", "unlimited", "unlimit", "-1".
 unsafe fn is_infinity_str(buf: &[u8]) -> bool {
-    let aliases: [&[u8]; 5] = [
-        b"infinity",
-        b"inf",
-        b"unlimited",
-        b"unlimit",
-        b"-1",
-    ];
+    let aliases: [&[u8]; 5] = [b"infinity", b"inf", b"unlimited", b"unlimit", b"-1"];
     for alias in aliases.iter() {
         if buf.len() >= alias.len() {
             let mut ok = true;
@@ -1056,10 +972,7 @@ pub unsafe extern "C" fn login_getclass(cls: *const u8) -> *mut LoginCap {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn login_getclassbyname(
-    cls: *const u8,
-    pwd: *const Passwd,
-) -> *mut LoginCap {
+pub unsafe extern "C" fn login_getclassbyname(cls: *const u8, pwd: *const Passwd) -> *mut LoginCap {
     unsafe {
         if !cls.is_null() && *cls != 0 {
             return find_class_by_name(cls);
@@ -1158,11 +1071,7 @@ pub unsafe extern "C" fn login_getcapstr(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn login_getcapbool(
-    lc: *mut LoginCap,
-    cap: *const u8,
-    def: i32,
-) -> i32 {
+pub unsafe extern "C" fn login_getcapbool(lc: *mut LoginCap, cap: *const u8, def: i32) -> i32 {
     // FreeBSD semantics (lib/libutil/login_cap.c):
     //   if (lc == NULL || lc->lc_cap == NULL) return def;
     //   return (cgetcap(lc->lc_cap, cap, ':') != NULL);
@@ -1319,11 +1228,7 @@ pub unsafe extern "C" fn login_setcryptfmt(
 
 /// Check whether `subject` (NUL-terminated) appears in a comma-separated
 /// capability list value. Matching is case-insensitive. Empty list = no match.
-unsafe fn list_contains(
-    lc: *mut LoginCap,
-    cap_name: &[u8],
-    subject: *const u8,
-) -> (bool, bool) {
+unsafe fn list_contains(lc: *mut LoginCap, cap_name: &[u8], subject: *const u8) -> (bool, bool) {
     // Returns (list_exists, match_found).
     unsafe {
         let rec = match record_slice(lc) {
@@ -1577,9 +1482,7 @@ fn prev_day_bit(dow_mask: u8) -> u8 {
 fn time_in_spec(spec: &LoginTime, dow_mask: u8, minute: u16) -> bool {
     if spec.start_min <= spec.end_min {
         // Same-day window.
-        (spec.dow & dow_mask) != 0
-            && minute >= spec.start_min
-            && minute < spec.end_min
+        (spec.dow & dow_mask) != 0 && minute >= spec.start_min && minute < spec.end_min
     } else {
         // Cross-midnight window.
         if (spec.dow & dow_mask) != 0 && minute >= spec.start_min {
@@ -1663,14 +1566,12 @@ pub unsafe extern "C" fn auth_timeok(lc: *mut LoginCap, now: i64) -> i32 {
 
         let (dow_mask, minute) = broken_down_time(now);
 
-        let (allow_exists, allow_match) =
-            times_list_match(lc, b"times.allow", dow_mask, minute);
+        let (allow_exists, allow_match) = times_list_match(lc, b"times.allow", dow_mask, minute);
         if allow_exists && !allow_match {
             return 0;
         }
 
-        let (deny_exists, deny_match) =
-            times_list_match(lc, b"times.deny", dow_mask, minute);
+        let (deny_exists, deny_match) = times_list_match(lc, b"times.deny", dow_mask, minute);
         if deny_exists && deny_match {
             return 0;
         }
@@ -1706,11 +1607,7 @@ fn parse_octal_umask(buf: &[u8]) -> u32 {
         i += 1;
         any = true;
     }
-    if !any {
-        0o022
-    } else {
-        val & 0o777
-    }
+    if !any { 0o022 } else { val & 0o777 }
 }
 
 /// Set `PATH` from the login class "path" capability. The value is a
@@ -1843,11 +1740,7 @@ unsafe fn apply_login_env(lc: *mut LoginCap, pwd: *const Passwd) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn setclassenvironment(
-    lc: *mut LoginCap,
-    pwd: *const Passwd,
-    paths: i32,
-) {
+pub unsafe extern "C" fn setclassenvironment(lc: *mut LoginCap, pwd: *const Passwd, paths: i32) {
     unsafe {
         if paths != 0 {
             apply_login_path(lc);

@@ -71,11 +71,7 @@ pub unsafe extern "C" fn crypt(key: *const u8, salt: *const u8) -> *mut u8 {
 
 /// Reentrant crypt_r(3). Writes the result into `data.output`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crypt_r(
-    key: *const u8,
-    salt: *const u8,
-    data: *mut CryptData,
-) -> *mut u8 {
+pub unsafe extern "C" fn crypt_r(key: *const u8, salt: *const u8, data: *mut CryptData) -> *mut u8 {
     if key.is_null() || salt.is_null() || data.is_null() {
         return core::ptr::null_mut();
     }
@@ -185,9 +181,7 @@ unsafe fn parse_salt(salt_ptr: *const u8) -> Option<(u32, *const u8, usize, bool
         // Extract salt (up to MAX_SALT_LEN chars, terminated by '$' or NUL)
         let salt_start = salt_ptr.add(pos);
         let mut salt_len = 0usize;
-        while salt_len < MAX_SALT_LEN
-            && pos + salt_len < total
-            && *salt_start.add(salt_len) != b'$'
+        while salt_len < MAX_SALT_LEN && pos + salt_len < total && *salt_start.add(salt_len) != b'$'
         {
             salt_len += 1;
         }
@@ -318,9 +312,12 @@ unsafe fn do_sha512_crypt(key_ptr: *const u8, salt_ptr: *const u8, out: &mut [u8
         let mut pos = 0usize;
 
         // "$6$"
-        out[pos] = b'$'; pos += 1;
-        out[pos] = b'6'; pos += 1;
-        out[pos] = b'$'; pos += 1;
+        out[pos] = b'$';
+        pos += 1;
+        out[pos] = b'6';
+        pos += 1;
+        out[pos] = b'$';
+        pos += 1;
 
         // Optional "rounds=N$"
         if custom_rounds {
@@ -332,7 +329,8 @@ unsafe fn do_sha512_crypt(key_ptr: *const u8, salt_ptr: *const u8, out: &mut [u8
                 i += 1;
             }
             pos = write_u32(out, pos, rounds);
-            out[pos] = b'$'; pos += 1;
+            out[pos] = b'$';
+            pos += 1;
         }
 
         // Salt
@@ -342,22 +340,23 @@ unsafe fn do_sha512_crypt(key_ptr: *const u8, salt_ptr: *const u8, out: &mut [u8
             pos += 1;
             i += 1;
         }
-        out[pos] = b'$'; pos += 1;
+        out[pos] = b'$';
+        pos += 1;
 
         // Hash — SHA-512 crypt-specific byte permutation (21 triples + 1 final)
         let h = &digest_c;
 
         // 21 triples, each producing 4 base64 characters
-        pos = b64_from_24bit(h[0],  h[21], h[42], 4, out, pos);
-        pos = b64_from_24bit(h[22], h[43], h[1],  4, out, pos);
-        pos = b64_from_24bit(h[44], h[2],  h[23], 4, out, pos);
-        pos = b64_from_24bit(h[3],  h[24], h[45], 4, out, pos);
-        pos = b64_from_24bit(h[25], h[46], h[4],  4, out, pos);
-        pos = b64_from_24bit(h[47], h[5],  h[26], 4, out, pos);
-        pos = b64_from_24bit(h[6],  h[27], h[48], 4, out, pos);
-        pos = b64_from_24bit(h[28], h[49], h[7],  4, out, pos);
-        pos = b64_from_24bit(h[50], h[8],  h[29], 4, out, pos);
-        pos = b64_from_24bit(h[9],  h[30], h[51], 4, out, pos);
+        pos = b64_from_24bit(h[0], h[21], h[42], 4, out, pos);
+        pos = b64_from_24bit(h[22], h[43], h[1], 4, out, pos);
+        pos = b64_from_24bit(h[44], h[2], h[23], 4, out, pos);
+        pos = b64_from_24bit(h[3], h[24], h[45], 4, out, pos);
+        pos = b64_from_24bit(h[25], h[46], h[4], 4, out, pos);
+        pos = b64_from_24bit(h[47], h[5], h[26], 4, out, pos);
+        pos = b64_from_24bit(h[6], h[27], h[48], 4, out, pos);
+        pos = b64_from_24bit(h[28], h[49], h[7], 4, out, pos);
+        pos = b64_from_24bit(h[50], h[8], h[29], 4, out, pos);
+        pos = b64_from_24bit(h[9], h[30], h[51], 4, out, pos);
         pos = b64_from_24bit(h[31], h[52], h[10], 4, out, pos);
         pos = b64_from_24bit(h[53], h[11], h[32], 4, out, pos);
         pos = b64_from_24bit(h[12], h[33], h[54], 4, out, pos);

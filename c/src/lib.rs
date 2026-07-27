@@ -16,54 +16,56 @@
 #![no_builtins]
 #![allow(internal_features)]
 #![feature(c_variadic)]
-#![feature(linkage)]
 
-extern crate trona;
+extern crate trona_kernel;
 extern crate trona_posix;
+extern crate trona_protocol;
+extern crate trona_runtime;
+extern crate trona_server;
 
 pub mod arch;
+pub mod compat;
 pub mod crt;
+pub mod crypt;
 pub mod ctype;
+pub mod dirent;
+pub mod dlfcn;
 pub mod env;
 pub mod errno;
-pub mod malloc;
-pub mod mem;
-pub mod string;
-pub mod stdio;
-pub mod unistd;
-pub mod process;
-pub mod signal;
-pub mod dirent;
-pub mod jobctl;
-pub mod ioctl;
-pub mod termios;
-pub mod termcap;
-pub mod regex;
-pub mod time;
-pub mod stdlib;
-pub mod wchar;
-pub mod sysinfo;
-pub mod pwd;
-pub mod locale;
-pub mod glob;
-pub mod select;
-pub mod math;
-pub mod misc;
-pub mod pthread;
-pub mod search;
-pub mod dlfcn;
 pub mod fts;
-pub mod compat;
-pub mod socket;
-pub mod netif;
-pub mod inet;
 pub mod getopt;
 pub mod getrandom;
+pub mod glob;
 pub mod iconv;
-pub mod sha512;
-pub mod crypt;
+pub mod inet;
+pub mod ioctl;
+pub mod jobctl;
+pub mod locale;
+pub mod malloc;
+pub mod math;
+pub mod mem;
+pub mod misc;
+pub mod netif;
+pub mod process;
+pub mod pthread;
 pub mod pty;
-pub mod ttyent;
+pub mod pwd;
+pub mod regex;
+pub mod search;
+pub mod select;
+pub mod sha512;
+pub mod signal;
+pub mod socket;
 pub mod stack_protector;
+pub mod stdio;
+pub mod stdlib;
+pub mod string;
+pub mod sysinfo;
+pub mod termcap;
+pub mod termios;
+pub mod time;
+pub mod ttyent;
+pub mod unistd;
+pub mod wchar;
 
 // Panic handler is provided by libtrona (our dependency)

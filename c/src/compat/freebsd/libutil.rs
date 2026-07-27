@@ -12,7 +12,6 @@ unsafe extern "C" {
     fn snprintf(buf: *mut u8, size: usize, fmt: *const u8, ...) -> i32;
     fn getline(lineptr: *mut *mut u8, n: *mut usize, stream: *mut crate::stdio::FILE) -> isize;
     safe fn strlen(s: *const u8) -> usize;
-    safe fn free(ptr: *mut u8);
 }
 
 // humanize_number flags
@@ -122,7 +121,11 @@ pub unsafe extern "C" fn humanize_number(
         } else {
             prefixes_1024.as_ptr()
         };
-        let divisor: i64 = if (flags & HN_DIVISOR_1000) != 0 { 1000 } else { 1024 };
+        let divisor: i64 = if (flags & HN_DIVISOR_1000) != 0 {
+            1000
+        } else {
+            1024
+        };
         let maxidx: i32 = 6; // up to 'E' (exbi/exa)
 
         let sign: i64 = if bytes < 0 { -1 } else { 1 };

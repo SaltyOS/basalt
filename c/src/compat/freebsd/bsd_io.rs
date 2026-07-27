@@ -10,14 +10,10 @@ pub unsafe extern "C" fn __swbuf(c: i32, f: *mut crate::stdio::FILE) -> i32 {
     unsafe { crate::stdio::fputc(c, f) }
 }
 
-unsafe extern "C" {
-    safe fn fgetc(stream: *mut u8) -> i32;
-}
-
 /// FreeBSD getc() macro calls __srget when the read buffer is empty.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __srget(stream: *mut u8) -> i32 {
-    fgetc(stream)
+    unsafe { crate::stdio::fgetc(stream.cast::<crate::stdio::FILE>()) }
 }
 
 // FreeBSD libc internal aliases — used by contrib/ sources that call the
@@ -47,5 +43,5 @@ pub unsafe extern "C" fn _write(fd: i32, buf: *const u8, count: u64) -> i64 {
 /// On FreeBSD, errno is `*__error()` not `*__errno_location()`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __error() -> *mut i32 {
-    crate::errno::__errno_location()
+    unsafe { crate::errno::__errno_location() }
 }

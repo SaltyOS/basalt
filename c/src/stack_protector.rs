@@ -13,6 +13,6 @@ pub static __stack_chk_guard: u64 = 0x00000aff0a0d0000;
 /// canary has been overwritten (buffer overflow detected).
 #[unsafe(no_mangle)]
 pub extern "C" fn __stack_chk_fail() -> ! {
-    trona::serial::serial_puts(b"*** stack smashing detected ***\n");
+    trona_runtime::debug::serial::serial_puts(b"*** stack smashing detected ***\n");
     unsafe { trona_posix::posix_exit(139) };
 }

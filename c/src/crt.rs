@@ -21,17 +21,11 @@
 //! 9. Run executable preinit/init arrays in ELF priority order
 //! 10. Call `main(argc, argv, envp)`, then `exit()`
 //!
-//! Custom auxv tags used by SaltyOS:
-//! - `0x1005` (`AT_TRONA_CSPACE_LAYOUT`): pointer to the startup CSpace layout
-//! - `0x100E` (`AT_TRONA_SC_CAP`): main-thread SchedContext slot (fallback
-//!   for static binaries; dynamic binaries receive it via the rtld-populated
-//!   `__trona_sc_cap` weak symbol)
-//! - `0x100A` (`AT_TRONA_CSPACE_NTFN`): CSpace expansion notification cap
-//!
-//! All role-bearing caps (procmgr, vfs, mmsrv, namesrv, ...) arrive through
-//! the role-based startup capability table (`AT_TRONA_CAP_TABLE`) which the
-//! substrate installs into `__trona_cap_*` weak symbols before libc init
-//! runs, so libc does not parse them from auxv directly.
+//! SaltyOS-private startup state arrives through one versioned startup block
+//! referenced by `AT_SALTYOS_STARTUP`. The substrate validates that block,
+//! installs the startup cap-table into `__trona_cap_*`, and exposes the
+//! derived CSpace / bootstrap metadata through `trona_runtime::runtime_*` helpers
+//! before libc common init runs.
 
 use crate::env;
 
@@ -44,7 +38,7 @@ static mut ATEXIT_FUNCS: [Option<unsafe extern "C" fn()>; ATEXIT_MAX] = [None; A
 static mut ATEXIT_COUNT: usize = 0;
 
 /// Mutex protecting ATEXIT_FUNCS/ATEXIT_COUNT and CXA_ATEXIT_FUNCS/CXA_ATEXIT_COUNT.
-static ATEXIT_LOCK: trona::sync::Mutex = trona::sync::Mutex::new();
+static ATEXIT_LOCK: trona_runtime::thread::sync::Mutex = trona_runtime::thread::sync::Mutex::new();
 
 /// Saved pointer to the auxv on the initial stack.
 /// Set once by `__libc_start_main`; valid for the process lifetime.
@@ -115,7 +109,7 @@ pub unsafe extern "C" fn __libc_start_main(
             }
             let auxv = ep.add(1) as *const u64;
             core::ptr::addr_of_mut!(SAVED_AUXV).write(auxv);
-            trona::runtime_set_auxv(auxv);
+            trona_runtime::runtime_set_auxv(auxv);
         }
 
         // Common runtime init: IPC buffer, slot allocator, mmsrv, TLS.
@@ -127,24 +121,26 @@ pub unsafe extern "C" fn __libc_start_main(
             crate::compat::freebsd::bsd_misc::setprogname(*argv);
         }
 
-        // Probe fd 0: if already open (inherited from exec), skip /dev/console.
-        // dup(0) succeeds if fd 0 exists (exec'd process), fails if empty (fresh spawn).
-        let probe = trona_posix::posix_dup(0);
-        if probe >= 0 {
-            // fd 0 exists — inherited from exec caller (getty→bash).
-            // Close the test fd and leave fd 0/1/2 as-is.
-            trona_posix::posix_close(probe);
-        } else {
-            // fd 0 doesn't exist — fresh spawn. Open /dev/console.
-            let fd0 = trona_posix::posix_open(b"/dev/console\0".as_ptr(), 2, 0); // O_RDWR
-            if fd0 >= 0 {
-                trona_posix::posix_dup(fd0); // fd 1
-                trona_posix::posix_dup(fd0); // fd 2
-            }
-        }
-
         // Initialize stdio pointers (stdin/stdout/stderr) so that programs
         // using fprintf(stderr, ...) etc. get valid FILE* from the GOT.
+        //
+        // CRT no longer issues the legacy `posix_dup(0)` probe and
+        // `posix_open("/dev/console")` here: every dynamically-linked
+        // process used to pay a synchronous VFS round-trip before
+        // `main()` for this stdio bootstrap, which made any service
+        // spawned while VFS was in its between-`signal_ready`-and-
+        // `run_owner_loop` window block indefinitely. Stdio slots
+        // for `STDIO_MODE_PTY` children arrive pre-populated via
+        // init's spawn-time `POSIX_TTYSRV_PTY_ALLOC` + VFS dup —
+        // the `preinstalled_slot_bitmap` in the startup block records
+        // which client-state slots are already valid. Children
+        // spawned under `STDIO_MODE_CONSOLE` (the default) see an
+        // all-zero bitmap and fall through to a lazy `/dev/console`
+        // bind on first stdio use; services whose spawner has no
+        // console at all (init-spawned pre-VFS services) must not
+        // touch stdio at startup and should log through
+        // `trona_runtime::uinfo!`/`uwarn!`/`uerror!` on the direct console
+        // capability instead.
         crate::stdio::ensure_stdio_init();
 
         // Initialize FreeBSD locale/rune compatibility before user
@@ -178,36 +174,8 @@ unsafe fn common_init(stack_ptr: *const u64) {
     }
 }
 
-unsafe fn resolve_runtime_mm_state(mut auxv: *const u64) -> (u64, u64) {
-    unsafe {
-        // Walk auxv for the only structural cap tag libc still cares about:
-        // AT_TRONA_SC_CAP. Role-bearing endpoint caps flow through the
-        // startup cap_table installed by the substrate, not individual
-        // AT_TRONA_*_EP tags.
-        let mut sc_cap: u64 = 0;
-
-        while !auxv.is_null() {
-            let tag = *auxv;
-            let val = *auxv.add(1);
-            if tag == 0 {
-                break;
-            }
-            if tag == 0x100E {
-                // AT_TRONA_SC_CAP
-                sc_cap = val;
-            }
-            auxv = auxv.add(2);
-        }
-
-        // Dynamic binaries get sc_cap populated into libtrona's weak
-        // symbol by rtld before libc init runs; prefer that if present.
-        let rtld_sc_cap = *(&raw const trona::__trona_sc_cap);
-        if rtld_sc_cap != 0 {
-            sc_cap = rtld_sc_cap;
-        }
-
-        (sc_cap, *(&raw const trona::__trona_cspace_ntfn))
-    }
+unsafe fn resolve_runtime_mm_state(_auxv: *const u64) -> u64 {
+    unsafe { *(&raw const trona_runtime::__trona_sc_cap) }
 }
 
 /// Parse auxv entries from the stack
@@ -224,49 +192,41 @@ unsafe fn init_ipc_from_auxv(stack_ptr: *const u64) {
             p = p.add(1);
         }
         let _auxv = p.add(1); // past envp NULL terminator — points to auxv pairs
-        let ipc_buf_vaddr: u64 = 0x0000_0000_0020_0000;
-        trona::invoke::tcb_set_ipc_buffer(CAP_SELF_TCB, ipc_buf_vaddr);
-        trona::ipc::ipc_context_init(
-            &raw mut trona::__trona_ipc_ctx,
-            ipc_buf_vaddr as *mut trona::types::IpcBuffer,
+        let ipc_buf_vaddr =
+            trona_runtime::runtime_get_ipc_buffer_vaddr().unwrap_or(0x0000_0000_0020_0000);
+        trona_kernel::invoke::tcb_set_ipc_buffer(
+            trona_kernel::core_types::CapRef::flat(CAP_SELF_TCB),
+            ipc_buf_vaddr,
+        );
+        trona_kernel::ipc::ipc_context_init(
+            &raw mut trona_runtime::__trona_ipc_ctx,
+            ipc_buf_vaddr as *mut uapi::kernite_ipc_buffer,
         );
     }
 }
 
-/// Initialize the per-process slot allocator and POSIX memory manager from auxv.
-///
-/// Parses SaltyOS-specific auxiliary vector entries (`AT_TRONA_*`) to discover
-/// the startup CSpace layout and the mmsrv endpoint capability. The RTLD
-/// updates the shared layout descriptor in place after consuming its startup
-/// frame slots, so the allocator sees the post-RTLD alloc range directly.
-/// The mmsrv endpoint is provided via `AT_TRONA_MM_EP` by the spawner (init
-/// or procmgr). If absent, defaults to 0 (no pager).
+/// Initialize the per-process slot allocator and POSIX memory manager from the
+/// already-installed startup block metadata.
 unsafe fn init_mm_from_auxv(stack_ptr: *const u64) {
     unsafe {
-        let argc = *stack_ptr as usize;
-        let argv = stack_ptr.add(1);
-        let mut p = argv.add(argc + 1);
+        let _ = stack_ptr;
 
-        while !(*p as *const u8).is_null() {
-            p = p.add(1);
-        }
-        p = p.add(1);
-
-        let (sc_cap, cspace_ntfn) = resolve_runtime_mm_state(p);
+        let sc_cap = resolve_runtime_mm_state(core::ptr::null());
 
         // Write to substrate global so TLS init can pick it up
-        *(&raw mut trona::__trona_sc_cap) = sc_cap;
+        *(&raw mut trona_runtime::__trona_sc_cap) = sc_cap;
 
-        // Initialize per-process slot allocator
-        if let Some(cspace_layout) = trona::runtime_get_cspace_layout() {
-            trona::slot_alloc::slot_alloc_init(
-                cspace_layout.alloc_base,
-                cspace_layout.alloc_count(),
-                cspace_ntfn,
-            );
+        // Initialize per-process slot allocator. Self-expansion is enabled
+        // separately by trona_runtime_install once the rsrcsrv authority is
+        // available; the allocator falls back to fail-fast if expansion is
+        // attempted before that.
+        if !trona_runtime::runtime_init_slot_allocator() {
+            if let Some((slot_base, slot_count)) = trona_runtime::runtime_get_slot_pool() {
+                trona_runtime::core::slot_alloc::slot_alloc_init(slot_base, slot_count);
+            }
         }
 
-        // posix_mm reads the mmsrv slot directly from `trona::caps::mmsrv_ep()`
+        // posix_mm reads the mmsrv slot directly from `trona_runtime::client::caps::mmsrv_ep()`
         // (populated from the startup cap_table), so no explicit init call is
         // needed here.
     }
@@ -394,18 +354,25 @@ unsafe fn call_preinit_array(
     unsafe {
         while p < end {
             let func = core::ptr::read(p);
-            func();
+            if func as usize != 0 {
+                func();
+            }
             p = p.add(1);
         }
     }
 }
 
 /// Call all function pointers in the .init_array section (forward order)
-unsafe fn call_init_array(mut p: *const unsafe extern "C" fn(), end: *const unsafe extern "C" fn()) {
+unsafe fn call_init_array(
+    mut p: *const unsafe extern "C" fn(),
+    end: *const unsafe extern "C" fn(),
+) {
     unsafe {
         while p < end {
             let func = core::ptr::read(p);
-            func();
+            if func as usize != 0 {
+                func();
+            }
             p = p.add(1);
         }
     }
@@ -420,7 +387,9 @@ unsafe fn call_fini_array(
         while p > start {
             p = p.sub(1);
             let func = core::ptr::read(p);
-            func();
+            if func as usize != 0 {
+                func();
+            }
         }
     }
 }

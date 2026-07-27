@@ -24,19 +24,18 @@ pub unsafe extern "C" fn _umtx_op(
                 let addr = obj as *const u32;
                 let expected = val as u32;
                 if uaddr2.is_null() {
-                    trona::syscall::futex_wait(addr, expected);
+                    trona_kernel::syscall::futex_wait(addr, expected);
                 } else {
                     let ts = &*(uaddr2 as *const Timespec);
-                    let timeout_ns =
-                        (ts.tv_sec as u64) * 1_000_000_000 + (ts.tv_nsec as u64);
-                    trona::syscall::futex_wait_timeout(addr, expected, timeout_ns);
+                    let timeout_ns = (ts.tv_sec as u64) * 1_000_000_000 + (ts.tv_nsec as u64);
+                    trona_kernel::syscall::futex_wait_timeout(addr, expected, timeout_ns);
                 }
                 0
             }
             UMTX_OP_WAKE => {
                 let addr = obj as *const u32;
                 let count = val as u32;
-                trona::syscall::futex_wake(addr, count);
+                trona_kernel::syscall::futex_wake(addr, count);
                 0
             }
             _ => {

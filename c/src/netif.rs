@@ -134,7 +134,11 @@ pub unsafe extern "C" fn if_nametoindex(ifname: *const u8) -> u32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn if_indextoname(ifindex: u32, ifname: *mut u8) -> *mut u8 {
     if ifindex != IF_INDEX || ifname.is_null() {
-        errno::set_errno(if ifname.is_null() { errno::EFAULT } else { errno::ENXIO });
+        errno::set_errno(if ifname.is_null() {
+            errno::EFAULT
+        } else {
+            errno::ENXIO
+        });
         return core::ptr::null_mut();
     }
     // SAFETY: Caller supplied a writable buffer.
@@ -158,9 +162,8 @@ pub unsafe extern "C" fn getifaddrs(ifap: *mut *mut IfAddrs) -> i32 {
         return -1;
     }
 
-    let total = core::mem::size_of::<IfAddrs>()
-        + IFACE_NAME.len()
-        + 3 * core::mem::size_of::<SockAddrIn>();
+    let total =
+        core::mem::size_of::<IfAddrs>() + IFACE_NAME.len() + 3 * core::mem::size_of::<SockAddrIn>();
     let base = unsafe { malloc::calloc(1, total) };
     if base.is_null() {
         errno::set_errno(errno::ENOMEM);

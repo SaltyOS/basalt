@@ -125,11 +125,7 @@ pub unsafe extern "C" fn mbrtowc(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wcrtomb(
-    s: *mut u8,
-    wc: WcharT,
-    _ps: *mut MbstateT,
-) -> usize {
+pub unsafe extern "C" fn wcrtomb(s: *mut u8, wc: WcharT, _ps: *mut MbstateT) -> usize {
     unsafe {
         if s.is_null() {
             return 1;
@@ -197,11 +193,7 @@ pub unsafe extern "C" fn mblen(s: *const u8, n: usize) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn mbtowc(
-    pwc: *mut WcharT,
-    s: *const u8,
-    n: usize,
-) -> i32 {
+pub unsafe extern "C" fn mbtowc(pwc: *mut WcharT, s: *const u8, n: usize) -> i32 {
     if s.is_null() {
         return 0;
     }
@@ -236,11 +228,7 @@ pub unsafe extern "C" fn wctomb(s: *mut u8, wc: WcharT) -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn btowc(c: i32) -> WintT {
-    if c < 0 || c > 127 {
-        WEOF
-    } else {
-        c as WintT
-    }
+    if c < 0 || c > 127 { WEOF } else { c as WintT }
 }
 
 #[unsafe(no_mangle)]
@@ -258,8 +246,7 @@ pub extern "C" fn wctob(c: WintT) -> i32 {
 
 #[inline]
 fn is_alpha_ascii(wc: WintT) -> bool {
-    (wc >= b'A' as u32 && wc <= b'Z' as u32)
-        || (wc >= b'a' as u32 && wc <= b'z' as u32)
+    (wc >= b'A' as u32 && wc <= b'Z' as u32) || (wc >= b'a' as u32 && wc <= b'z' as u32)
 }
 
 #[inline]
@@ -279,7 +266,11 @@ pub extern "C" fn iswdigit(wc: WintT) -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn iswalnum(wc: WintT) -> i32 {
-    if is_alpha_ascii(wc) || is_digit_ascii(wc) { 1 } else { 0 }
+    if is_alpha_ascii(wc) || is_digit_ascii(wc) {
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -299,12 +290,20 @@ pub extern "C" fn iswspace(wc: WintT) -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn iswupper(wc: WintT) -> i32 {
-    if wc >= b'A' as u32 && wc <= b'Z' as u32 { 1 } else { 0 }
+    if wc >= b'A' as u32 && wc <= b'Z' as u32 {
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn iswlower(wc: WintT) -> i32 {
-    if wc >= b'a' as u32 && wc <= b'z' as u32 { 1 } else { 0 }
+    if wc >= b'a' as u32 && wc <= b'z' as u32 {
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -347,12 +346,20 @@ pub extern "C" fn iswcntrl(wc: WintT) -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn iswgraph(wc: WintT) -> i32 {
-    if iswprint(wc) != 0 && wc != b' ' as u32 { 1 } else { 0 }
+    if iswprint(wc) != 0 && wc != b' ' as u32 {
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn iswblank(wc: WintT) -> i32 {
-    if wc == b' ' as u32 || wc == b'\t' as u32 { 1 } else { 0 }
+    if wc == b' ' as u32 || wc == b'\t' as u32 {
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -369,7 +376,11 @@ pub extern "C" fn iswxdigit(wc: WintT) -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn iswpunct(wc: WintT) -> i32 {
-    if iswgraph(wc) != 0 && iswalnum(wc) == 0 { 1 } else { 0 }
+    if iswgraph(wc) != 0 && iswalnum(wc) == 0 {
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -425,19 +436,33 @@ pub unsafe extern "C" fn wctype(name: *const u8) -> u64 {
         return 0;
     }
     unsafe {
-        if wc_name_eq(name, b"alpha") { WCTYPE_ALPHA }
-        else if wc_name_eq(name, b"digit") { WCTYPE_DIGIT }
-        else if wc_name_eq(name, b"alnum") { WCTYPE_ALNUM }
-        else if wc_name_eq(name, b"space") { WCTYPE_SPACE }
-        else if wc_name_eq(name, b"upper") { WCTYPE_UPPER }
-        else if wc_name_eq(name, b"lower") { WCTYPE_LOWER }
-        else if wc_name_eq(name, b"print") { WCTYPE_PRINT }
-        else if wc_name_eq(name, b"cntrl") { WCTYPE_CNTRL }
-        else if wc_name_eq(name, b"punct") { WCTYPE_PUNCT }
-        else if wc_name_eq(name, b"blank") { WCTYPE_BLANK }
-        else if wc_name_eq(name, b"xdigit") { WCTYPE_XDIGIT }
-        else if wc_name_eq(name, b"graph") { WCTYPE_GRAPH }
-        else { 0 }
+        if wc_name_eq(name, b"alpha") {
+            WCTYPE_ALPHA
+        } else if wc_name_eq(name, b"digit") {
+            WCTYPE_DIGIT
+        } else if wc_name_eq(name, b"alnum") {
+            WCTYPE_ALNUM
+        } else if wc_name_eq(name, b"space") {
+            WCTYPE_SPACE
+        } else if wc_name_eq(name, b"upper") {
+            WCTYPE_UPPER
+        } else if wc_name_eq(name, b"lower") {
+            WCTYPE_LOWER
+        } else if wc_name_eq(name, b"print") {
+            WCTYPE_PRINT
+        } else if wc_name_eq(name, b"cntrl") {
+            WCTYPE_CNTRL
+        } else if wc_name_eq(name, b"punct") {
+            WCTYPE_PUNCT
+        } else if wc_name_eq(name, b"blank") {
+            WCTYPE_BLANK
+        } else if wc_name_eq(name, b"xdigit") {
+            WCTYPE_XDIGIT
+        } else if wc_name_eq(name, b"graph") {
+            WCTYPE_GRAPH
+        } else {
+            0
+        }
     }
 }
 
@@ -748,7 +773,13 @@ pub unsafe extern "C" fn wcscmp(s1: *const WcharT, s2: *const WcharT) -> i32 {
             let a = *s1.add(i);
             let b = *s2.add(i);
             if a != b || a == 0 {
-                return if a < b { -1 } else if a > b { 1 } else { 0 };
+                return if a < b {
+                    -1
+                } else if a > b {
+                    1
+                } else {
+                    0
+                };
             }
             i += 1;
         }
@@ -756,18 +787,20 @@ pub unsafe extern "C" fn wcscmp(s1: *const WcharT, s2: *const WcharT) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wcsncmp(
-    s1: *const WcharT,
-    s2: *const WcharT,
-    n: usize,
-) -> i32 {
+pub unsafe extern "C" fn wcsncmp(s1: *const WcharT, s2: *const WcharT, n: usize) -> i32 {
     unsafe {
         let mut i: usize = 0;
         while i < n {
             let a = *s1.add(i);
             let b = *s2.add(i);
             if a != b || a == 0 {
-                return if a < b { -1 } else if a > b { 1 } else { 0 };
+                return if a < b {
+                    -1
+                } else if a > b {
+                    1
+                } else {
+                    0
+                };
             }
             i += 1;
         }
@@ -776,10 +809,7 @@ pub unsafe extern "C" fn wcsncmp(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wcscpy(
-    dst: *mut WcharT,
-    src: *const WcharT,
-) -> *mut WcharT {
+pub unsafe extern "C" fn wcscpy(dst: *mut WcharT, src: *const WcharT) -> *mut WcharT {
     unsafe {
         let mut i: usize = 0;
         loop {
@@ -794,11 +824,7 @@ pub unsafe extern "C" fn wcscpy(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wcsncpy(
-    dst: *mut WcharT,
-    src: *const WcharT,
-    n: usize,
-) -> *mut WcharT {
+pub unsafe extern "C" fn wcsncpy(dst: *mut WcharT, src: *const WcharT, n: usize) -> *mut WcharT {
     unsafe {
         let mut i: usize = 0;
         while i < n && *src.add(i) != 0 {
@@ -814,10 +840,7 @@ pub unsafe extern "C" fn wcsncpy(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wcschr(
-    ws: *const WcharT,
-    wc: WcharT,
-) -> *mut WcharT {
+pub unsafe extern "C" fn wcschr(ws: *const WcharT, wc: WcharT) -> *mut WcharT {
     unsafe {
         let mut i: usize = 0;
         loop {
@@ -833,10 +856,7 @@ pub unsafe extern "C" fn wcschr(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wcsrchr(
-    ws: *const WcharT,
-    wc: WcharT,
-) -> *mut WcharT {
+pub unsafe extern "C" fn wcsrchr(ws: *const WcharT, wc: WcharT) -> *mut WcharT {
     unsafe {
         let mut last: *mut WcharT = core::ptr::null_mut();
         let mut i: usize = 0;
@@ -853,10 +873,7 @@ pub unsafe extern "C" fn wcsrchr(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wcscat(
-    dst: *mut WcharT,
-    src: *const WcharT,
-) -> *mut WcharT {
+pub unsafe extern "C" fn wcscat(dst: *mut WcharT, src: *const WcharT) -> *mut WcharT {
     unsafe {
         let end = wcslen(dst);
         wcscpy(dst.add(end), src);
@@ -865,11 +882,7 @@ pub unsafe extern "C" fn wcscat(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wcsncat(
-    dst: *mut WcharT,
-    src: *const WcharT,
-    n: usize,
-) -> *mut WcharT {
+pub unsafe extern "C" fn wcsncat(dst: *mut WcharT, src: *const WcharT, n: usize) -> *mut WcharT {
     unsafe {
         let end = wcslen(dst);
         let mut i: usize = 0;
@@ -883,11 +896,7 @@ pub unsafe extern "C" fn wcsncat(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wmemcpy(
-    dst: *mut WcharT,
-    src: *const WcharT,
-    n: usize,
-) -> *mut WcharT {
+pub unsafe extern "C" fn wmemcpy(dst: *mut WcharT, src: *const WcharT, n: usize) -> *mut WcharT {
     unsafe {
         let mut i: usize = 0;
         while i < n {
@@ -899,11 +908,7 @@ pub unsafe extern "C" fn wmemcpy(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wmemset(
-    dst: *mut WcharT,
-    wc: WcharT,
-    n: usize,
-) -> *mut WcharT {
+pub unsafe extern "C" fn wmemset(dst: *mut WcharT, wc: WcharT, n: usize) -> *mut WcharT {
     unsafe {
         let mut i: usize = 0;
         while i < n {
@@ -915,11 +920,7 @@ pub unsafe extern "C" fn wmemset(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wmemchr(
-    ws: *const WcharT,
-    wc: WcharT,
-    n: usize,
-) -> *mut WcharT {
+pub unsafe extern "C" fn wmemchr(ws: *const WcharT, wc: WcharT, n: usize) -> *mut WcharT {
     unsafe {
         let mut i: usize = 0;
         while i < n {
@@ -1072,11 +1073,7 @@ pub extern "C" fn __ctype_get_mb_cur_max() -> usize {
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn mbstowcs(
-    dst: *mut WcharT,
-    src: *const u8,
-    n: usize,
-) -> usize {
+pub unsafe extern "C" fn mbstowcs(dst: *mut WcharT, src: *const u8, n: usize) -> usize {
     unsafe {
         if src.is_null() {
             return 0;
@@ -1121,11 +1118,7 @@ pub unsafe extern "C" fn mbstowcs(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wcstombs(
-    dst: *mut u8,
-    src: *const WcharT,
-    n: usize,
-) -> usize {
+pub unsafe extern "C" fn wcstombs(dst: *mut u8, src: *const WcharT, n: usize) -> usize {
     unsafe {
         if src.is_null() {
             return 0;
@@ -1179,11 +1172,7 @@ pub unsafe extern "C" fn wcstombs(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn mbrlen(
-    s: *const u8,
-    n: usize,
-    ps: *mut MbstateT,
-) -> usize {
+pub unsafe extern "C" fn mbrlen(s: *const u8, n: usize, ps: *mut MbstateT) -> usize {
     unsafe { mbrtowc(core::ptr::null_mut(), s, n, ps) }
 }
 
@@ -1199,10 +1188,7 @@ pub unsafe extern "C" fn wcscoll(s1: *const WcharT, s2: *const WcharT) -> i32 {
 
 /// wcspbrk — find first occurrence of any character from charset in ws.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wcspbrk(
-    ws: *const WcharT,
-    charset: *const WcharT,
-) -> *mut WcharT {
+pub unsafe extern "C" fn wcspbrk(ws: *const WcharT, charset: *const WcharT) -> *mut WcharT {
     unsafe {
         let mut p = ws;
         while *p != 0 {
@@ -1221,10 +1207,7 @@ pub unsafe extern "C" fn wcspbrk(
 
 /// wcsstr — find wide substring.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wcsstr(
-    haystack: *const WcharT,
-    needle: *const WcharT,
-) -> *mut WcharT {
+pub unsafe extern "C" fn wcsstr(haystack: *const WcharT, needle: *const WcharT) -> *mut WcharT {
     unsafe {
         if *needle == 0 {
             return haystack as *mut WcharT;
@@ -1259,10 +1242,7 @@ unsafe extern "C" {
 
 /// wcstod — convert wide string to double (C locale: just narrow and call strtod).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wcstod(
-    wcs: *const WcharT,
-    endp: *mut *mut WcharT,
-) -> f64 {
+pub unsafe extern "C" fn wcstod(wcs: *const WcharT, endp: *mut *mut WcharT) -> f64 {
     unsafe {
         let len = wcslen(wcs);
         let buf = malloc(len + 1);
@@ -1406,11 +1386,7 @@ pub unsafe extern "C" fn wcstoll(wcs: *const WcharT, endp: *mut *mut WcharT, bas
 
 /// wcstoull — convert wide string to unsigned long long.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wcstoull(
-    wcs: *const WcharT,
-    endp: *mut *mut WcharT,
-    base: i32,
-) -> u64 {
+pub unsafe extern "C" fn wcstoull(wcs: *const WcharT, endp: *mut *mut WcharT, base: i32) -> u64 {
     unsafe {
         let len = wcslen(wcs);
         let buf = malloc(len + 1);
@@ -1460,11 +1436,7 @@ pub unsafe extern "C" fn swprintf(
 
 /// fwprintf — wide formatted print. Not implemented.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fwprintf(
-    _stream: *mut u8,
-    _fmt: *const WcharT,
-    _args: ...
-) -> i32 {
+pub unsafe extern "C" fn fwprintf(_stream: *mut u8, _fmt: *const WcharT, _args: ...) -> i32 {
     crate::errno::set_errno(crate::errno::ENOSYS);
     -1
 }
@@ -1546,17 +1518,13 @@ pub unsafe extern "C" fn getwc(stream: *mut crate::stdio::FILE) -> WintT {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getwchar() -> WintT {
     crate::stdio::ensure_stdio_init();
-    unsafe {
-        fgetwc((*(&raw const crate::stdio::stdin)))
-    }
+    unsafe { fgetwc(*(&raw const crate::stdio::stdin)) }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn putwchar(wc: WintT) -> WintT {
     crate::stdio::ensure_stdio_init();
-    unsafe {
-        fputwc(wc, (*(&raw const crate::stdio::stdout)))
-    }
+    unsafe { fputwc(wc, *(&raw const crate::stdio::stdout)) }
 }
 
 #[unsafe(no_mangle)]
@@ -1718,11 +1686,7 @@ pub unsafe extern "C" fn mbsnrtowcs(
 /// transformation is the identity: copy src to dst (up to n wide chars)
 /// and return wcslen(src).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wcsxfrm(
-    dst: *mut WcharT,
-    src: *const WcharT,
-    n: usize,
-) -> usize {
+pub unsafe extern "C" fn wcsxfrm(dst: *mut WcharT, src: *const WcharT, n: usize) -> usize {
     unsafe {
         let src_len = wcslen(src);
         if !dst.is_null() && n > 0 {
@@ -1738,11 +1702,7 @@ pub unsafe extern "C" fn wcsxfrm(
 
 /// `wmemcmp` — compare `n` wide characters.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wmemcmp(
-    s1: *const WcharT,
-    s2: *const WcharT,
-    n: usize,
-) -> i32 {
+pub unsafe extern "C" fn wmemcmp(s1: *const WcharT, s2: *const WcharT, n: usize) -> i32 {
     unsafe {
         let mut i: usize = 0;
         while i < n {
@@ -1762,11 +1722,7 @@ pub unsafe extern "C" fn wmemcmp(
 
 /// `wmemmove` — copy `n` wide characters, handling overlapping regions.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wmemmove(
-    dst: *mut WcharT,
-    src: *const WcharT,
-    n: usize,
-) -> *mut WcharT {
+pub unsafe extern "C" fn wmemmove(dst: *mut WcharT, src: *const WcharT, n: usize) -> *mut WcharT {
     unsafe {
         let dst_addr = dst as usize;
         let src_addr = src as usize;

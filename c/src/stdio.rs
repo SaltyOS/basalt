@@ -55,7 +55,7 @@ pub struct FILE {
     /// Open-file pool allocation state (used only for OPEN_FILES entries).
     slot_in_use: u32,
     /// Per-FILE recursive mutex for stdio locking.
-    lock: trona::sync::TypedMutex,
+    lock: trona_runtime::thread::sync::TypedMutex,
     /// funopen cookie (opaque user pointer).
     cookie: *mut u8,
     /// funopen read callback.
@@ -79,7 +79,9 @@ impl FILE {
             ungetc_char: -1,
             buf_mode,
             slot_in_use: 0,
-            lock: trona::sync::TypedMutex::new(trona::sync::MUTEX_RECURSIVE),
+            lock: trona_runtime::thread::sync::TypedMutex::new(
+                trona_runtime::thread::sync::MUTEX_RECURSIVE,
+            ),
             cookie: core::ptr::null_mut(),
             read_fn: None,
             write_fn: None,
@@ -121,8 +123,9 @@ static mut OPEN_FILES: [FILE; MAX_OPEN_FILES] = {
     [ZERO; MAX_OPEN_FILES]
 };
 
-static OPEN_FILES_LOCK: trona::sync::Mutex = trona::sync::Mutex::new();
-static STDIO_ONCE: trona::sync::Once = trona::sync::Once::new();
+static OPEN_FILES_LOCK: trona_runtime::thread::sync::Mutex =
+    trona_runtime::thread::sync::Mutex::new();
+static STDIO_ONCE: trona_runtime::thread::sync::Once = trona_runtime::thread::sync::Once::new();
 
 fn file_lock(f: *mut FILE) {
     unsafe {
@@ -187,16 +190,30 @@ fn parse_mode(mode: *const u8) -> (u32, i32) {
             }
             b'w' => {
                 if c1 == b'+' {
-                    (FILE_READ | FILE_WRITE, (trona_posix::O_RDWR | trona_posix::O_CREAT | trona_posix::O_TRUNC) as i32)
+                    (
+                        FILE_READ | FILE_WRITE,
+                        (trona_posix::O_RDWR | trona_posix::O_CREAT | trona_posix::O_TRUNC) as i32,
+                    )
                 } else {
-                    (FILE_WRITE, (trona_posix::O_WRONLY | trona_posix::O_CREAT | trona_posix::O_TRUNC) as i32)
+                    (
+                        FILE_WRITE,
+                        (trona_posix::O_WRONLY | trona_posix::O_CREAT | trona_posix::O_TRUNC)
+                            as i32,
+                    )
                 }
             }
             b'a' => {
                 if c1 == b'+' {
-                    (FILE_READ | FILE_WRITE | FILE_APPEND, (trona_posix::O_RDWR | trona_posix::O_CREAT | trona_posix::O_APPEND) as i32)
+                    (
+                        FILE_READ | FILE_WRITE | FILE_APPEND,
+                        (trona_posix::O_RDWR | trona_posix::O_CREAT | trona_posix::O_APPEND) as i32,
+                    )
                 } else {
-                    (FILE_WRITE | FILE_APPEND, (trona_posix::O_WRONLY | trona_posix::O_CREAT | trona_posix::O_APPEND) as i32)
+                    (
+                        FILE_WRITE | FILE_APPEND,
+                        (trona_posix::O_WRONLY | trona_posix::O_CREAT | trona_posix::O_APPEND)
+                            as i32,
+                    )
                 }
             }
             _ => (0, 0),
@@ -222,7 +239,11 @@ pub unsafe extern "C" fn fopen(path: *const u8, mode: *const u8) -> *mut FILE {
     }
 
     unsafe {
-        let open_mode: u32 = if (oflags & trona_posix::O_CREAT as i32) != 0 { 0o644 } else { 0 };
+        let open_mode: u32 = if (oflags & trona_posix::O_CREAT as i32) != 0 {
+            0o644
+        } else {
+            0
+        };
         let fd = trona_posix::posix_open(path, oflags, open_mode);
         if fd < 0 {
             errno::set_errno(errno::ENOENT);
@@ -277,11 +298,7 @@ pub unsafe extern "C" fn fclose(f: *mut FILE) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn freopen(
-    path: *const u8,
-    mode: *const u8,
-    f: *mut FILE,
-) -> *mut FILE {
+pub unsafe extern "C" fn freopen(path: *const u8, mode: *const u8, f: *mut FILE) -> *mut FILE {
     if f.is_null() {
         return unsafe { fopen(path, mode) };
     }
@@ -290,7 +307,11 @@ pub unsafe extern "C" fn freopen(
         fflush_unlocked(f);
         trona_posix::posix_close((*f)._file);
         let (flags, oflags) = parse_mode(mode);
-        let open_mode: u32 = if (oflags & trona_posix::O_CREAT as i32) != 0 { 0o644 } else { 0 };
+        let open_mode: u32 = if (oflags & trona_posix::O_CREAT as i32) != 0 {
+            0o644
+        } else {
+            0
+        };
         let fd = trona_posix::posix_open(path, oflags, open_mode);
         if fd < 0 {
             (*f)._file = -1;
@@ -517,9 +538,7 @@ unsafe fn fputc_unlocked_impl(c: i32, f: *mut FILE) -> i32 {
         }
         (*f).buf[(*f).buf_pos] = byte;
         (*f).buf_pos += 1;
-        if (*f).buf_pos >= BUF_SIZE
-            || ((*f).buf_mode == _IOLBF && byte == b'\n')
-        {
+        if (*f).buf_pos >= BUF_SIZE || ((*f).buf_mode == _IOLBF && byte == b'\n') {
             if fflush_unlocked(f) != 0 {
                 return EOF;
             }
@@ -639,12 +658,7 @@ pub unsafe extern "C" fn fgets(buf: *mut u8, size: i32, f: *mut FILE) -> *mut u8
     buf
 }
 
-unsafe fn fread_unlocked_impl(
-    ptr: *mut u8,
-    size: usize,
-    nmemb: usize,
-    f: *mut FILE,
-) -> usize {
+unsafe fn fread_unlocked_impl(ptr: *mut u8, size: usize, nmemb: usize, f: *mut FILE) -> usize {
     unsafe {
         let total = size * nmemb;
         let mut read = 0;
@@ -661,12 +675,7 @@ unsafe fn fread_unlocked_impl(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fread(
-    ptr: *mut u8,
-    size: usize,
-    nmemb: usize,
-    f: *mut FILE,
-) -> usize {
+pub unsafe extern "C" fn fread(ptr: *mut u8, size: usize, nmemb: usize, f: *mut FILE) -> usize {
     if size == 0 || nmemb == 0 || f.is_null() {
         return 0;
     }
@@ -689,12 +698,7 @@ pub unsafe extern "C" fn fread_unlocked(
     unsafe { fread_unlocked_impl(ptr, size, nmemb, f) }
 }
 
-unsafe fn fwrite_unlocked_impl(
-    ptr: *const u8,
-    size: usize,
-    nmemb: usize,
-    f: *mut FILE,
-) -> usize {
+unsafe fn fwrite_unlocked_impl(ptr: *const u8, size: usize, nmemb: usize, f: *mut FILE) -> usize {
     unsafe {
         let total = size * nmemb;
         let mut written = 0;
@@ -709,12 +713,7 @@ unsafe fn fwrite_unlocked_impl(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fwrite(
-    ptr: *const u8,
-    size: usize,
-    nmemb: usize,
-    f: *mut FILE,
-) -> usize {
+pub unsafe extern "C" fn fwrite(ptr: *const u8, size: usize, nmemb: usize, f: *mut FILE) -> usize {
     if size == 0 || nmemb == 0 || f.is_null() {
         return 0;
     }
@@ -938,12 +937,7 @@ pub unsafe extern "C" fn vsnprintf(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn snprintf(
-    buf: *mut u8,
-    size: usize,
-    fmt: *const u8,
-    mut args: ...
-) -> i32 {
+pub unsafe extern "C" fn snprintf(buf: *mut u8, size: usize, fmt: *const u8, mut args: ...) -> i32 {
     unsafe { format_impl(buf, size, fmt, &mut args) }
 }
 
@@ -973,7 +967,11 @@ pub unsafe extern "C" fn vfprintf(f: *mut FILE, fmt: *const u8, ap: VaList<'_>) 
         let n = vsnprintf(buf.as_mut_ptr(), 4096, fmt, ap);
         if n > 0 && !f.is_null() {
             file_lock(f);
-            let write_len = if (n as usize) < 4096 { n as usize } else { 4095 };
+            let write_len = if (n as usize) < 4096 {
+                n as usize
+            } else {
+                4095
+            };
             for i in 0..write_len {
                 fputc_unlocked_impl(buf[i] as i32, f);
             }
@@ -1007,7 +1005,11 @@ pub unsafe extern "C" fn dprintf(fd: i32, fmt: *const u8, args: ...) -> i32 {
     unsafe {
         let n = vsnprintf(buf.as_mut_ptr(), 4096, fmt, args);
         if n > 0 {
-            let write_len = if (n as usize) < 4096 { n as usize } else { 4095 };
+            let write_len = if (n as usize) < 4096 {
+                n as usize
+            } else {
+                4095
+            };
             trona_posix::posix_write(fd, buf.as_ptr(), write_len as u64);
         }
         n
@@ -1220,13 +1222,26 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
             match *fmt.add(fi) {
                 b'h' => {
                     fi += 1;
-                    if *fmt.add(fi) == b'h' { length = 2; fi += 1; } else { length = 1; }
+                    if *fmt.add(fi) == b'h' {
+                        length = 2;
+                        fi += 1;
+                    } else {
+                        length = 1;
+                    }
                 }
                 b'l' => {
                     fi += 1;
-                    if *fmt.add(fi) == b'l' { length = 4; fi += 1; } else { length = 3; }
+                    if *fmt.add(fi) == b'l' {
+                        length = 4;
+                        fi += 1;
+                    } else {
+                        length = 3;
+                    }
                 }
-                b'z' => { length = 3; fi += 1; } // treat z as l
+                b'z' => {
+                    length = 3;
+                    fi += 1;
+                } // treat z as l
                 _ => {}
             }
 
@@ -1296,10 +1311,30 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                     let signed_val = if neg { -(val as i64) } else { val as i64 };
                     if !suppress {
                         match length {
-                            2 => { let p = ap.arg::<*mut i8>(); if !p.is_null() { *p = signed_val as i8; } }
-                            1 => { let p = ap.arg::<*mut i16>(); if !p.is_null() { *p = signed_val as i16; } }
-                            3 | 4 => { let p = ap.arg::<*mut i64>(); if !p.is_null() { *p = signed_val; } }
-                            _ => { let p = ap.arg::<*mut i32>(); if !p.is_null() { *p = signed_val as i32; } }
+                            2 => {
+                                let p = ap.arg::<*mut i8>();
+                                if !p.is_null() {
+                                    *p = signed_val as i8;
+                                }
+                            }
+                            1 => {
+                                let p = ap.arg::<*mut i16>();
+                                if !p.is_null() {
+                                    *p = signed_val as i16;
+                                }
+                            }
+                            3 | 4 => {
+                                let p = ap.arg::<*mut i64>();
+                                if !p.is_null() {
+                                    *p = signed_val;
+                                }
+                            }
+                            _ => {
+                                let p = ap.arg::<*mut i32>();
+                                if !p.is_null() {
+                                    *p = signed_val as i32;
+                                }
+                            }
                         }
                         matched += 1;
                     }
@@ -1308,8 +1343,12 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                     while *s.add(si) == b' ' || *s.add(si) == b'\t' {
                         si += 1;
                     }
-                    if *s.add(si) == 0 { break; }
-                    if *s.add(si) == b'+' { si += 1; }
+                    if *s.add(si) == 0 {
+                        break;
+                    }
+                    if *s.add(si) == b'+' {
+                        si += 1;
+                    }
 
                     let start = si;
                     let mut val: u64 = 0;
@@ -1317,17 +1356,31 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                     let max_chars = if has_width { width } else { usize::MAX };
                     while digits < max_chars.saturating_sub(si - start) {
                         let c = *s.add(si);
-                        if c < b'0' || c > b'9' { break; }
+                        if c < b'0' || c > b'9' {
+                            break;
+                        }
                         val = val.wrapping_mul(10).wrapping_add((c - b'0') as u64);
                         si += 1;
                         digits += 1;
                     }
-                    if digits == 0 { break; }
+                    if digits == 0 {
+                        break;
+                    }
 
                     if !suppress {
                         match length {
-                            3 | 4 => { let p = ap.arg::<*mut u64>(); if !p.is_null() { *p = val; } }
-                            _ => { let p = ap.arg::<*mut u32>(); if !p.is_null() { *p = val as u32; } }
+                            3 | 4 => {
+                                let p = ap.arg::<*mut u64>();
+                                if !p.is_null() {
+                                    *p = val;
+                                }
+                            }
+                            _ => {
+                                let p = ap.arg::<*mut u32>();
+                                if !p.is_null() {
+                                    *p = val as u32;
+                                }
+                            }
                         }
                         matched += 1;
                     }
@@ -1336,7 +1389,9 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                     while *s.add(si) == b' ' || *s.add(si) == b'\t' {
                         si += 1;
                     }
-                    if *s.add(si) == 0 { break; }
+                    if *s.add(si) == 0 {
+                        break;
+                    }
                     // Skip optional 0x prefix
                     if *s.add(si) == b'0' && (*s.add(si + 1) == b'x' || *s.add(si + 1) == b'X') {
                         si += 2;
@@ -1347,17 +1402,31 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                     let max_chars = if has_width { width } else { usize::MAX };
                     while digits < max_chars {
                         let d = char_to_digit(*s.add(si), 16);
-                        if d < 0 { break; }
+                        if d < 0 {
+                            break;
+                        }
                         val = val.wrapping_mul(16).wrapping_add(d as u64);
                         si += 1;
                         digits += 1;
                     }
-                    if digits == 0 { break; }
+                    if digits == 0 {
+                        break;
+                    }
 
                     if !suppress {
                         match length {
-                            3 | 4 => { let p = ap.arg::<*mut u64>(); if !p.is_null() { *p = val; } }
-                            _ => { let p = ap.arg::<*mut u32>(); if !p.is_null() { *p = val as u32; } }
+                            3 | 4 => {
+                                let p = ap.arg::<*mut u64>();
+                                if !p.is_null() {
+                                    *p = val;
+                                }
+                            }
+                            _ => {
+                                let p = ap.arg::<*mut u32>();
+                                if !p.is_null() {
+                                    *p = val as u32;
+                                }
+                            }
                         }
                         matched += 1;
                     }
@@ -1366,24 +1435,40 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                     while *s.add(si) == b' ' || *s.add(si) == b'\t' {
                         si += 1;
                     }
-                    if *s.add(si) == 0 { break; }
+                    if *s.add(si) == 0 {
+                        break;
+                    }
 
                     let mut val: u64 = 0;
                     let mut digits = 0;
                     let max_chars = if has_width { width } else { usize::MAX };
                     while digits < max_chars {
                         let c = *s.add(si);
-                        if c < b'0' || c > b'7' { break; }
+                        if c < b'0' || c > b'7' {
+                            break;
+                        }
                         val = val.wrapping_mul(8).wrapping_add((c - b'0') as u64);
                         si += 1;
                         digits += 1;
                     }
-                    if digits == 0 { break; }
+                    if digits == 0 {
+                        break;
+                    }
 
                     if !suppress {
                         match length {
-                            3 | 4 => { let p = ap.arg::<*mut u64>(); if !p.is_null() { *p = val; } }
-                            _ => { let p = ap.arg::<*mut u32>(); if !p.is_null() { *p = val as u32; } }
+                            3 | 4 => {
+                                let p = ap.arg::<*mut u64>();
+                                if !p.is_null() {
+                                    *p = val;
+                                }
+                            }
+                            _ => {
+                                let p = ap.arg::<*mut u32>();
+                                if !p.is_null() {
+                                    *p = val as u32;
+                                }
+                            }
                         }
                         matched += 1;
                     }
@@ -1392,7 +1477,9 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                     while *s.add(si) == b' ' || *s.add(si) == b'\t' {
                         si += 1;
                     }
-                    if *s.add(si) == 0 { break; }
+                    if *s.add(si) == 0 {
+                        break;
+                    }
 
                     let start = si;
                     let max_chars = if has_width { width } else { usize::MAX };
@@ -1494,14 +1581,18 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                     while *s.add(si) == b' ' || *s.add(si) == b'\t' {
                         si += 1;
                     }
-                    if *s.add(si) == 0 { break; }
+                    if *s.add(si) == 0 {
+                        break;
+                    }
 
                     let max_chars = if has_width { width } else { usize::MAX };
                     if !suppress {
                         let p = ap.arg::<*mut u8>();
                         let mut count = 0;
-                        while count < max_chars && *s.add(si) != 0
-                            && *s.add(si) != b' ' && *s.add(si) != b'\t'
+                        while count < max_chars
+                            && *s.add(si) != 0
+                            && *s.add(si) != b' '
+                            && *s.add(si) != b'\t'
                             && *s.add(si) != b'\n'
                         {
                             if !p.is_null() {
@@ -1516,8 +1607,10 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                         matched += 1;
                     } else {
                         let mut count = 0;
-                        while count < max_chars && *s.add(si) != 0
-                            && *s.add(si) != b' ' && *s.add(si) != b'\t'
+                        while count < max_chars
+                            && *s.add(si) != 0
+                            && *s.add(si) != b' '
+                            && *s.add(si) != b'\t'
                             && *s.add(si) != b'\n'
                         {
                             si += 1;
@@ -1526,12 +1619,16 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                     }
                 }
                 b'c' => {
-                    if *s.add(si) == 0 { break; }
+                    if *s.add(si) == 0 {
+                        break;
+                    }
                     let count = if has_width { width } else { 1 };
                     if !suppress {
                         let p = ap.arg::<*mut u8>();
                         for k in 0..count {
-                            if *s.add(si) == 0 { break; }
+                            if *s.add(si) == 0 {
+                                break;
+                            }
                             if !p.is_null() {
                                 *p.add(k) = *s.add(si);
                             }
@@ -1540,7 +1637,9 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                         matched += 1;
                     } else {
                         for _ in 0..count {
-                            if *s.add(si) == 0 { break; }
+                            if *s.add(si) == 0 {
+                                break;
+                            }
                             si += 1;
                         }
                     }
@@ -1548,7 +1647,9 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                 b'[' => {
                     // Scanset
                     let negate = *fmt.add(fi) == b'^';
-                    if negate { fi += 1; }
+                    if negate {
+                        fi += 1;
+                    }
 
                     // Collect scanset characters
                     let mut scanset = [false; 256];
@@ -1560,7 +1661,10 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                     while *fmt.add(fi) != 0 && *fmt.add(fi) != b']' {
                         let c = *fmt.add(fi);
                         // Check for range: a-z
-                        if *fmt.add(fi + 1) == b'-' && *fmt.add(fi + 2) != b']' && *fmt.add(fi + 2) != 0 {
+                        if *fmt.add(fi + 1) == b'-'
+                            && *fmt.add(fi + 2) != b']'
+                            && *fmt.add(fi + 2) != 0
+                        {
                             let lo = c;
                             let hi = *fmt.add(fi + 2);
                             let mut ch = lo;
@@ -1574,7 +1678,9 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                             fi += 1;
                         }
                     }
-                    if *fmt.add(fi) == b']' { fi += 1; }
+                    if *fmt.add(fi) == b']' {
+                        fi += 1;
+                    }
 
                     let max_chars = if has_width { width } else { usize::MAX };
                     let mut count = 0;
@@ -1593,7 +1699,9 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                             si += 1;
                             count += 1;
                         }
-                        if count == 0 { break; }
+                        if count == 0 {
+                            break;
+                        }
                         if !p.is_null() {
                             *p.add(count) = 0;
                         }
@@ -1608,7 +1716,9 @@ unsafe fn sscanf_impl(s: *const u8, fmt: *const u8, ap: &mut VaList<'_>) -> i32 
                             si += 1;
                             count += 1;
                         }
-                        if count == 0 { break; }
+                        if count == 0 {
+                            break;
+                        }
                     }
                 }
                 _ => {
@@ -1721,10 +1831,7 @@ unsafe fn parse_scanned_float(s: *const u8, start: usize, end: usize) -> f64 {
 // ======================================================================
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn open_memstream(
-    ptr: *mut *mut u8,
-    sizeloc: *mut usize,
-) -> *mut FILE {
+pub unsafe extern "C" fn open_memstream(ptr: *mut *mut u8, sizeloc: *mut usize) -> *mut FILE {
     // Minimal: just create a file backed by /dev/null
     // Real open_memstream needs a custom FILE with malloc buffer
     unsafe {
@@ -1779,7 +1886,7 @@ pub unsafe extern "C" fn mkstemp(template: *mut u8) -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mkostemp(template: *mut u8, flags: i32) -> i32 {
-    let supported = trona::consts::posix::O_CLOEXEC as i32;
+    let supported = trona_posix::consts::O_CLOEXEC as i32;
     if flags & !supported != 0 {
         errno::set_errno(errno::EINVAL);
         return -1;
@@ -1860,11 +1967,7 @@ pub unsafe extern "C" fn getdelim(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn getline(
-    lineptr: *mut *mut u8,
-    n: *mut usize,
-    stream: *mut FILE,
-) -> isize {
+pub unsafe extern "C" fn getline(lineptr: *mut *mut u8, n: *mut usize, stream: *mut FILE) -> isize {
     unsafe { getdelim(lineptr, n, b'\n' as i32, stream) }
 }
 
@@ -1872,12 +1975,7 @@ pub unsafe extern "C" fn getline(
 // Format implementation (vsnprintf core)
 // ======================================================================
 
-unsafe fn format_impl(
-    buf: *mut u8,
-    size: usize,
-    fmt: *const u8,
-    ap: &mut VaList<'_>,
-) -> i32 {
+unsafe fn format_impl(buf: *mut u8, size: usize, fmt: *const u8, ap: &mut VaList<'_>) -> i32 {
     unsafe {
         let mut out = 0usize; // total chars (even beyond buffer)
         let mut i = 0usize;
@@ -1907,11 +2005,26 @@ unsafe fn format_impl(
             let mut flag_hash = false;
             loop {
                 match *fmt.add(i) {
-                    b'-' => { flag_minus = true; i += 1; }
-                    b'+' => { flag_plus = true; i += 1; }
-                    b' ' => { flag_space = true; i += 1; }
-                    b'0' => { flag_zero = true; i += 1; }
-                    b'#' => { flag_hash = true; i += 1; }
+                    b'-' => {
+                        flag_minus = true;
+                        i += 1;
+                    }
+                    b'+' => {
+                        flag_plus = true;
+                        i += 1;
+                    }
+                    b' ' => {
+                        flag_space = true;
+                        i += 1;
+                    }
+                    b'0' => {
+                        flag_zero = true;
+                        i += 1;
+                    }
+                    b'#' => {
+                        flag_hash = true;
+                        i += 1;
+                    }
                     _ => break,
                 }
             }
@@ -1953,15 +2066,34 @@ unsafe fn format_impl(
             match *fmt.add(i) {
                 b'h' => {
                     i += 1;
-                    if *fmt.add(i) == b'h' { length = 2; i += 1; } else { length = 1; }
+                    if *fmt.add(i) == b'h' {
+                        length = 2;
+                        i += 1;
+                    } else {
+                        length = 1;
+                    }
                 }
                 b'l' => {
                     i += 1;
-                    if *fmt.add(i) == b'l' { length = 4; i += 1; } else { length = 3; }
+                    if *fmt.add(i) == b'l' {
+                        length = 4;
+                        i += 1;
+                    } else {
+                        length = 3;
+                    }
                 }
-                b'z' | b'Z' => { length = 5; i += 1; }
-                b'j' => { length = 6; i += 1; }
-                b't' => { length = 7; i += 1; }
+                b'z' | b'Z' => {
+                    length = 5;
+                    i += 1;
+                }
+                b'j' => {
+                    length = 6;
+                    i += 1;
+                }
+                b't' => {
+                    length = 7;
+                    i += 1;
+                }
                 _ => {}
             }
 
@@ -1970,17 +2102,25 @@ unsafe fn format_impl(
             i += 1;
 
             match spec {
-                b'%' => { emit!(b'%'); }
+                b'%' => {
+                    emit!(b'%');
+                }
                 b'c' => {
                     let c = ap.arg::<i32>() as u8;
                     if !flag_minus {
                         let mut w = width - 1;
-                        while w > 0 { emit!(b' '); w -= 1; }
+                        while w > 0 {
+                            emit!(b' ');
+                            w -= 1;
+                        }
                     }
                     emit!(c);
                     if flag_minus {
                         let mut w = width - 1;
-                        while w > 0 { emit!(b' '); w -= 1; }
+                        while w > 0 {
+                            emit!(b' ');
+                            w -= 1;
+                        }
                     }
                 }
                 b's' => {
@@ -1990,13 +2130,45 @@ unsafe fn format_impl(
                     if precision >= 0 && (precision as usize) < slen {
                         slen = precision as usize;
                     }
-                    let pad = if width as usize > slen { width as usize - slen } else { 0 };
+                    let pad = if width as usize > slen {
+                        width as usize - slen
+                    } else {
+                        0
+                    };
                     if !flag_minus {
-                        for _ in 0..pad { emit!(b' '); }
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
                     }
-                    for j in 0..slen { emit!(*s.add(j)); }
+                    for j in 0..slen {
+                        emit!(*s.add(j));
+                    }
                     if flag_minus {
-                        for _ in 0..pad { emit!(b' '); }
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
+                    }
+                }
+                b'm' => {
+                    let s = crate::string::strerror(errno::get_errno());
+                    let slen = crate::string::strlen(s);
+                    let pad = if width as usize > slen {
+                        width as usize - slen
+                    } else {
+                        0
+                    };
+                    if !flag_minus {
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
+                    }
+                    for j in 0..slen {
+                        emit!(*s.add(j));
+                    }
+                    if flag_minus {
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
                     }
                 }
                 b'd' | b'i' => {
@@ -2007,25 +2179,41 @@ unsafe fn format_impl(
                     let mut num_buf = [0u8; 22];
                     let num_len = format_signed(val, &mut num_buf, flag_plus, flag_space);
                     let pad_char = if flag_zero && !flag_minus { b'0' } else { b' ' };
-                    let pad = if width as usize > num_len { width as usize - num_len } else { 0 };
+                    let pad = if width as usize > num_len {
+                        width as usize - num_len
+                    } else {
+                        0
+                    };
                     if !flag_minus && pad_char == b' ' {
-                        for _ in 0..pad { emit!(b' '); }
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
                     }
                     // Sign
                     if num_buf[0] == b'-' || num_buf[0] == b'+' || num_buf[0] == b' ' {
                         emit!(num_buf[0]);
                         if !flag_minus && pad_char == b'0' {
-                            for _ in 0..pad { emit!(b'0'); }
+                            for _ in 0..pad {
+                                emit!(b'0');
+                            }
                         }
-                        for j in 1..num_len { emit!(num_buf[j]); }
+                        for j in 1..num_len {
+                            emit!(num_buf[j]);
+                        }
                     } else {
                         if !flag_minus && pad_char == b'0' {
-                            for _ in 0..pad { emit!(b'0'); }
+                            for _ in 0..pad {
+                                emit!(b'0');
+                            }
                         }
-                        for j in 0..num_len { emit!(num_buf[j]); }
+                        for j in 0..num_len {
+                            emit!(num_buf[j]);
+                        }
                     }
                     if flag_minus {
-                        for _ in 0..pad { emit!(b' '); }
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
                     }
                 }
                 b'u' => {
@@ -2036,13 +2224,23 @@ unsafe fn format_impl(
                     let mut num_buf = [0u8; 22];
                     let num_len = format_unsigned(val, 10, false, &mut num_buf);
                     let pad_char = if flag_zero && !flag_minus { b'0' } else { b' ' };
-                    let pad = if width as usize > num_len { width as usize - num_len } else { 0 };
+                    let pad = if width as usize > num_len {
+                        width as usize - num_len
+                    } else {
+                        0
+                    };
                     if !flag_minus {
-                        for _ in 0..pad { emit!(pad_char); }
+                        for _ in 0..pad {
+                            emit!(pad_char);
+                        }
                     }
-                    for j in 0..num_len { emit!(num_buf[j]); }
+                    for j in 0..num_len {
+                        emit!(num_buf[j]);
+                    }
                     if flag_minus {
-                        for _ in 0..pad { emit!(b' '); }
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
                     }
                 }
                 b'x' | b'X' => {
@@ -2056,20 +2254,32 @@ unsafe fn format_impl(
                     let prefix_len = if flag_hash && val != 0 { 2 } else { 0 };
                     let total_len = prefix_len + num_len;
                     let pad_char = if flag_zero && !flag_minus { b'0' } else { b' ' };
-                    let pad = if width as usize > total_len { width as usize - total_len } else { 0 };
+                    let pad = if width as usize > total_len {
+                        width as usize - total_len
+                    } else {
+                        0
+                    };
                     if !flag_minus && pad_char == b' ' {
-                        for _ in 0..pad { emit!(b' '); }
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
                     }
                     if flag_hash && val != 0 {
                         emit!(b'0');
                         emit!(if upper { b'X' } else { b'x' });
                     }
                     if !flag_minus && pad_char == b'0' {
-                        for _ in 0..pad { emit!(b'0'); }
+                        for _ in 0..pad {
+                            emit!(b'0');
+                        }
                     }
-                    for j in 0..num_len { emit!(num_buf[j]); }
+                    for j in 0..num_len {
+                        emit!(num_buf[j]);
+                    }
                     if flag_minus {
-                        for _ in 0..pad { emit!(b' '); }
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
                     }
                 }
                 b'o' => {
@@ -2081,15 +2291,27 @@ unsafe fn format_impl(
                     let num_len = format_unsigned(val, 8, false, &mut num_buf);
                     let prefix_len = if flag_hash && val != 0 { 1 } else { 0 };
                     let total_len = prefix_len + num_len;
-                    let pad = if width as usize > total_len { width as usize - total_len } else { 0 };
+                    let pad = if width as usize > total_len {
+                        width as usize - total_len
+                    } else {
+                        0
+                    };
                     if !flag_minus {
                         let pc = if flag_zero { b'0' } else { b' ' };
-                        for _ in 0..pad { emit!(pc); }
+                        for _ in 0..pad {
+                            emit!(pc);
+                        }
                     }
-                    if flag_hash && val != 0 { emit!(b'0'); }
-                    for j in 0..num_len { emit!(num_buf[j]); }
+                    if flag_hash && val != 0 {
+                        emit!(b'0');
+                    }
+                    for j in 0..num_len {
+                        emit!(num_buf[j]);
+                    }
                     if flag_minus {
-                        for _ in 0..pad { emit!(b' '); }
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
                     }
                 }
                 b'p' => {
@@ -2098,7 +2320,9 @@ unsafe fn format_impl(
                     emit!(b'x');
                     let mut num_buf = [0u8; 22];
                     let num_len = format_unsigned(val, 16, false, &mut num_buf);
-                    for j in 0..num_len { emit!(num_buf[j]); }
+                    for j in 0..num_len {
+                        emit!(num_buf[j]);
+                    }
                 }
                 b'n' => {
                     let p = ap.arg::<*mut i32>();
@@ -2112,9 +2336,15 @@ unsafe fn format_impl(
                     let mut fbuf = [0u8; 350];
                     let flen = format_double_fixed(val, prec, flag_plus, flag_space, &mut fbuf);
                     let pad_char = if flag_zero && !flag_minus { b'0' } else { b' ' };
-                    let pad = if width as usize > flen { width as usize - flen } else { 0 };
+                    let pad = if width as usize > flen {
+                        width as usize - flen
+                    } else {
+                        0
+                    };
                     if !flag_minus && pad_char == b' ' {
-                        for _ in 0..pad { emit!(b' '); }
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
                     }
                     if !flag_minus && pad_char == b'0' {
                         // Emit sign first, then zeros
@@ -2123,13 +2353,21 @@ unsafe fn format_impl(
                             emit!(fbuf[0]);
                             k = 1;
                         }
-                        for _ in 0..pad { emit!(b'0'); }
-                        for j in k..flen { emit!(fbuf[j]); }
+                        for _ in 0..pad {
+                            emit!(b'0');
+                        }
+                        for j in k..flen {
+                            emit!(fbuf[j]);
+                        }
                     } else {
-                        for j in 0..flen { emit!(fbuf[j]); }
+                        for j in 0..flen {
+                            emit!(fbuf[j]);
+                        }
                     }
                     if flag_minus {
-                        for _ in 0..pad { emit!(b' '); }
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
                     }
                 }
                 b'e' | b'E' => {
@@ -2137,38 +2375,78 @@ unsafe fn format_impl(
                     let prec = if precision < 0 { 6 } else { precision as usize };
                     let upper = spec == b'E';
                     let mut fbuf = [0u8; 350];
-                    let flen = format_double_sci(val, prec, flag_plus, flag_space, upper, &mut fbuf);
-                    let pad = if width as usize > flen { width as usize - flen } else { 0 };
+                    let flen =
+                        format_double_sci(val, prec, flag_plus, flag_space, upper, &mut fbuf);
+                    let pad = if width as usize > flen {
+                        width as usize - flen
+                    } else {
+                        0
+                    };
                     if !flag_minus {
-                        for _ in 0..pad { emit!(b' '); }
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
                     }
-                    for j in 0..flen { emit!(fbuf[j]); }
+                    for j in 0..flen {
+                        emit!(fbuf[j]);
+                    }
                     if flag_minus {
-                        for _ in 0..pad { emit!(b' '); }
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
                     }
                 }
                 b'g' | b'G' => {
                     let val = ap.arg::<f64>();
-                    let prec = if precision < 0 { 6 } else if precision == 0 { 1 } else { precision as usize };
+                    let prec = if precision < 0 {
+                        6
+                    } else if precision == 0 {
+                        1
+                    } else {
+                        precision as usize
+                    };
                     let upper = spec == b'G';
                     // Use %e if exponent < -4 or >= prec, else %f
                     let mut fbuf_f = [0u8; 350];
                     let mut fbuf_e = [0u8; 350];
-                    let flen_f = format_double_fixed(val, prec.saturating_sub(1), flag_plus, flag_space, &mut fbuf_f);
-                    let flen_e = format_double_sci(val, prec.saturating_sub(1), flag_plus, flag_space, upper, &mut fbuf_e);
+                    let flen_f = format_double_fixed(
+                        val,
+                        prec.saturating_sub(1),
+                        flag_plus,
+                        flag_space,
+                        &mut fbuf_f,
+                    );
+                    let flen_e = format_double_sci(
+                        val,
+                        prec.saturating_sub(1),
+                        flag_plus,
+                        flag_space,
+                        upper,
+                        &mut fbuf_e,
+                    );
                     // Pick shorter representation
                     let (fbuf, flen) = if flen_e < flen_f {
                         (&fbuf_e, flen_e)
                     } else {
                         (&fbuf_f, flen_f)
                     };
-                    let pad = if width as usize > flen { width as usize - flen } else { 0 };
+                    let pad = if width as usize > flen {
+                        width as usize - flen
+                    } else {
+                        0
+                    };
                     if !flag_minus {
-                        for _ in 0..pad { emit!(b' '); }
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
                     }
-                    for j in 0..flen { emit!(fbuf[j]); }
+                    for j in 0..flen {
+                        emit!(fbuf[j]);
+                    }
                     if flag_minus {
-                        for _ in 0..pad { emit!(b' '); }
+                        for _ in 0..pad {
+                            emit!(b' ');
+                        }
                     }
                 }
                 _ => {
@@ -2304,19 +2582,28 @@ fn format_double_fixed(val: f64, prec: usize, plus: bool, space: bool, buf: &mut
     // Handle special values
     if is_nan_bits(val) {
         let s = b"nan";
-        for &c in s { buf[pos] = c; pos += 1; }
+        for &c in s {
+            buf[pos] = c;
+            pos += 1;
+        }
         return pos;
     }
     if is_inf_bits(val) {
         if is_negative_bits(val) {
-            buf[pos] = b'-'; pos += 1;
+            buf[pos] = b'-';
+            pos += 1;
         } else if plus {
-            buf[pos] = b'+'; pos += 1;
+            buf[pos] = b'+';
+            pos += 1;
         } else if space {
-            buf[pos] = b' '; pos += 1;
+            buf[pos] = b' ';
+            pos += 1;
         }
         let s = b"inf";
-        for &c in s { buf[pos] = c; pos += 1; }
+        for &c in s {
+            buf[pos] = c;
+            pos += 1;
+        }
         return pos;
     }
 
@@ -2324,11 +2611,14 @@ fn format_double_fixed(val: f64, prec: usize, plus: bool, space: bool, buf: &mut
     let abs_val = if negative { -val } else { val };
 
     if negative {
-        buf[pos] = b'-'; pos += 1;
+        buf[pos] = b'-';
+        pos += 1;
     } else if plus {
-        buf[pos] = b'+'; pos += 1;
+        buf[pos] = b'+';
+        pos += 1;
     } else if space {
-        buf[pos] = b' '; pos += 1;
+        buf[pos] = b' ';
+        pos += 1;
     }
 
     // Split into integer and fractional parts
@@ -2340,7 +2630,8 @@ fn format_double_fixed(val: f64, prec: usize, plus: bool, space: bool, buf: &mut
     pos += int_len;
 
     if prec > 0 {
-        buf[pos] = b'.'; pos += 1;
+        buf[pos] = b'.';
+        pos += 1;
 
         // Format fractional digits
         for _ in 0..prec {
@@ -2357,7 +2648,9 @@ fn format_double_fixed(val: f64, prec: usize, plus: bool, space: bool, buf: &mut
             let mut k = pos - 1;
             loop {
                 if buf[k] == b'.' {
-                    if k == 0 { break; }
+                    if k == 0 {
+                        break;
+                    }
                     k -= 1;
                     continue;
                 }
@@ -2366,7 +2659,9 @@ fn format_double_fixed(val: f64, prec: usize, plus: bool, space: bool, buf: &mut
                     break;
                 }
                 buf[k] = b'0';
-                if k == 0 { break; }
+                if k == 0 {
+                    break;
+                }
                 k -= 1;
                 // If we carried past the sign, we'd need to insert a '1'
                 // but this is rare enough to skip for a basic implementation
@@ -2395,24 +2690,40 @@ fn format_double_fixed(val: f64, prec: usize, plus: bool, space: bool, buf: &mut
 }
 
 /// Format a double in scientific notation (%e). Returns number of bytes written.
-fn format_double_sci(val: f64, prec: usize, plus: bool, space: bool, upper: bool, buf: &mut [u8]) -> usize {
+fn format_double_sci(
+    val: f64,
+    prec: usize,
+    plus: bool,
+    space: bool,
+    upper: bool,
+    buf: &mut [u8],
+) -> usize {
     let mut pos = 0;
 
     if is_nan_bits(val) {
         let s = if upper { b"NAN" } else { b"nan" };
-        for &c in s.iter() { buf[pos] = c; pos += 1; }
+        for &c in s.iter() {
+            buf[pos] = c;
+            pos += 1;
+        }
         return pos;
     }
     if is_inf_bits(val) {
         if is_negative_bits(val) {
-            buf[pos] = b'-'; pos += 1;
+            buf[pos] = b'-';
+            pos += 1;
         } else if plus {
-            buf[pos] = b'+'; pos += 1;
+            buf[pos] = b'+';
+            pos += 1;
         } else if space {
-            buf[pos] = b' '; pos += 1;
+            buf[pos] = b' ';
+            pos += 1;
         }
         let s = if upper { b"INF" } else { b"inf" };
-        for &c in s.iter() { buf[pos] = c; pos += 1; }
+        for &c in s.iter() {
+            buf[pos] = c;
+            pos += 1;
+        }
         return pos;
     }
 
@@ -2420,25 +2731,35 @@ fn format_double_sci(val: f64, prec: usize, plus: bool, space: bool, upper: bool
     let abs_val = if negative { -val } else { val };
 
     if negative {
-        buf[pos] = b'-'; pos += 1;
+        buf[pos] = b'-';
+        pos += 1;
     } else if plus {
-        buf[pos] = b'+'; pos += 1;
+        buf[pos] = b'+';
+        pos += 1;
     } else if space {
-        buf[pos] = b' '; pos += 1;
+        buf[pos] = b' ';
+        pos += 1;
     }
 
     if abs_val == 0.0 {
-        buf[pos] = b'0'; pos += 1;
+        buf[pos] = b'0';
+        pos += 1;
         if prec > 0 {
-            buf[pos] = b'.'; pos += 1;
+            buf[pos] = b'.';
+            pos += 1;
             for _ in 0..prec {
-                buf[pos] = b'0'; pos += 1;
+                buf[pos] = b'0';
+                pos += 1;
             }
         }
-        buf[pos] = if upper { b'E' } else { b'e' }; pos += 1;
-        buf[pos] = b'+'; pos += 1;
-        buf[pos] = b'0'; pos += 1;
-        buf[pos] = b'0'; pos += 1;
+        buf[pos] = if upper { b'E' } else { b'e' };
+        pos += 1;
+        buf[pos] = b'+';
+        pos += 1;
+        buf[pos] = b'0';
+        pos += 1;
+        buf[pos] = b'0';
+        pos += 1;
         return pos;
     }
 
@@ -2461,11 +2782,13 @@ fn format_double_sci(val: f64, prec: usize, plus: bool, space: bool, upper: bool
     // normalized is now in [1.0, 10.0)
     // Format as d.ddd...
     let leading = normalized as u8;
-    buf[pos] = b'0' + leading; pos += 1;
+    buf[pos] = b'0' + leading;
+    pos += 1;
     let mut frac = normalized - leading as f64;
 
     if prec > 0 {
-        buf[pos] = b'.'; pos += 1;
+        buf[pos] = b'.';
+        pos += 1;
         for _ in 0..prec {
             frac *= 10.0;
             let digit = frac as u8;
@@ -2476,20 +2799,28 @@ fn format_double_sci(val: f64, prec: usize, plus: bool, space: bool, upper: bool
     }
 
     // Exponent
-    buf[pos] = if upper { b'E' } else { b'e' }; pos += 1;
+    buf[pos] = if upper { b'E' } else { b'e' };
+    pos += 1;
     if exp >= 0 {
-        buf[pos] = b'+'; pos += 1;
+        buf[pos] = b'+';
+        pos += 1;
     } else {
-        buf[pos] = b'-'; pos += 1;
+        buf[pos] = b'-';
+        pos += 1;
         exp = -exp;
     }
     if exp >= 100 {
-        buf[pos] = b'0' + (exp / 100) as u8; pos += 1;
-        buf[pos] = b'0' + ((exp / 10) % 10) as u8; pos += 1;
-        buf[pos] = b'0' + (exp % 10) as u8; pos += 1;
+        buf[pos] = b'0' + (exp / 100) as u8;
+        pos += 1;
+        buf[pos] = b'0' + ((exp / 10) % 10) as u8;
+        pos += 1;
+        buf[pos] = b'0' + (exp % 10) as u8;
+        pos += 1;
     } else {
-        buf[pos] = b'0' + (exp / 10) as u8; pos += 1;
-        buf[pos] = b'0' + (exp % 10) as u8; pos += 1;
+        buf[pos] = b'0' + (exp / 10) as u8;
+        pos += 1;
+        buf[pos] = b'0' + (exp % 10) as u8;
+        pos += 1;
     }
 
     pos
@@ -2680,7 +3011,11 @@ pub unsafe extern "C" fn __freading(f: *mut FILE) -> i32 {
     file_lock(f);
     let ret = unsafe {
         let flags = (*f).flags;
-        if flags & FILE_WRITE == 0 && flags & FILE_READ != 0 { 1 } else { 0 }
+        if flags & FILE_WRITE == 0 && flags & FILE_READ != 0 {
+            1
+        } else {
+            0
+        }
     };
     file_unlock(f);
     ret
@@ -2695,7 +3030,11 @@ pub unsafe extern "C" fn __fwriting(f: *mut FILE) -> i32 {
     file_lock(f);
     let ret = unsafe {
         let flags = (*f).flags;
-        if flags & FILE_READ == 0 && flags & FILE_WRITE != 0 { 1 } else { 0 }
+        if flags & FILE_READ == 0 && flags & FILE_WRITE != 0 {
+            1
+        } else {
+            0
+        }
     };
     file_unlock(f);
     ret
@@ -2745,7 +3084,11 @@ pub unsafe extern "C" fn __fpending(f: *mut FILE) -> usize {
     }
     file_lock(f);
     let ret = unsafe {
-        if (*f).flags & FILE_WRITE != 0 { (*f).buf_pos } else { 0 }
+        if (*f).flags & FILE_WRITE != 0 {
+            (*f).buf_pos
+        } else {
+            0
+        }
     };
     file_unlock(f);
     ret

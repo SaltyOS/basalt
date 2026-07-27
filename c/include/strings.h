@@ -14,6 +14,15 @@ extern void bzero(void *s, size_t n);
 extern void explicit_bzero(void *s, size_t n);
 extern int  ffs(int i);
 
+/* Implemented inline via compiler builtins — no libc symbol needed.
+   Builtins return 0 when the input is zero, matching POSIX ffs/ffsl/ffsll. */
+static __inline int ffsl(long i) {
+    return __builtin_ffsl(i);
+}
+static __inline int ffsll(long long i) {
+    return __builtin_ffsll(i);
+}
+
 __END_DECLS
 
 #endif /* __STRINGS_H__ */

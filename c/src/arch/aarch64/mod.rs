@@ -2,15 +2,21 @@
 //! SPDX-License-Identifier: GPL-2.0-only
 //!
 //! Provides `AArch64Arch` which implements `ArchMath`, `ArchMem`, and
-//! `ArchString`. Uses AArch64 hardware FP instructions (`fsqrt`, `frintp`,
-//! `frintm`, `frintz`, `frintx`) for sqrt and rounding. Transcendental math
-//! uses scalar software fallbacks. Memory and string operations are scalar
-//! byte-by-byte implementations (no NEON optimization yet).
+//! `ArchString`. Hardware FP instructions live in `src/arch/aarch64/math.S`;
+//! Rust owns only the ABI wrappers and scalar software fallbacks.
 
-use core::arch::asm;
 use super::ArchMath;
 
 pub struct AArch64Arch;
+
+unsafe extern "C" {
+    fn basaltc_aarch64_sqrt_f64(x: f64) -> f64;
+    fn basaltc_aarch64_sqrt_f32(x: f32) -> f32;
+    fn basaltc_aarch64_floor_f64(x: f64) -> f64;
+    fn basaltc_aarch64_ceil_f64(x: f64) -> f64;
+    fn basaltc_aarch64_trunc_f64(x: f64) -> f64;
+    fn basaltc_aarch64_rint_f64(x: f64) -> f64;
+}
 
 // ============================================================================
 // ArchMath — hardware FP instructions + scalar software transcendentals
@@ -19,125 +25,90 @@ pub struct AArch64Arch;
 impl super::ArchMath for AArch64Arch {
     #[inline]
     fn sqrt(x: f64) -> f64 {
-        let result: f64;
-        // SAFETY: AArch64 `fsqrt` operates on a single double-precision FP
-        // register. Input and output are bound via register constraints;
-        // no memory is accessed.
-        unsafe {
-            asm!(
-                "fsqrt {out:d}, {inp:d}",
-                inp = in(vreg) x,
-                out = lateout(vreg) result,
-            );
-        }
-        result
+        unsafe { basaltc_aarch64_sqrt_f64(x) }
     }
 
     #[inline]
     fn sqrtf(x: f32) -> f32 {
-        let result: f32;
-        // SAFETY: AArch64 `fsqrt` operates on a single single-precision FP
-        // register. Input and output are bound via register constraints;
-        // no memory is accessed.
-        unsafe {
-            asm!(
-                "fsqrt {out:s}, {inp:s}",
-                inp = in(vreg) x,
-                out = lateout(vreg) result,
-            );
-        }
-        result
+        unsafe { basaltc_aarch64_sqrt_f32(x) }
     }
 
     #[inline]
     fn floor(x: f64) -> f64 {
-        let result: f64;
-        // SAFETY: AArch64 `frintm` (round toward minus infinity) operates on a
-        // single double-precision FP register. No memory is accessed.
-        unsafe {
-            asm!(
-                "frintm {out:d}, {inp:d}",
-                inp = in(vreg) x,
-                out = lateout(vreg) result,
-            );
-        }
-        result
+        unsafe { basaltc_aarch64_floor_f64(x) }
     }
 
     #[inline]
     fn ceil(x: f64) -> f64 {
-        let result: f64;
-        // SAFETY: AArch64 `frintp` (round toward plus infinity) operates on a
-        // single double-precision FP register. No memory is accessed.
-        unsafe {
-            asm!(
-                "frintp {out:d}, {inp:d}",
-                inp = in(vreg) x,
-                out = lateout(vreg) result,
-            );
-        }
-        result
+        unsafe { basaltc_aarch64_ceil_f64(x) }
     }
 
     #[inline]
     fn trunc(x: f64) -> f64 {
-        let result: f64;
-        // SAFETY: AArch64 `frintz` (round toward zero) operates on a single
-        // double-precision FP register. No memory is accessed.
-        unsafe {
-            asm!(
-                "frintz {out:d}, {inp:d}",
-                inp = in(vreg) x,
-                out = lateout(vreg) result,
-            );
-        }
-        result
+        unsafe { basaltc_aarch64_trunc_f64(x) }
     }
 
     #[inline]
     fn rint(x: f64) -> f64 {
-        let result: f64;
-        // SAFETY: AArch64 `frintx` (round to integral, exact, using current
-        // rounding mode) operates on a single double-precision FP register.
-        // No memory is accessed.
-        unsafe {
-            asm!(
-                "frintx {out:d}, {inp:d}",
-                inp = in(vreg) x,
-                out = lateout(vreg) result,
-            );
-        }
-        result
+        unsafe { basaltc_aarch64_rint_f64(x) }
     }
 
     #[inline]
-    fn sin(x: f64) -> f64 { sw_sin(x) }
+    fn sin(x: f64) -> f64 {
+        sw_sin(x)
+    }
     #[inline]
-    fn cos(x: f64) -> f64 { sw_cos(x) }
+    fn cos(x: f64) -> f64 {
+        sw_cos(x)
+    }
     #[inline]
-    fn tan(x: f64) -> f64 { sw_tan(x) }
+    fn tan(x: f64) -> f64 {
+        sw_tan(x)
+    }
     #[inline]
-    fn atan2(y: f64, x: f64) -> f64 { sw_atan2(y, x) }
+    fn atan2(y: f64, x: f64) -> f64 {
+        sw_atan2(y, x)
+    }
     #[inline]
-    fn log(x: f64) -> f64 { sw_log(x) }
+    fn log(x: f64) -> f64 {
+        sw_log(x)
+    }
     #[inline]
-    fn log2(x: f64) -> f64 { sw_log2(x) }
+    fn log2(x: f64) -> f64 {
+        sw_log2(x)
+    }
     #[inline]
-    fn log10(x: f64) -> f64 { sw_log10(x) }
+    fn log10(x: f64) -> f64 {
+        sw_log10(x)
+    }
     #[inline]
-    fn exp(x: f64) -> f64 { sw_exp(x) }
+    fn exp(x: f64) -> f64 {
+        sw_exp(x)
+    }
     #[inline]
-    fn exp2(x: f64) -> f64 { sw_exp2(x) }
+    fn exp2(x: f64) -> f64 {
+        sw_exp2(x)
+    }
     #[inline]
-    fn pow(x: f64, y: f64) -> f64 { sw_pow(x, y) }
+    fn pow(x: f64, y: f64) -> f64 {
+        sw_pow(x, y)
+    }
     #[inline]
-    fn fmod(x: f64, y: f64) -> f64 { sw_fmod(x, y) }
+    fn fmod(x: f64, y: f64) -> f64 {
+        sw_fmod(x, y)
+    }
     #[inline]
-    fn remainder(x: f64, y: f64) -> f64 { sw_remainder(x, y) }
+    fn remainder(x: f64, y: f64) -> f64 {
+        sw_remainder(x, y)
+    }
     #[inline]
-    fn fma(x: f64, y: f64, z: f64) -> f64 { sw_fma(x, y, z) }
+    fn fma(x: f64, y: f64, z: f64) -> f64 {
+        sw_fma(x, y, z)
+    }
     #[inline]
-    fn scalbn(x: f64, n: i32) -> f64 { sw_scalbn(x, n) }
+    fn scalbn(x: f64, n: i32) -> f64 {
+        sw_scalbn(x, n)
+    }
 }
 
 // ============================================================================
@@ -272,17 +243,13 @@ const LOG10_2: f64 = 0.3010299957316877;
 /// Reinterpret f64 as u64 (bit cast).
 #[inline]
 fn f64_to_bits(x: f64) -> u64 {
-    // SAFETY: f64 and u64 have the same size and alignment. A bit-level
-    // reinterpretation is always valid.
-    unsafe { core::mem::transmute(x) }
+    x.to_bits()
 }
 
 /// Reinterpret u64 as f64 (bit cast).
 #[inline]
 fn f64_from_bits(b: u64) -> f64 {
-    // SAFETY: u64 and f64 have the same size and alignment. A bit-level
-    // reinterpretation is always valid.
-    unsafe { core::mem::transmute(b) }
+    f64::from_bits(b)
 }
 
 /// Extract the biased exponent from a f64.
@@ -326,11 +293,16 @@ fn sw_sin(x: f64) -> f64 {
     let r2 = r * r;
 
     // Minimax polynomial for sin(r) on [-pi/2, pi/2]
-    let s = r * (1.0 + r2 * (-0.16666666666666666 + r2 * (0.008333333333333312
-        + r2 * (-0.0001984126984126985 + r2 * 2.7557319223985893e-06))));
+    let s = r
+        * (1.0
+            + r2 * (-0.16666666666666666
+                + r2 * (0.008333333333333312
+                    + r2 * (-0.0001984126984126985 + r2 * 2.7557319223985893e-06))));
     // Minimax polynomial for cos(r) on [-pi/2, pi/2]
-    let c = 1.0 + r2 * (-0.5 + r2 * (0.041666666666666664 + r2
-        * (-0.001388888888888889 + r2 * 2.48015873015873e-05)));
+    let c = 1.0
+        + r2 * (-0.5
+            + r2 * (0.041666666666666664
+                + r2 * (-0.001388888888888889 + r2 * 2.48015873015873e-05)));
 
     let val = match q {
         0 => s,
@@ -352,10 +324,15 @@ fn sw_cos(x: f64) -> f64 {
     let (r, q) = reduce_trig(ax);
     let r2 = r * r;
 
-    let s = r * (1.0 + r2 * (-0.16666666666666666 + r2 * (0.008333333333333312
-        + r2 * (-0.0001984126984126985 + r2 * 2.7557319223985893e-06))));
-    let c = 1.0 + r2 * (-0.5 + r2 * (0.041666666666666664 + r2
-        * (-0.001388888888888889 + r2 * 2.48015873015873e-05)));
+    let s = r
+        * (1.0
+            + r2 * (-0.16666666666666666
+                + r2 * (0.008333333333333312
+                    + r2 * (-0.0001984126984126985 + r2 * 2.7557319223985893e-06))));
+    let c = 1.0
+        + r2 * (-0.5
+            + r2 * (0.041666666666666664
+                + r2 * (-0.001388888888888889 + r2 * 2.48015873015873e-05)));
 
     match q {
         0 => c,
@@ -372,7 +349,11 @@ fn sw_tan(x: f64) -> f64 {
     let s = sw_sin(x);
     let c = sw_cos(x);
     if c == 0.0 {
-        if s > 0.0 { f64::INFINITY } else { f64::NEG_INFINITY }
+        if s > 0.0 {
+            f64::INFINITY
+        } else {
+            f64::NEG_INFINITY
+        }
     } else {
         s / c
     }
@@ -395,9 +376,12 @@ fn sw_atan(x: f64) -> f64 {
     };
     let r2 = r * r;
     // Polynomial approximation: atan(r) ~ r - r^3/3 + r^5/5 - r^7/7 + ...
-    let v = r * (1.0 + r2 * (-0.3333333333333333 + r2 * (0.2 + r2
-        * (-0.14285714285714285 + r2 * (0.1111111111111111
-        + r2 * (-0.09090909090909091))))));
+    let v = r
+        * (1.0
+            + r2 * (-0.3333333333333333
+                + r2 * (0.2
+                    + r2 * (-0.14285714285714285
+                        + r2 * (0.1111111111111111 + r2 * (-0.09090909090909091))))));
     let result = if ax > 1.0 { offset - v } else { v };
     if neg { -result } else { result }
 }
@@ -447,9 +431,13 @@ fn sw_log(x: f64) -> f64 {
     // ln(m) = 2*t*(1 + t^2/3 + t^4/5 + t^6/7 + ...)
     let t = (m - 1.0) / (m + 1.0);
     let t2 = t * t;
-    let ln_m = 2.0 * t * (1.0 + t2 * (0.3333333333333333 + t2
-        * (0.2 + t2 * (0.14285714285714285 + t2 * (0.1111111111111111
-        + t2 * 0.09090909090909091)))));
+    let ln_m = 2.0
+        * t
+        * (1.0
+            + t2 * (0.3333333333333333
+                + t2 * (0.2
+                    + t2 * (0.14285714285714285
+                        + t2 * (0.1111111111111111 + t2 * 0.09090909090909091)))));
 
     ln_m + (e as f64) * LN2
 }
@@ -505,8 +493,14 @@ fn sw_exp2(x: f64) -> f64 {
     // 2^f for |f| <= 0.5 via polynomial (minimax on [-0.5, 0.5])
     // 2^f ~ 1 + f*ln(2) + (f*ln(2))^2/2! + ...
     let ln2f = f * LN2;
-    let p = 1.0 + ln2f * (1.0 + ln2f * (0.5 + ln2f * (0.16666666666666666
-        + ln2f * (0.041666666666666664 + ln2f * 0.008333333333333333))));
+    let p = 1.0
+        + ln2f
+            * (1.0
+                + ln2f
+                    * (0.5
+                        + ln2f
+                            * (0.16666666666666666
+                                + ln2f * (0.041666666666666664 + ln2f * 0.008333333333333333))));
 
     // Scale by 2^n via exponent manipulation
     let bias = 1023_i64;
@@ -592,7 +586,11 @@ fn sw_scalbn(x: f64, n: i32) -> f64 {
     let exp = f64_exponent(x);
     let new_exp = exp + n;
     if new_exp >= 2047 {
-        return if x > 0.0 { f64::INFINITY } else { f64::NEG_INFINITY };
+        return if x > 0.0 {
+            f64::INFINITY
+        } else {
+            f64::NEG_INFINITY
+        };
     }
     if new_exp <= 0 {
         return 0.0;

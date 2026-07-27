@@ -12,19 +12,20 @@
 //! - **ENOSYS**: Functions that cannot be meaningfully stubbed (kqueue, chflags,
 //!   statvfs, mknod)
 
-pub mod rune;
-pub mod capsicum;
-pub mod bsd_io;
+pub mod bsd_err;
 pub mod bsd_flags;
+pub mod bsd_io;
 pub mod bsd_misc;
 pub mod bsd_sort;
-pub mod bsd_err;
 pub mod bsd_stdio;
-pub mod mntent;
-pub mod statvfs;
-pub mod umtx;
 pub mod cap_fileargs;
-pub mod xo;
-pub mod md5;
+pub mod capsicum;
 pub mod libutil;
 pub mod login_cap;
+pub mod md5;
+pub mod mntent;
+pub mod mount;
+pub mod rune;
+pub mod statvfs;
+pub mod umtx;
+pub mod xo;

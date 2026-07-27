@@ -101,20 +101,13 @@ unsafe fn c_str_eq(s: *const u8, expected: &[u8]) -> bool {
 /// SaltyOS supports only the "C" / "POSIX" locale. Returns the static
 /// sentinel for those names; returns NULL for anything else.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn newlocale(
-    _mask: i32,
-    locale: *const u8,
-    _base: *mut u8,
-) -> *mut u8 {
+pub unsafe extern "C" fn newlocale(_mask: i32, locale: *const u8, _base: *mut u8) -> *mut u8 {
     unsafe {
         let sentinel = &raw const LOCALE_SENTINEL as *mut u8;
         if locale.is_null() {
             return sentinel;
         }
-        if c_str_eq(locale, b"C\0")
-            || c_str_eq(locale, b"POSIX\0")
-            || c_str_eq(locale, b"\0")
-        {
+        if c_str_eq(locale, b"C\0") || c_str_eq(locale, b"POSIX\0") || c_str_eq(locale, b"\0") {
             return sentinel;
         }
         core::ptr::null_mut()
@@ -188,16 +181,8 @@ pub unsafe extern "C" fn dcgettext(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ngettext(
-    msgid1: *const u8,
-    msgid2: *const u8,
-    n: u64,
-) -> *const u8 {
-    if n == 1 {
-        msgid1
-    } else {
-        msgid2
-    }
+pub unsafe extern "C" fn ngettext(msgid1: *const u8, msgid2: *const u8, n: u64) -> *const u8 {
+    if n == 1 { msgid1 } else { msgid2 }
 }
 
 #[unsafe(no_mangle)]
@@ -207,11 +192,7 @@ pub unsafe extern "C" fn dngettext(
     msgid2: *const u8,
     n: u64,
 ) -> *const u8 {
-    if n == 1 {
-        msgid1
-    } else {
-        msgid2
-    }
+    if n == 1 { msgid1 } else { msgid2 }
 }
 
 // ---------------------------------------------------------------------------
@@ -221,13 +202,13 @@ pub unsafe extern "C" fn dngettext(
 #[unsafe(no_mangle)]
 pub extern "C" fn nl_langinfo(item: i32) -> *const u8 {
     const ABMON: [&[u8]; 12] = [
-        b"Jan\0", b"Feb\0", b"Mar\0", b"Apr\0", b"May\0", b"Jun\0",
-        b"Jul\0", b"Aug\0", b"Sep\0", b"Oct\0", b"Nov\0", b"Dec\0",
+        b"Jan\0", b"Feb\0", b"Mar\0", b"Apr\0", b"May\0", b"Jun\0", b"Jul\0", b"Aug\0", b"Sep\0",
+        b"Oct\0", b"Nov\0", b"Dec\0",
     ];
     match item {
         14 => b"UTF-8\0".as_ptr(), // CODESET
         33..=44 => ABMON[(item - 33) as usize].as_ptr(),
-        51 => b"md\0".as_ptr(),    // D_MD_ORDER
+        51 => b"md\0".as_ptr(), // D_MD_ORDER
         _ => b"\0".as_ptr(),
     }
 }

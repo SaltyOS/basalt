@@ -124,7 +124,11 @@ pub unsafe extern "C" fn tcgetattr(fd: i32, termios_p: *mut Termios) -> i32 {
         if ret != 0 {
             // Fallback to local defaults
             let src = &raw const DEFAULT_TERMIOS;
-            core::ptr::copy_nonoverlapping(src as *const u8, termios_p as *mut u8, core::mem::size_of::<Termios>());
+            core::ptr::copy_nonoverlapping(
+                src as *const u8,
+                termios_p as *mut u8,
+                core::mem::size_of::<Termios>(),
+            );
             (*termios_p).c_cc[VINTR] = 3;
             (*termios_p).c_cc[VQUIT] = 28;
             (*termios_p).c_cc[VERASE] = 127;
@@ -170,12 +174,20 @@ pub unsafe extern "C" fn tcsetattr(fd: i32, action: i32, termios_p: *const Termi
         if ret != 0 {
             // Fallback: update local static
             let dst = &raw mut DEFAULT_TERMIOS;
-            core::ptr::copy_nonoverlapping(termios_p as *const u8, dst as *mut u8, core::mem::size_of::<Termios>());
+            core::ptr::copy_nonoverlapping(
+                termios_p as *const u8,
+                dst as *mut u8,
+                core::mem::size_of::<Termios>(),
+            );
             return 0;
         }
         // Also update local cached copy
         let dst = &raw mut DEFAULT_TERMIOS;
-        core::ptr::copy_nonoverlapping(termios_p as *const u8, dst as *mut u8, core::mem::size_of::<Termios>());
+        core::ptr::copy_nonoverlapping(
+            termios_p as *const u8,
+            dst as *mut u8,
+            core::mem::size_of::<Termios>(),
+        );
         0
     }
 }

@@ -73,17 +73,17 @@ struct SpwdEntry {
 /// the fields from the correct offsets. Total size = 80 bytes on x86_64.
 #[repr(C)]
 pub struct Passwd {
-    pub pw_name: *const u8,    // offset 0
-    pub pw_passwd: *const u8,  // offset 8
-    pub pw_uid: u32,           // offset 16
-    pub pw_gid: u32,           // offset 20
-    pub pw_change: i64,        // offset 24 (time_t)
-    pub pw_class: *const u8,   // offset 32
-    pub pw_gecos: *const u8,   // offset 40
-    pub pw_dir: *const u8,     // offset 48
-    pub pw_shell: *const u8,   // offset 56
-    pub pw_expire: i64,        // offset 64 (time_t)
-    pub pw_fields: i32,        // offset 72
+    pub pw_name: *const u8,   // offset 0
+    pub pw_passwd: *const u8, // offset 8
+    pub pw_uid: u32,          // offset 16
+    pub pw_gid: u32,          // offset 20
+    pub pw_change: i64,       // offset 24 (time_t)
+    pub pw_class: *const u8,  // offset 32
+    pub pw_gecos: *const u8,  // offset 40
+    pub pw_dir: *const u8,    // offset 48
+    pub pw_shell: *const u8,  // offset 56
+    pub pw_expire: i64,       // offset 64 (time_t)
+    pub pw_fields: i32,       // offset 72
 }
 
 // Compile-time layout guard: ABI mismatch would be catastrophic.
@@ -256,7 +256,11 @@ unsafe fn read_file(path: *const u8, buf: *mut u8, buf_size: usize) -> usize {
 /// Copy bytes from `src` into `dst` up to `dst_len - 1`, null-terminate.
 /// Returns the number of bytes copied (excluding null).
 fn copy_field(dst: &mut [u8], src: &[u8]) -> usize {
-    let max = if dst.len() > 0 { dst.len() - 1 } else { return 0 };
+    let max = if dst.len() > 0 {
+        dst.len() - 1
+    } else {
+        return 0;
+    };
     let len = if src.len() < max { src.len() } else { max };
     dst[..len].copy_from_slice(&src[..len]);
     dst[len] = 0;
@@ -407,8 +411,8 @@ unsafe fn install_root_passwd_fallback() {
         copy_field(&mut e.pw_dir, b"/");
         copy_field(&mut e.pw_shell, b"/bin/sh");
         e.pw_expire = 0;
-        e.pw_fields = PWF_NAME | PWF_PASSWD | PWF_UID | PWF_GID
-            | PWF_CLASS | PWF_GECOS | PWF_DIR | PWF_SHELL;
+        e.pw_fields =
+            PWF_NAME | PWF_PASSWD | PWF_UID | PWF_GID | PWF_CLASS | PWF_GECOS | PWF_DIR | PWF_SHELL;
         *(&raw mut PASSWD_COUNT) = 1;
     }
 }
@@ -533,9 +537,16 @@ unsafe fn parse_master_passwd(data: &[u8]) {
                 copy_field(&mut e.pw_gecos, fields[7]);
                 copy_field(&mut e.pw_dir, fields[8]);
                 copy_field(&mut e.pw_shell, fields[9]);
-                e.pw_fields = PWF_NAME | PWF_PASSWD | PWF_UID | PWF_GID
-                    | PWF_CLASS | PWF_CHANGE | PWF_EXPIRE
-                    | PWF_GECOS | PWF_DIR | PWF_SHELL;
+                e.pw_fields = PWF_NAME
+                    | PWF_PASSWD
+                    | PWF_UID
+                    | PWF_GID
+                    | PWF_CLASS
+                    | PWF_CHANGE
+                    | PWF_EXPIRE
+                    | PWF_GECOS
+                    | PWF_DIR
+                    | PWF_SHELL;
                 *count_ptr = idx + 1;
             }
         }
@@ -589,8 +600,14 @@ unsafe fn parse_posix_passwd(data: &[u8]) {
                 copy_field(&mut e.pw_dir, fields[5]);
                 copy_field(&mut e.pw_shell, fields[6]);
                 e.pw_expire = 0;
-                e.pw_fields = PWF_NAME | PWF_PASSWD | PWF_UID | PWF_GID
-                    | PWF_CLASS | PWF_GECOS | PWF_DIR | PWF_SHELL;
+                e.pw_fields = PWF_NAME
+                    | PWF_PASSWD
+                    | PWF_UID
+                    | PWF_GID
+                    | PWF_CLASS
+                    | PWF_GECOS
+                    | PWF_DIR
+                    | PWF_SHELL;
                 *count_ptr = idx + 1;
             }
         }
@@ -713,12 +730,24 @@ unsafe fn load_shadow_db() {
                 e.active = true;
                 copy_field(&mut e.sp_namp, fields[0]);
                 copy_field(&mut e.sp_pwdp, fields[1]);
-                if nf > 2 { e.sp_lstchg = parse_i64(fields[2]).0; }
-                if nf > 3 { e.sp_min = parse_i64(fields[3]).0; }
-                if nf > 4 { e.sp_max = parse_i64(fields[4]).0; }
-                if nf > 5 { e.sp_warn = parse_i64(fields[5]).0; }
-                if nf > 6 { e.sp_inact = parse_i64(fields[6]).0; }
-                if nf > 7 { e.sp_expire = parse_i64(fields[7]).0; }
+                if nf > 2 {
+                    e.sp_lstchg = parse_i64(fields[2]).0;
+                }
+                if nf > 3 {
+                    e.sp_min = parse_i64(fields[3]).0;
+                }
+                if nf > 4 {
+                    e.sp_max = parse_i64(fields[4]).0;
+                }
+                if nf > 5 {
+                    e.sp_warn = parse_i64(fields[5]).0;
+                }
+                if nf > 6 {
+                    e.sp_inact = parse_i64(fields[6]).0;
+                }
+                if nf > 7 {
+                    e.sp_expire = parse_i64(fields[7]).0;
+                }
 
                 *count_ptr = idx + 1;
             }
@@ -1017,17 +1046,13 @@ pub unsafe extern "C" fn getpwnam(name: *const u8) -> *mut Passwd {
         return ptr::null_mut();
     }
     // SAFETY: accessing static database; single-threaded POSIX semantics
-    unsafe {
-        passwd_lookup(|e| cstr_eq_field(name, &e.pw_name))
-    }
+    unsafe { passwd_lookup(|e| cstr_eq_field(name, &e.pw_name)) }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getpwuid(uid: u32) -> *mut Passwd {
     // SAFETY: accessing static database; single-threaded POSIX semantics
-    unsafe {
-        passwd_lookup(|e| e.pw_uid == uid)
-    }
+    unsafe { passwd_lookup(|e| e.pw_uid == uid) }
 }
 
 #[unsafe(no_mangle)]
@@ -1130,17 +1155,13 @@ pub unsafe extern "C" fn getgrnam(name: *const u8) -> *mut Group {
         return ptr::null_mut();
     }
     // SAFETY: accessing static database; single-threaded POSIX semantics
-    unsafe {
-        group_lookup(|e| cstr_eq_field(name, &e.gr_name))
-    }
+    unsafe { group_lookup(|e| cstr_eq_field(name, &e.gr_name)) }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getgrgid(gid: u32) -> *mut Group {
     // SAFETY: accessing static database; single-threaded POSIX semantics
-    unsafe {
-        group_lookup(|e| e.gr_gid == gid)
-    }
+    unsafe { group_lookup(|e| e.gr_gid == gid) }
 }
 
 #[unsafe(no_mangle)]
@@ -1242,9 +1263,7 @@ pub unsafe extern "C" fn getspnam(name: *const u8) -> *mut Spwd {
         return ptr::null_mut();
     }
     // SAFETY: accessing static database; single-threaded POSIX semantics
-    unsafe {
-        shadow_lookup(|e| cstr_eq_field(name, &e.sp_namp))
-    }
+    unsafe { shadow_lookup(|e| cstr_eq_field(name, &e.sp_namp)) }
 }
 
 #[unsafe(no_mangle)]
@@ -1333,11 +1352,7 @@ pub unsafe extern "C" fn group_from_gid(gid: u32, noname: i32) -> *const u8 {
 /// is full.
 ///
 /// Returns the number of gids written to `out`.
-pub(crate) unsafe fn groups_for_user(
-    user: *const u8,
-    primary_gid: u32,
-    out: &mut [u32],
-) -> usize {
+pub(crate) unsafe fn groups_for_user(user: *const u8, primary_gid: u32, out: &mut [u32]) -> usize {
     if out.is_empty() || user.is_null() {
         return 0;
     }

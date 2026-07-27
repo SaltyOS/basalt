@@ -16,7 +16,12 @@ use crate::errno;
 /// Skip ASCII whitespace, returning pointer to first non-whitespace byte.
 unsafe fn skip_ws(mut s: *const u8) -> *const u8 {
     unsafe {
-        while *s == b' ' || *s == b'\t' || *s == b'\n' || *s == b'\r' || *s == b'\x0c' || *s == b'\x0b'
+        while *s == b' '
+            || *s == b'\t'
+            || *s == b'\n'
+            || *s == b'\r'
+            || *s == b'\x0c'
+            || *s == b'\x0b'
         {
             s = s.add(1);
         }
@@ -36,11 +41,7 @@ fn digit_val(c: u8, base: i32) -> Option<u64> {
     } else {
         return None;
     };
-    if v < base as u64 {
-        Some(v)
-    } else {
-        None
-    }
+    if v < base as u64 { Some(v) } else { None }
 }
 
 #[unsafe(no_mangle)]
@@ -293,11 +294,7 @@ pub unsafe extern "C" fn strtod(s: *const u8, endptr: *mut *mut u8) -> f64 {
             }
         }
 
-        if negative {
-            -result
-        } else {
-            result
-        }
+        if negative { -result } else { result }
     }
 }
 
@@ -492,7 +489,9 @@ pub unsafe extern "C" fn srandom(seed: u32) {
 pub unsafe extern "C" fn rand() -> i32 {
     unsafe {
         let seed = &raw mut RAND_SEED;
-        *seed = (*seed).wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *seed = (*seed)
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((*seed) >> 33) as i32 & 0x7FFFFFFF
     }
 }
@@ -506,7 +505,9 @@ pub unsafe extern "C" fn random() -> i64 {
 pub unsafe extern "C" fn rand_r(seedp: *mut u32) -> i32 {
     unsafe {
         let mut s = *seedp as u64;
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         *seedp = s as u32;
         (s >> 33) as i32 & 0x7FFFFFFF
     }
@@ -610,30 +611,26 @@ unsafe fn chacha20_block(key: *const u8, counter: u64, out: *mut u8) {
 unsafe fn arc4_stir() {
     unsafe {
         let key = &raw mut ARC4_KEY as *mut u8;
-        let mut filled = 0usize;
-        while filled < 32 {
-            match trona::syscall::sys_getrandom() {
-                Some(val) => {
-                    let bytes = val.to_le_bytes();
-                    let remain = 32 - filled;
-                    let n = if remain < 8 { remain } else { 8 };
-                    core::ptr::copy_nonoverlapping(bytes.as_ptr(), key.add(filled), n);
-                    filled += n;
-                }
-                None => {
-                    // RDRAND unavailable — fall back to clock mixing
-                    let mut ts = trona::types::Timespec::zeroed();
-                    trona_posix::posix_clock_gettime(0, &mut ts);
-                    let v = ts
-                        .tv_nsec
-                        .wrapping_mul(6364136223846793005)
-                        .wrapping_add(ts.tv_sec);
-                    let bytes = v.to_le_bytes();
-                    let remain = 32 - filled;
-                    let n = if remain < 8 { remain } else { 8 };
-                    core::ptr::copy_nonoverlapping(bytes.as_ptr(), key.add(filled), n);
-                    filled += n;
-                }
+        let r = trona_kernel::syscall::rng_read_bytes(
+            trona_runtime::client::caps::kernel_rng_cap().addr(),
+            key,
+            32,
+        );
+        if r.error != 0 || r.value != 32 {
+            let mut filled = 0usize;
+            while filled < 32 {
+                // RDRAND unavailable — fall back to clock mixing.
+                let mut ts = trona_posix::types::Timespec::zeroed();
+                trona_posix::posix_clock_gettime(0, &mut ts);
+                let v = ts
+                    .tv_nsec
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(ts.tv_sec);
+                let bytes = v.to_le_bytes();
+                let remain = 32 - filled;
+                let n = if remain < 8 { remain } else { 8 };
+                core::ptr::copy_nonoverlapping(bytes.as_ptr(), key.add(filled), n);
+                filled += n;
             }
         }
         *(&raw mut ARC4_CTR) = 0;
@@ -899,7 +896,9 @@ pub unsafe extern "C" fn mkdtemp(template: *mut u8) -> *mut u8 {
 
         let mut attempt: u32 = 0;
         while attempt < MAX_ATTEMPTS {
-            let mut val = MKDTEMP_COUNTER.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+            let mut val = MKDTEMP_COUNTER
+                .fetch_add(1, Ordering::Relaxed)
+                .wrapping_add(1);
 
             let mut j = start;
             while j < len {
@@ -921,4 +920,3 @@ pub unsafe extern "C" fn mkdtemp(template: *mut u8) -> *mut u8 {
         core::ptr::null_mut()
     }
 }
-

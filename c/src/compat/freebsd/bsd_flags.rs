@@ -103,9 +103,9 @@ const WHO_ALL: u8 = WHO_USER | WHO_GROUP | WHO_OTHER;
 
 #[repr(C)]
 struct ModeOp {
-    who: u8,    // bitmask: WHO_USER | WHO_GROUP | WHO_OTHER
-    op: u8,     // CMD_SET, CMD_ADD, CMD_REM
-    perm: u16,  // permission bits positioned for mode_t (rwx for each who)
+    who: u8,   // bitmask: WHO_USER | WHO_GROUP | WHO_OTHER
+    op: u8,    // CMD_SET, CMD_ADD, CMD_REM
+    perm: u16, // permission bits positioned for mode_t (rwx for each who)
 }
 
 /// setmode — parse numeric or symbolic mode string
@@ -166,9 +166,7 @@ pub unsafe extern "C" fn setmode(mode_str: *const u8) -> *mut u8 {
             p = p.add(1);
             count += 1;
             // Skip perm chars
-            while *p == b'r' || *p == b'w' || *p == b'x'
-                || *p == b'X' || *p == b's' || *p == b't'
-            {
+            while *p == b'r' || *p == b'w' || *p == b'x' || *p == b'X' || *p == b's' || *p == b't' {
                 p = p.add(1);
             }
             // Expect comma or end
@@ -219,36 +217,62 @@ pub unsafe extern "C" fn setmode(mode_str: *const u8) -> *mut u8 {
 
             // Parse permissions and build the mode_t bits
             let mut perm: u16 = 0;
-            while *p == b'r' || *p == b'w' || *p == b'x'
-                || *p == b'X' || *p == b's' || *p == b't'
-            {
+            while *p == b'r' || *p == b'w' || *p == b'x' || *p == b'X' || *p == b's' || *p == b't' {
                 match *p {
                     b'r' => {
-                        if who & WHO_USER != 0 { perm |= 0o400; }
-                        if who & WHO_GROUP != 0 { perm |= 0o040; }
-                        if who & WHO_OTHER != 0 { perm |= 0o004; }
+                        if who & WHO_USER != 0 {
+                            perm |= 0o400;
+                        }
+                        if who & WHO_GROUP != 0 {
+                            perm |= 0o040;
+                        }
+                        if who & WHO_OTHER != 0 {
+                            perm |= 0o004;
+                        }
                     }
                     b'w' => {
-                        if who & WHO_USER != 0 { perm |= 0o200; }
-                        if who & WHO_GROUP != 0 { perm |= 0o020; }
-                        if who & WHO_OTHER != 0 { perm |= 0o002; }
+                        if who & WHO_USER != 0 {
+                            perm |= 0o200;
+                        }
+                        if who & WHO_GROUP != 0 {
+                            perm |= 0o020;
+                        }
+                        if who & WHO_OTHER != 0 {
+                            perm |= 0o002;
+                        }
                     }
                     b'x' => {
-                        if who & WHO_USER != 0 { perm |= 0o100; }
-                        if who & WHO_GROUP != 0 { perm |= 0o010; }
-                        if who & WHO_OTHER != 0 { perm |= 0o001; }
+                        if who & WHO_USER != 0 {
+                            perm |= 0o100;
+                        }
+                        if who & WHO_GROUP != 0 {
+                            perm |= 0o010;
+                        }
+                        if who & WHO_OTHER != 0 {
+                            perm |= 0o001;
+                        }
                     }
                     b'X' => {
                         // X = execute only if directory or already has execute
                         // We set a marker bit (0x8000) that getmode resolves
                         perm |= 0x8000;
-                        if who & WHO_USER != 0 { perm |= 0o100; }
-                        if who & WHO_GROUP != 0 { perm |= 0o010; }
-                        if who & WHO_OTHER != 0 { perm |= 0o001; }
+                        if who & WHO_USER != 0 {
+                            perm |= 0o100;
+                        }
+                        if who & WHO_GROUP != 0 {
+                            perm |= 0o010;
+                        }
+                        if who & WHO_OTHER != 0 {
+                            perm |= 0o001;
+                        }
                     }
                     b's' => {
-                        if who & WHO_USER != 0 { perm |= 0o4000; } // setuid
-                        if who & WHO_GROUP != 0 { perm |= 0o2000; } // setgid
+                        if who & WHO_USER != 0 {
+                            perm |= 0o4000;
+                        } // setuid
+                        if who & WHO_GROUP != 0 {
+                            perm |= 0o2000;
+                        } // setgid
                     }
                     b't' => {
                         perm |= 0o1000; // sticky
@@ -274,11 +298,7 @@ pub unsafe extern "C" fn setmode(mode_str: *const u8) -> *mut u8 {
 
 /// strtofflags — parse file flags string. Stub: no flags supported.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn strtofflags(
-    _flags: *mut *mut u8,
-    setp: *mut u64,
-    clrp: *mut u64,
-) -> i32 {
+pub unsafe extern "C" fn strtofflags(_flags: *mut *mut u8, setp: *mut u64, clrp: *mut u64) -> i32 {
     unsafe {
         if !setp.is_null() {
             *setp = 0;
@@ -326,9 +346,15 @@ pub unsafe extern "C" fn getmode(set: *const u8, omode: u32) -> u32 {
 
             // Build a mask of the bits this 'who' controls
             let mut who_mask: u32 = 0;
-            if op.who & WHO_USER != 0 { who_mask |= 0o4700; }
-            if op.who & WHO_GROUP != 0 { who_mask |= 0o2070; }
-            if op.who & WHO_OTHER != 0 { who_mask |= 0o1007; }
+            if op.who & WHO_USER != 0 {
+                who_mask |= 0o4700;
+            }
+            if op.who & WHO_GROUP != 0 {
+                who_mask |= 0o2070;
+            }
+            if op.who & WHO_OTHER != 0 {
+                who_mask |= 0o1007;
+            }
 
             match op.op {
                 CMD_SET => {

@@ -180,9 +180,18 @@ pub fn init_rune_locale() {
 #[unsafe(no_mangle)]
 pub static mut __mb_sb_limit: i32 = 128;
 
-/// MB_CUR_MAX for the C locale.
+/// FreeBSD-compatible multibyte width exports.
+///
+/// FreeBSD consumers may reference either the variable `__mb_cur_max`
+/// or call `___mb_cur_max()`. Export both so ports built against the
+/// FreeBSD headers resolve the expected ABI.
 #[unsafe(no_mangle)]
-pub static ___mb_cur_max: i32 = 1;
+pub static mut __mb_cur_max: i32 = 4;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ___mb_cur_max() -> i32 {
+    unsafe { __mb_cur_max }
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ___toupper(c: i32) -> i32 {

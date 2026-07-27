@@ -6,7 +6,7 @@
 //! tty ioctls exposed by the VFS/PTTY path.
 
 use crate::errno;
-use trona::serial::LineBuf;
+use trona_runtime::debug::serial::LineBuf;
 
 static mut JOBCTL_DBG_BUDGET: u32 = 128;
 
@@ -95,7 +95,7 @@ pub unsafe extern "C" fn getsid(pid: i32) -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tcgetpgrp(fd: i32) -> i32 {
-    let ret = unsafe { trona_posix::posix_ioctl(fd, trona::consts::posix::TIOCGPGRP, 0) };
+    let ret = unsafe { trona_posix::posix_ioctl(fd, trona_posix::consts::TIOCGPGRP, 0) };
     unsafe {
         jobctl_dbg3(b"tcgetpgrp", fd, 0, ret);
     }
@@ -108,7 +108,7 @@ pub unsafe extern "C" fn tcgetpgrp(fd: i32) -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tcsetpgrp(fd: i32, pgrp: i32) -> i32 {
-    let ret = unsafe { trona_posix::posix_ioctl(fd, trona::consts::posix::TIOCSPGRP, pgrp as u64) };
+    let ret = unsafe { trona_posix::posix_ioctl(fd, trona_posix::consts::TIOCSPGRP, pgrp as u64) };
     unsafe {
         jobctl_dbg3(b"tcsetpgrp", fd, pgrp, ret);
     }

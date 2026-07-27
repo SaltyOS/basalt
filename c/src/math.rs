@@ -50,11 +50,11 @@ pub extern "C" fn __fpclassify(x: f64) -> i32 {
     let exp = (bits >> 52) & 0x7FF;
     let mant = bits & F64_MANT_MASK;
     match (exp, mant) {
-        (0, 0) => 2,        // FP_ZERO
-        (0, _) => 3,        // FP_SUBNORMAL
-        (0x7FF, 0) => 1,    // FP_INFINITE
-        (0x7FF, _) => 0,    // FP_NAN
-        _ => 4,             // FP_NORMAL
+        (0, 0) => 2,     // FP_ZERO
+        (0, _) => 3,     // FP_SUBNORMAL
+        (0x7FF, 0) => 1, // FP_INFINITE
+        (0x7FF, _) => 0, // FP_NAN
+        _ => 4,          // FP_NORMAL
     }
 }
 
@@ -186,11 +186,7 @@ pub extern "C" fn truncf(x: f32) -> f32 {
 pub extern "C" fn round(x: f64) -> f64 {
     let t = trunc(x);
     let d = fabs(x - t);
-    if d >= 0.5 {
-        t + copysign(1.0, x)
-    } else {
-        t
-    }
+    if d >= 0.5 { t + copysign(1.0, x) } else { t }
 }
 
 #[unsafe(no_mangle)]
@@ -351,7 +347,11 @@ pub extern "C" fn logb(x: f64) -> f64 {
         return (ne - F64_EXP_BIAS - 52) as f64;
     }
     if e == 0x7FF {
-        return if bits & F64_MANT_MASK != 0 { x } else { f64::INFINITY };
+        return if bits & F64_MANT_MASK != 0 {
+            x
+        } else {
+            f64::INFINITY
+        };
     }
     (e - F64_EXP_BIAS) as f64
 }
@@ -584,29 +584,45 @@ pub extern "C" fn hypotf(x: f32, y: f32) -> f32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn fmin(x: f64, y: f64) -> f64 {
-    if x != x { return y; }
-    if y != y { return x; }
+    if x != x {
+        return y;
+    }
+    if y != y {
+        return x;
+    }
     if x < y { x } else { y }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn fminf(x: f32, y: f32) -> f32 {
-    if x != x { return y; }
-    if y != y { return x; }
+    if x != x {
+        return y;
+    }
+    if y != y {
+        return x;
+    }
     if x < y { x } else { y }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn fmax(x: f64, y: f64) -> f64 {
-    if x != x { return y; }
-    if y != y { return x; }
+    if x != x {
+        return y;
+    }
+    if y != y {
+        return x;
+    }
     if x > y { x } else { y }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn fmaxf(x: f32, y: f32) -> f32 {
-    if x != x { return y; }
-    if y != y { return x; }
+    if x != x {
+        return y;
+    }
+    if y != y {
+        return x;
+    }
     if x > y { x } else { y }
 }
 
@@ -664,9 +680,7 @@ pub extern "C" fn lgamma(x: f64) -> f64 {
         return result + lgamma(z);
     }
     let ln2pi_half = 0.9189385332046727;
-    (x - 0.5) * log(x) - x + ln2pi_half
-        + 1.0 / (12.0 * x)
-        - 1.0 / (360.0 * x * x * x)
+    (x - 0.5) * log(x) - x + ln2pi_half + 1.0 / (12.0 * x) - 1.0 / (360.0 * x * x * x)
 }
 
 #[unsafe(no_mangle)]

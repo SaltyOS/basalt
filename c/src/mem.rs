@@ -79,9 +79,7 @@ pub unsafe extern "C" fn memmem(
         let mut i = 0;
 
         while i <= last {
-            if *haystack.add(i) == first
-                && memcmp(haystack.add(i), needle, needlelen) == 0
-            {
+            if *haystack.add(i) == first && memcmp(haystack.add(i), needle, needlelen) == 0 {
                 return haystack.add(i) as *mut u8;
             }
             i += 1;

@@ -8,7 +8,7 @@
 //! The five public functions (`fts_open`, `fts_read`, `fts_children`,
 //! `fts_set`, `fts_close`) match the FreeBSD ABI defined in `<fts.h>`.
 
-use crate::dirent::{closedir, opendir, readdir, Dirent, DIR};
+use crate::dirent::{closedir, opendir, readdir};
 use crate::errno;
 use crate::unistd::Stat;
 
@@ -373,11 +373,7 @@ unsafe fn fts_sort_list(sp: *mut Fts, head: *mut Ftsent) -> *mut Ftsent {
 
 /// Read directory contents and build a linked list of child FTSENT nodes.
 /// Returns the head of the list, or NULL on error/empty.
-unsafe fn fts_build_children(
-    sp: *mut Fts,
-    parent: *mut Ftsent,
-    nameonly: i32,
-) -> *mut Ftsent {
+unsafe fn fts_build_children(sp: *mut Fts, parent: *mut Ftsent, nameonly: i32) -> *mut Ftsent {
     unsafe {
         let dirp = opendir((*parent).fts_path);
         if dirp.is_null() {
@@ -553,8 +549,7 @@ pub unsafe extern "C" fn fts_open(
             return core::ptr::null_mut();
         }
 
-        let priv_ptr =
-            crate::malloc::calloc(1, core::mem::size_of::<FtsPriv>()) as *mut FtsPriv;
+        let priv_ptr = crate::malloc::calloc(1, core::mem::size_of::<FtsPriv>()) as *mut FtsPriv;
         if priv_ptr.is_null() {
             crate::malloc::free(sp as *mut u8);
             return core::ptr::null_mut();

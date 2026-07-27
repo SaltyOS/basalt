@@ -59,6 +59,15 @@ extern int __signbitf(float x);
     (sizeof(x) == sizeof(float) ? __signbitf(x) : __signbit(x))
 #define isnormal(x) (fpclassify(x) == FP_NORMAL)
 
+/* C99 quiet (NaN-safe) floating-point comparison macros. Clang and GCC
+   provide matching builtins on every target basaltc supports. */
+#define isgreater(x, y)      __builtin_isgreater(x, y)
+#define isgreaterequal(x, y) __builtin_isgreaterequal(x, y)
+#define isless(x, y)         __builtin_isless(x, y)
+#define islessequal(x, y)    __builtin_islessequal(x, y)
+#define islessgreater(x, y)  __builtin_islessgreater(x, y)
+#define isunordered(x, y)    __builtin_isunordered(x, y)
+
 /* Trigonometric */
 extern double sin(double x);
 extern float  sinf(float x);

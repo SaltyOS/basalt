@@ -67,7 +67,7 @@ unsafe fn query_pty_no(fd: i32, out: *mut i32) -> i32 {
             errno::set_errno(errno::EINVAL);
             return -1;
         }
-        let ret = trona_posix::posix_ioctl(fd, trona::consts::posix::TIOCGPTN, out as u64);
+        let ret = trona_posix::posix_ioctl(fd, trona_posix::consts::TIOCGPTN, out as u64);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -124,7 +124,7 @@ pub unsafe extern "C" fn ptsname(fd: i32) -> *mut u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tcgetsid(fd: i32) -> i32 {
     unsafe {
-        let ret = trona_posix::posix_ioctl(fd, trona::consts::posix::TIOCGSID, 0);
+        let ret = trona_posix::posix_ioctl(fd, trona_posix::consts::TIOCGSID, 0);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -149,7 +149,7 @@ pub unsafe extern "C" fn openpty(
 
         let master = trona_posix::posix_open(
             PTMX_PATH.as_ptr(),
-            (trona::consts::posix::O_RDWR | trona::consts::posix::O_NOCTTY) as i32,
+            (trona_posix::consts::O_RDWR | trona_posix::consts::O_NOCTTY) as i32,
             0,
         );
         if master < 0 {
@@ -172,7 +172,7 @@ pub unsafe extern "C" fn openpty(
 
         let slave = trona_posix::posix_open(
             path.as_ptr(),
-            (trona::consts::posix::O_RDWR | trona::consts::posix::O_NOCTTY) as i32,
+            (trona_posix::consts::O_RDWR | trona_posix::consts::O_NOCTTY) as i32,
             0,
         );
         if slave < 0 {
@@ -191,7 +191,7 @@ pub unsafe extern "C" fn openpty(
         }
 
         if !winp.is_null() {
-            let ret = trona_posix::posix_ioctl(slave, trona::consts::posix::TIOCSWINSZ, winp as u64);
+            let ret = trona_posix::posix_ioctl(slave, trona_posix::consts::TIOCSWINSZ, winp as u64);
             if ret < 0 {
                 errno::set_errno(-ret);
                 let _ = trona_posix::posix_close(slave);

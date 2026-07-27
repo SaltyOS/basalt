@@ -70,7 +70,11 @@ pub unsafe extern "C" fn tgetstr(id: *const u8, _area: *mut *mut u8) -> *const u
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn tputs(str: *const u8, _affcnt: i32, putc_fn: unsafe extern "C" fn(i32) -> i32) -> i32 {
+pub unsafe extern "C" fn tputs(
+    str: *const u8,
+    _affcnt: i32,
+    putc_fn: unsafe extern "C" fn(i32) -> i32,
+) -> i32 {
     if str.is_null() {
         return 0;
     }

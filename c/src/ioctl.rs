@@ -4,7 +4,7 @@
 //! Forwards ioctl requests to the VFS/TTYD via posix_ioctl.
 
 use crate::errno;
-use trona::consts::posix::TIOCSPGRP;
+use trona_posix::consts::TIOCSPGRP;
 
 static mut LOGGED_IOCTL_CALLS: u8 = 0;
 
@@ -27,7 +27,7 @@ pub unsafe extern "C" fn ioctl(fd: i32, request: u64, mut args: ...) -> i32 {
     unsafe {
         if *(&raw const LOGGED_IOCTL_CALLS) < 24 {
             *(&raw mut LOGGED_IOCTL_CALLS) += 1;
-            trona::udebug!(|_lb| {
+            trona_runtime::udebug!(|_lb| {
                 _lb.str(b"[libc] ioctl fd=");
                 _lb.dec(fd as u64);
                 _lb.str(b" req=");

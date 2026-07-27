@@ -50,17 +50,15 @@ pub unsafe extern "C" fn setprogname(name: *const u8) {
 // getprogpath — resolve executable path from argv[0] via PATH search
 // ---------------------------------------------------------------------------
 
-unsafe extern "C" {
-    safe fn stat(path: *const u8, buf: *mut u8) -> i32;
-    safe fn realpath(name: *const u8, resolved: *mut u8) -> *mut u8;
-    safe fn getcwd(buf: *mut u8, size: usize) -> *mut u8;
-    safe fn getenv(name: *const u8) -> *mut u8;
-    safe fn strdup(s: *const u8) -> *mut u8;
-    safe fn strtok_r(s: *mut u8, delim: *const u8, saveptr: *mut *mut u8) -> *mut u8;
-    safe fn free(ptr: *mut u8);
-}
-
 const PATH_MAX: usize = 4096;
+
+/// # Safety
+///
+/// `path` must point to a valid nul-terminated pathname.
+unsafe fn path_exists(path: *const u8) -> bool {
+    let mut st = core::mem::MaybeUninit::<crate::unistd::Stat>::uninit();
+    unsafe { crate::unistd::stat(path, st.as_mut_ptr()) == 0 }
+}
 
 /// Resolve the full path of `argv0` by searching PATH.
 ///
@@ -75,11 +73,10 @@ pub unsafe extern "C" fn getprogpath(buf: *mut u8, argv0: *const u8) -> *mut u8 
 
         // Absolute path
         if *argv0 == b'/' {
-            if realpath(argv0, buf).is_null() {
+            if crate::stdlib::realpath(argv0, buf).is_null() {
                 return core::ptr::null_mut();
             }
-            let mut st = [0u8; 256];
-            if stat(buf, st.as_mut_ptr()) != 0 {
+            if !path_exists(buf) {
                 return core::ptr::null_mut();
             }
             return buf;
@@ -97,7 +94,7 @@ pub unsafe extern "C" fn getprogpath(buf: *mut u8, argv0: *const u8) -> *mut u8 
         }
         if has_slash {
             let mut cwd = [0u8; PATH_MAX];
-            if getcwd(cwd.as_mut_ptr(), PATH_MAX).is_null() {
+            if crate::unistd::getcwd(cwd.as_mut_ptr(), PATH_MAX).is_null() {
                 return core::ptr::null_mut();
             }
             // Build cwd/argv0
@@ -118,24 +115,24 @@ pub unsafe extern "C" fn getprogpath(buf: *mut u8, argv0: *const u8) -> *mut u8 
                 cp = cp.add(1);
             }
             full[i] = 0;
-            if realpath(full.as_ptr(), buf).is_null() {
+            if crate::stdlib::realpath(full.as_ptr(), buf).is_null() {
                 return core::ptr::null_mut();
             }
             return buf;
         }
 
         // PATH search
-        let path_env = getenv(b"PATH\0".as_ptr());
+        let path_env = crate::env::getenv(b"PATH\0".as_ptr());
         if path_env.is_null() {
             return core::ptr::null_mut();
         }
-        let path_copy = strdup(path_env);
+        let path_copy = crate::malloc::strdup(path_env);
         if path_copy.is_null() {
             return core::ptr::null_mut();
         }
 
         let mut state: *mut u8 = core::ptr::null_mut();
-        let mut tok = strtok_r(path_copy, b":\0".as_ptr(), &raw mut state);
+        let mut tok = crate::string::strtok_r(path_copy, b":\0".as_ptr(), &raw mut state);
         while !tok.is_null() {
             let mut full = [0u8; PATH_MAX];
             let mut i = 0usize;
@@ -155,16 +152,15 @@ pub unsafe extern "C" fn getprogpath(buf: *mut u8, argv0: *const u8) -> *mut u8 
             }
             full[i] = 0;
 
-            let mut st = [0u8; 256];
-            if stat(full.as_ptr(), st.as_mut_ptr()) == 0 {
-                if !realpath(full.as_ptr(), buf).is_null() {
-                    free(path_copy);
+            if path_exists(full.as_ptr()) {
+                if !crate::stdlib::realpath(full.as_ptr(), buf).is_null() {
+                    crate::malloc::free(path_copy);
                     return buf;
                 }
             }
-            tok = strtok_r(core::ptr::null_mut(), b":\0".as_ptr(), &raw mut state);
+            tok = crate::string::strtok_r(core::ptr::null_mut(), b":\0".as_ptr(), &raw mut state);
         }
-        free(path_copy);
+        crate::malloc::free(path_copy);
         core::ptr::null_mut()
     }
 }
@@ -254,11 +250,17 @@ pub unsafe extern "C" fn lchmod(_path: *const u8, _mode: u32) -> i32 {
     -1
 }
 
-/// mknod — create device special file. Not supported.
+/// mknod — create device special file through VFS.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn mknod(_path: *const u8, _mode: u32, _dev: u64) -> i32 {
-    errno::set_errno(errno::ENOSYS);
-    -1
+pub unsafe extern "C" fn mknod(path: *const u8, mode: u32, dev: u64) -> i32 {
+    unsafe {
+        let ret = trona_posix::posix_mknodat(trona_posix::consts::AT_FDCWD, path, mode, dev);
+        if ret < 0 {
+            errno::set_errno(-ret);
+            return -1;
+        }
+        ret
+    }
 }
 
 unsafe extern "C" {
@@ -362,19 +364,10 @@ pub unsafe extern "C" fn kevent(
     -1
 }
 
-/// fstatfs — not supported.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn fstatfs(_fd: i32, _buf: *mut u8) -> i32 {
-    errno::set_errno(errno::ENOSYS);
-    -1
-}
-
-/// statfs — not supported.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn statfs(_path: *const u8, _buf: *mut u8) -> i32 {
-    errno::set_errno(errno::ENOSYS);
-    -1
-}
+// `statfs` / `fstatfs` are now defined in
+// `lib/basalt/c/src/compat/freebsd/mount.rs` against the real
+// `VFS_STATFS` / `VFS_FSTATFS` IPC, so the legacy ENOSYS stubs were
+// removed here to avoid duplicate symbols.
 
 // ---------------------------------------------------------------------------
 // BSD string/number conversions
@@ -384,7 +377,6 @@ unsafe extern "C" {
     safe fn strtol(s: *const u8, endptr: *mut *mut u8, base: i32) -> i64;
     safe fn strtoul(s: *const u8, endptr: *mut *mut u8, base: i32) -> u64;
     safe fn strcspn(s: *const u8, reject: *const u8) -> usize;
-    safe fn realloc(ptr: *mut u8, size: usize) -> *mut u8;
 }
 
 /// strtoq — BSD legacy alias for strtoll.
@@ -425,9 +417,9 @@ pub static sys_nsig: i32 = 32;
 /// reallocf — BSD realloc that frees ptr on failure.
 #[unsafe(no_mangle)]
 pub extern "C" fn reallocf(ptr: *mut u8, size: usize) -> *mut u8 {
-    let result = realloc(ptr, size);
+    let result = unsafe { crate::malloc::realloc(ptr, size) };
     if result.is_null() && size != 0 {
-        free(ptr);
+        unsafe { crate::malloc::free(ptr) };
     }
     result
 }
@@ -520,4 +512,3 @@ pub unsafe extern "C" fn issetugid() -> i32 {
         if uid != euid || gid != egid { 1 } else { 0 }
     }
 }
-

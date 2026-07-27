@@ -8,17 +8,7 @@
 //! SaltyOS does not implement Capsicum sandboxing — these wrappers exist to
 //! satisfy FreeBSD port code that uses cap_fileargs.
 
-use crate::stdio::FILE;
 use crate::unistd::Stat;
-
-unsafe extern "C" {
-    fn open(path: *const u8, flags: i32, ...) -> i32;
-    fn fopen(path: *const u8, mode: *const u8) -> *mut FILE;
-    fn realpath(path: *const u8, resolved: *mut u8) -> *mut u8;
-    fn lstat(path: *const u8, buf: *mut Stat) -> i32;
-    fn malloc(size: usize) -> *mut u8;
-    fn free(ptr: *mut u8);
-}
 
 /// Capsicum fileargs handle. Stores flags and mode for deferred open().
 #[repr(C)]
@@ -28,6 +18,7 @@ pub struct FileArgs {
 }
 
 /// Type alias matching the C `fileargs_t` name.
+#[allow(non_camel_case_types)]
 pub type fileargs_t = FileArgs;
 
 // ---------------------------------------------------------------------------
@@ -44,10 +35,10 @@ pub unsafe extern "C" fn fileargs_init(
     _argv: *mut *mut u8,
     flags: i32,
     mode: u32,
-    _args: ...,
+    _args: ...
 ) -> *mut fileargs_t {
     unsafe {
-        let fa = malloc(core::mem::size_of::<fileargs_t>()) as *mut fileargs_t;
+        let fa = crate::malloc::malloc(core::mem::size_of::<fileargs_t>()) as *mut fileargs_t;
         if fa.is_null() {
             return core::ptr::null_mut();
         }
@@ -68,10 +59,10 @@ pub unsafe extern "C" fn fileargs_cinit(
     _argv: *mut *mut u8,
     flags: i32,
     mode: u32,
-    _args: ...,
+    _args: ...
 ) -> *mut fileargs_t {
     unsafe {
-        let fa = malloc(core::mem::size_of::<fileargs_t>()) as *mut fileargs_t;
+        let fa = crate::malloc::malloc(core::mem::size_of::<fileargs_t>()) as *mut fileargs_t;
         if fa.is_null() {
             return core::ptr::null_mut();
         }
@@ -91,7 +82,7 @@ pub unsafe extern "C" fn fileargs_open(fa: *mut fileargs_t, name: *const u8) -> 
     if fa.is_null() || name.is_null() {
         return -1;
     }
-    unsafe { open(name, (*fa).flags, (*fa).mode) }
+    unsafe { crate::unistd::open(name, (*fa).flags, (*fa).mode) }
 }
 
 /// Open a file using fopen(). The fileargs handle is accepted for API
@@ -101,11 +92,11 @@ pub unsafe extern "C" fn fileargs_fopen(
     _fa: *mut fileargs_t,
     name: *const u8,
     mode: *const u8,
-) -> *mut FILE {
+) -> *mut crate::stdio::FILE {
     if name.is_null() || mode.is_null() {
         return core::ptr::null_mut();
     }
-    unsafe { fopen(name, mode) }
+    unsafe { crate::stdio::fopen(name, mode) }
 }
 
 /// Resolve a pathname. The fileargs handle is accepted for API compatibility
@@ -116,7 +107,7 @@ pub unsafe extern "C" fn fileargs_realpath(
     path: *const u8,
     resolved: *mut u8,
 ) -> *mut u8 {
-    unsafe { realpath(path, resolved) }
+    unsafe { crate::stdlib::realpath(path, resolved) }
 }
 
 /// Stat a file (no symlink follow). The fileargs handle is accepted for API
@@ -127,7 +118,7 @@ pub unsafe extern "C" fn fileargs_lstat(
     name: *const u8,
     sb: *mut Stat,
 ) -> i32 {
-    unsafe { lstat(name, sb) }
+    unsafe { crate::unistd::lstat(name, sb) }
 }
 
 // ---------------------------------------------------------------------------
@@ -137,5 +128,5 @@ pub unsafe extern "C" fn fileargs_lstat(
 /// Free a fileargs handle. Accepts null (no-op).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fileargs_free(fa: *mut fileargs_t) {
-    unsafe { free(fa as *mut u8) }
+    unsafe { crate::malloc::free(fa as *mut u8) }
 }

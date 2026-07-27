@@ -48,7 +48,7 @@ pub unsafe extern "C" fn execve(
         while !argv0.is_null() && *argv0.add(argv0_len) != 0 && argv0_len < 255 {
             argv0_len += 1;
         }
-        trona::udebug!(|_lb| {
+        trona_runtime::udebug!(|_lb| {
             _lb.str(b"[libc] execve path='");
             if !path.is_null() {
                 _lb.bytes(core::slice::from_raw_parts(path, path_len));
@@ -142,7 +142,7 @@ pub unsafe extern "C" fn execvp(file: *const u8, argv: *const *const u8) -> i32 
                 while !argv0.is_null() && *argv0.add(argv0_len) != 0 && argv0_len < 255 {
                     argv0_len += 1;
                 }
-                trona::udebug!(|_lb| {
+                trona_runtime::udebug!(|_lb| {
                     _lb.str(b"[libc] execvp try path='");
                     _lb.bytes(&path_buf[..pos]);
                     _lb.str(b"' argv0='");
@@ -384,77 +384,110 @@ pub unsafe extern "C" fn getgroups(size: i32, list: *mut u32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setuid(uid: u32) -> i32 {
     let ret = unsafe { trona_posix::posix_setuid(uid) };
-    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    if ret < 0 {
+        crate::errno::set_errno(-ret);
+        return -1;
+    }
     0
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setgid(gid: u32) -> i32 {
     let ret = unsafe { trona_posix::posix_setgid(gid) };
-    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    if ret < 0 {
+        crate::errno::set_errno(-ret);
+        return -1;
+    }
     0
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn seteuid(uid: u32) -> i32 {
     let ret = unsafe { trona_posix::posix_seteuid(uid) };
-    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    if ret < 0 {
+        crate::errno::set_errno(-ret);
+        return -1;
+    }
     0
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setegid(gid: u32) -> i32 {
     let ret = unsafe { trona_posix::posix_setegid(gid) };
-    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    if ret < 0 {
+        crate::errno::set_errno(-ret);
+        return -1;
+    }
     0
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setreuid(ruid: u32, euid: u32) -> i32 {
     let ret = unsafe { trona_posix::posix_setreuid(ruid, euid) };
-    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    if ret < 0 {
+        crate::errno::set_errno(-ret);
+        return -1;
+    }
     0
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setregid(rgid: u32, egid: u32) -> i32 {
     let ret = unsafe { trona_posix::posix_setregid(rgid, egid) };
-    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    if ret < 0 {
+        crate::errno::set_errno(-ret);
+        return -1;
+    }
     0
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setresuid(ruid: u32, euid: u32, suid: u32) -> i32 {
     let ret = unsafe { trona_posix::posix_setresuid(ruid, euid, suid) };
-    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    if ret < 0 {
+        crate::errno::set_errno(-ret);
+        return -1;
+    }
     0
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setresgid(rgid: u32, egid: u32, sgid: u32) -> i32 {
     let ret = unsafe { trona_posix::posix_setresgid(rgid, egid, sgid) };
-    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    if ret < 0 {
+        crate::errno::set_errno(-ret);
+        return -1;
+    }
     0
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getresuid(ruid: *mut u32, euid: *mut u32, suid: *mut u32) -> i32 {
     let ret = unsafe { trona_posix::posix_getresuid(ruid, euid, suid) };
-    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    if ret < 0 {
+        crate::errno::set_errno(-ret);
+        return -1;
+    }
     0
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getresgid(rgid: *mut u32, egid: *mut u32, sgid: *mut u32) -> i32 {
     let ret = unsafe { trona_posix::posix_getresgid(rgid, egid, sgid) };
-    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    if ret < 0 {
+        crate::errno::set_errno(-ret);
+        return -1;
+    }
     0
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setgroups(size: i32, list: *const u32) -> i32 {
     let ret = unsafe { trona_posix::posix_setgroups(size as usize, list) };
-    if ret < 0 { crate::errno::set_errno(-ret); return -1; }
+    if ret < 0 {
+        crate::errno::set_errno(-ret);
+        return -1;
+    }
     0
 }
 
@@ -561,7 +594,7 @@ const POSIX_SPAWN_SETSIGMASK: i16 = 0x08;
 const SPAWN_MAX_FILE_ACTIONS: usize = 16;
 
 #[repr(C)]
-struct SpawnFileAction {
+pub struct SpawnFileAction {
     action_type: i32,
     fd: i32,
     newfd: i32,
@@ -571,13 +604,13 @@ struct SpawnFileAction {
 }
 
 #[repr(C)]
-struct SpawnFileActions {
+pub struct SpawnFileActions {
     count: i32,
     actions: [SpawnFileAction; SPAWN_MAX_FILE_ACTIONS],
 }
 
 #[repr(C)]
-struct SpawnAttr {
+pub struct SpawnAttr {
     flags: i16,
     pgroup: i32,
     sigdefault: u32,
@@ -653,11 +686,8 @@ unsafe fn do_posix_spawn(
                             crate::unistd::dup2(action.fd, action.newfd);
                         }
                         SPAWN_ACTION_OPEN => {
-                            let fd = trona_posix::posix_open(
-                                action.path,
-                                action.oflag,
-                                action.mode,
-                            );
+                            let fd =
+                                trona_posix::posix_open(action.path, action.oflag, action.mode);
                             if fd >= 0 && fd != action.fd {
                                 crate::unistd::dup2(fd, action.fd);
                                 trona_posix::posix_close(fd);
@@ -844,14 +874,13 @@ pub unsafe extern "C" fn posix_spawnattr_getpgroup(
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn posix_spawnattr_setschedpolicy(
-    attrp: *mut SpawnAttr,
-    policy: i32,
-) -> i32 {
+pub unsafe extern "C" fn posix_spawnattr_setschedpolicy(attrp: *mut SpawnAttr, policy: i32) -> i32 {
     if attrp.is_null() {
         return errno::EINVAL;
     }
-    unsafe { (*attrp).schedpolicy = policy; }
+    unsafe {
+        (*attrp).schedpolicy = policy;
+    }
     0
 }
 
@@ -863,7 +892,9 @@ pub unsafe extern "C" fn posix_spawnattr_getschedpolicy(
     if attrp.is_null() || policy.is_null() {
         return errno::EINVAL;
     }
-    unsafe { *policy = (*attrp).schedpolicy; }
+    unsafe {
+        *policy = (*attrp).schedpolicy;
+    }
     0
 }
 
@@ -880,7 +911,9 @@ pub unsafe extern "C" fn posix_spawnattr_setschedparam(
     if attrp.is_null() || param.is_null() {
         return errno::EINVAL;
     }
-    unsafe { (*attrp).schedparam_priority = (*param).sched_priority; }
+    unsafe {
+        (*attrp).schedparam_priority = (*param).sched_priority;
+    }
     0
 }
 
@@ -892,7 +925,9 @@ pub unsafe extern "C" fn posix_spawnattr_getschedparam(
     if attrp.is_null() || param.is_null() {
         return errno::EINVAL;
     }
-    unsafe { (*param).sched_priority = (*attrp).schedparam_priority; }
+    unsafe {
+        (*param).sched_priority = (*attrp).schedparam_priority;
+    }
     0
 }
 

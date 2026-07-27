@@ -150,11 +150,7 @@ pub unsafe extern "C" fn strncasecmp(s1: *const u8, s2: *const u8, n: usize) -> 
 }
 
 fn to_lower(c: u8) -> u8 {
-    if c >= b'A' && c <= b'Z' {
-        c + 32
-    } else {
-        c
-    }
+    if c >= b'A' && c <= b'Z' { c + 32 } else { c }
 }
 
 #[unsafe(no_mangle)]
@@ -261,9 +257,7 @@ pub unsafe extern "C" fn strcasestr(haystack: *const u8, needle: *const u8) -> *
         let mut i = 0;
         while *haystack.add(i) != 0 {
             let mut j = 0;
-            while j < needle_len
-                && to_lower(*haystack.add(i + j)) == to_lower(*needle.add(j))
-            {
+            while j < needle_len && to_lower(*haystack.add(i + j)) == to_lower(*needle.add(j)) {
                 j += 1;
             }
             if j == needle_len {
@@ -338,17 +332,13 @@ pub unsafe extern "C" fn strtok(s: *mut u8, delim: *const u8) -> *mut u8 {
     let save_ptr = if let Some(tls) = trona_posix::tls::current_tls() {
         unsafe { &raw mut (*tls).strtok_save }
     } else {
-        unsafe { &raw mut STRTOK_SAVE_FALLBACK }
+        &raw mut STRTOK_SAVE_FALLBACK
     };
     unsafe { strtok_r(s, delim, save_ptr) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn strtok_r(
-    s: *mut u8,
-    delim: *const u8,
-    saveptr: *mut *mut u8,
-) -> *mut u8 {
+pub unsafe extern "C" fn strtok_r(s: *mut u8, delim: *const u8, saveptr: *mut *mut u8) -> *mut u8 {
     unsafe {
         let mut p = if !s.is_null() { s } else { *saveptr };
         if p.is_null() {
@@ -520,7 +510,11 @@ pub unsafe extern "C" fn strlcpy(dst: *mut u8, src: *const u8, dstsize: usize) -
     unsafe {
         let srclen = strlen(src);
         if dstsize > 0 {
-            let copy = if srclen < dstsize { srclen } else { dstsize - 1 };
+            let copy = if srclen < dstsize {
+                srclen
+            } else {
+                dstsize - 1
+            };
             core::ptr::copy_nonoverlapping(src, dst, copy);
             *dst.add(copy) = 0;
         }
@@ -557,11 +551,7 @@ pub unsafe extern "C" fn strlcat(dst: *mut u8, src: *const u8, dstsize: usize) -
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn strnstr(
-    haystack: *const u8,
-    needle: *const u8,
-    len: usize,
-) -> *mut u8 {
+pub unsafe extern "C" fn strnstr(haystack: *const u8, needle: *const u8, len: usize) -> *mut u8 {
     if needle.is_null() {
         return haystack as *mut u8;
     }

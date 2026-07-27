@@ -97,12 +97,7 @@ unsafe fn inet_pton4(src: *const u8, dst: *mut u8) -> i32 {
 ///
 /// Only AF_INET (IPv4) is implemented. Returns `dst` on success, null on error.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn inet_ntop(
-    af: i32,
-    src: *const u8,
-    dst: *mut u8,
-    size: u32,
-) -> *const u8 {
+pub unsafe extern "C" fn inet_ntop(af: i32, src: *const u8, dst: *mut u8, size: u32) -> *const u8 {
     if src.is_null() || dst.is_null() {
         errno::set_errno(errno::EINVAL);
         return core::ptr::null();
@@ -214,7 +209,12 @@ static mut NTOA_BUF: [u8; 16] = [0u8; 16];
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn inet_ntoa(addr: u32) -> *const u8 {
     unsafe {
-        inet_ntop(AF_INET, &raw const addr as *const u8, (&raw mut NTOA_BUF) as *mut u8, 16);
+        inet_ntop(
+            AF_INET,
+            &raw const addr as *const u8,
+            (&raw mut NTOA_BUF) as *mut u8,
+            16,
+        );
         (&raw const NTOA_BUF) as *const u8
     }
 }
@@ -274,10 +274,7 @@ pub unsafe extern "C" fn hstrerror(err: i32) -> *const u8 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gethostbyname2(
-    name: *const u8,
-    af: i32,
-) -> *mut crate::socket::Hostent {
+pub unsafe extern "C" fn gethostbyname2(name: *const u8, af: i32) -> *mut crate::socket::Hostent {
     if af != AF_INET {
         return core::ptr::null_mut();
     }

@@ -205,10 +205,7 @@ unsafe fn twalk_recurse(
 /// The `action` callback receives: a pointer to the node, the visit order
 /// (preorder/postorder/endorder/leaf), and the depth (root = 0).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn twalk(
-    root: *const u8,
-    action: unsafe extern "C" fn(*const u8, i32, i32),
-) {
+pub unsafe extern "C" fn twalk(root: *const u8, action: unsafe extern "C" fn(*const u8, i32, i32)) {
     unsafe {
         twalk_recurse(root as *const TNode, action, 0);
     }

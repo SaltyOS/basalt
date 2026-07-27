@@ -8,7 +8,7 @@
 //! UTF-16BE, UTF-32LE, UTF-32BE. Encoding names are matched case-insensitively
 //! with common aliases. `//IGNORE` and `//TRANSLIT` suffixes are stripped.
 
-use crate::errno::{set_errno, E2BIG, EILSEQ, EINVAL, ENOMEM};
+use crate::errno::{E2BIG, EILSEQ, EINVAL, ENOMEM, set_errno};
 use crate::malloc::{free, malloc};
 
 // ---------------------------------------------------------------------------
@@ -94,45 +94,132 @@ struct Alias {
 
 static ALIASES: [Alias; 24] = [
     // UTF-8
-    Alias { name: b"UTF-8\0", enc: Encoding::Utf8 },
-    Alias { name: b"UTF8\0", enc: Encoding::Utf8 },
+    Alias {
+        name: b"UTF-8\0",
+        enc: Encoding::Utf8,
+    },
+    Alias {
+        name: b"UTF8\0",
+        enc: Encoding::Utf8,
+    },
     // ASCII
-    Alias { name: b"ASCII\0", enc: Encoding::Ascii },
-    Alias { name: b"US-ASCII\0", enc: Encoding::Ascii },
-    Alias { name: b"ANSI_X3.4-1968\0", enc: Encoding::Ascii },
-    Alias { name: b"646\0", enc: Encoding::Ascii },
-    Alias { name: b"ISO646-US\0", enc: Encoding::Ascii },
+    Alias {
+        name: b"ASCII\0",
+        enc: Encoding::Ascii,
+    },
+    Alias {
+        name: b"US-ASCII\0",
+        enc: Encoding::Ascii,
+    },
+    Alias {
+        name: b"ANSI_X3.4-1968\0",
+        enc: Encoding::Ascii,
+    },
+    Alias {
+        name: b"646\0",
+        enc: Encoding::Ascii,
+    },
+    Alias {
+        name: b"ISO646-US\0",
+        enc: Encoding::Ascii,
+    },
     // ISO-8859-1
-    Alias { name: b"ISO-8859-1\0", enc: Encoding::Iso8859_1 },
-    Alias { name: b"ISO8859-1\0", enc: Encoding::Iso8859_1 },
-    Alias { name: b"ISO_8859-1\0", enc: Encoding::Iso8859_1 },
-    Alias { name: b"LATIN1\0", enc: Encoding::Iso8859_1 },
-    Alias { name: b"ISO-IR-100\0", enc: Encoding::Iso8859_1 },
-    Alias { name: b"CSISOLATIN1\0", enc: Encoding::Iso8859_1 },
+    Alias {
+        name: b"ISO-8859-1\0",
+        enc: Encoding::Iso8859_1,
+    },
+    Alias {
+        name: b"ISO8859-1\0",
+        enc: Encoding::Iso8859_1,
+    },
+    Alias {
+        name: b"ISO_8859-1\0",
+        enc: Encoding::Iso8859_1,
+    },
+    Alias {
+        name: b"LATIN1\0",
+        enc: Encoding::Iso8859_1,
+    },
+    Alias {
+        name: b"ISO-IR-100\0",
+        enc: Encoding::Iso8859_1,
+    },
+    Alias {
+        name: b"CSISOLATIN1\0",
+        enc: Encoding::Iso8859_1,
+    },
     // ISO-8859-15
-    Alias { name: b"ISO-8859-15\0", enc: Encoding::Iso8859_15 },
-    Alias { name: b"ISO8859-15\0", enc: Encoding::Iso8859_15 },
-    Alias { name: b"ISO_8859-15\0", enc: Encoding::Iso8859_15 },
-    Alias { name: b"LATIN9\0", enc: Encoding::Iso8859_15 },
+    Alias {
+        name: b"ISO-8859-15\0",
+        enc: Encoding::Iso8859_15,
+    },
+    Alias {
+        name: b"ISO8859-15\0",
+        enc: Encoding::Iso8859_15,
+    },
+    Alias {
+        name: b"ISO_8859-15\0",
+        enc: Encoding::Iso8859_15,
+    },
+    Alias {
+        name: b"LATIN9\0",
+        enc: Encoding::Iso8859_15,
+    },
     // UTF-16
-    Alias { name: b"UTF-16LE\0", enc: Encoding::Utf16Le },
-    Alias { name: b"UTF16LE\0", enc: Encoding::Utf16Le },
-    Alias { name: b"UCS-2LE\0", enc: Encoding::Utf16Le },
-    Alias { name: b"UTF-16BE\0", enc: Encoding::Utf16Be },
-    Alias { name: b"UTF16BE\0", enc: Encoding::Utf16Be },
-    Alias { name: b"UCS-2BE\0", enc: Encoding::Utf16Be },
+    Alias {
+        name: b"UTF-16LE\0",
+        enc: Encoding::Utf16Le,
+    },
+    Alias {
+        name: b"UTF16LE\0",
+        enc: Encoding::Utf16Le,
+    },
+    Alias {
+        name: b"UCS-2LE\0",
+        enc: Encoding::Utf16Le,
+    },
+    Alias {
+        name: b"UTF-16BE\0",
+        enc: Encoding::Utf16Be,
+    },
+    Alias {
+        name: b"UTF16BE\0",
+        enc: Encoding::Utf16Be,
+    },
+    Alias {
+        name: b"UCS-2BE\0",
+        enc: Encoding::Utf16Be,
+    },
     // UTF-32 (LE only listed first for alignment; both present)
-    Alias { name: b"UTF-32LE\0", enc: Encoding::Utf32Le },
+    Alias {
+        name: b"UTF-32LE\0",
+        enc: Encoding::Utf32Le,
+    },
 ];
 
 // Additional UTF-32 aliases stored separately to keep ALIASES at a fixed size
 // that the compiler can handle without complex const generics.
 static ALIASES_EXT: [Alias; 5] = [
-    Alias { name: b"UTF32LE\0", enc: Encoding::Utf32Le },
-    Alias { name: b"UCS-4LE\0", enc: Encoding::Utf32Le },
-    Alias { name: b"UTF-32BE\0", enc: Encoding::Utf32Be },
-    Alias { name: b"UTF32BE\0", enc: Encoding::Utf32Be },
-    Alias { name: b"UCS-4BE\0", enc: Encoding::Utf32Be },
+    Alias {
+        name: b"UTF32LE\0",
+        enc: Encoding::Utf32Le,
+    },
+    Alias {
+        name: b"UCS-4LE\0",
+        enc: Encoding::Utf32Le,
+    },
+    Alias {
+        name: b"UTF-32BE\0",
+        enc: Encoding::Utf32Be,
+    },
+    Alias {
+        name: b"UTF32BE\0",
+        enc: Encoding::Utf32Be,
+    },
+    Alias {
+        name: b"UCS-4BE\0",
+        enc: Encoding::Utf32Be,
+    },
 ];
 
 // ---------------------------------------------------------------------------
@@ -155,8 +242,16 @@ unsafe fn ascii_casecmp(a: *const u8, b: *const u8) -> bool {
             if ca == 0 || cb == 0 {
                 return false;
             }
-            let la = if ca >= b'A' && ca <= b'Z' { ca + 32 } else { ca };
-            let lb = if cb >= b'A' && cb <= b'Z' { cb + 32 } else { cb };
+            let la = if ca >= b'A' && ca <= b'Z' {
+                ca + 32
+            } else {
+                ca
+            };
+            let lb = if cb >= b'A' && cb <= b'Z' {
+                cb + 32
+            } else {
+                cb
+            };
             if la != lb {
                 return false;
             }
@@ -850,7 +945,7 @@ pub unsafe extern "C" fn iconv(
 
     let from_enc = unsafe { (*desc).from };
     let to_enc = unsafe { (*desc).to };
-    let mut non_reversible: usize = 0;
+    let non_reversible: usize = 0;
 
     loop {
         let in_left = unsafe { *inbytesleft };
@@ -902,7 +997,6 @@ pub unsafe extern "C" fn iconv(
         // Identity-transcoding and lossless conversions count as reversible.
         // Non-reversible conversions would happen with //TRANSLIT substitution
         // (not implemented), so this stays 0 in strict mode.
-        let _ = non_reversible;
     }
 
     non_reversible

@@ -1,7 +1,11 @@
-//! statvfs/fstatvfs stubs — ENOSYS
-//! SPDX-License-Identifier: GPL-2.0-only
+//! statvfs / fstatvfs — POSIX `statvfs(3)` C ABI shim.
+//!
+//! Layout matches `trona_posix::types::TronaStatvfs` so the trona
+//! wrapper writes directly into the caller's buffer with no
+//! intermediate copy. SPDX-License-Identifier: GPL-2.0-only
 
-use crate::errno;
+use trona_posix::types::TronaStatvfs;
+use trona_posix::{posix_fstatvfs, posix_statvfs};
 
 #[repr(C)]
 pub struct Statvfs {
@@ -19,13 +23,25 @@ pub struct Statvfs {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn statvfs(_path: *const u8, _buf: *mut Statvfs) -> i32 {
-    errno::set_errno(errno::ENOSYS);
-    -1
+pub unsafe extern "C" fn statvfs(path: *const u8, buf: *mut Statvfs) -> i32 {
+    let trona_buf = buf as *mut TronaStatvfs;
+    let rc = unsafe { posix_statvfs(path, trona_buf) };
+    if rc < 0 {
+        crate::errno::set_errno(-rc);
+        -1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fstatvfs(_fd: i32, _buf: *mut Statvfs) -> i32 {
-    errno::set_errno(errno::ENOSYS);
-    -1
+pub unsafe extern "C" fn fstatvfs(fd: i32, buf: *mut Statvfs) -> i32 {
+    let trona_buf = buf as *mut TronaStatvfs;
+    let rc = unsafe { posix_fstatvfs(fd, trona_buf) };
+    if rc < 0 {
+        crate::errno::set_errno(-rc);
+        -1
+    } else {
+        0
+    }
 }

@@ -111,6 +111,7 @@ extern int mkdir(const char *pathname, mode_t mode);
 #define UTIME_NOW   ((1 << 30) - 1)
 #define UTIME_OMIT  ((1 << 30) - 2)
 
+extern int mknod(const char *pathname, mode_t mode, dev_t dev);
 extern int fstatat(int dirfd, const char *pathname, struct stat *statbuf,
                    int flags);
 extern int mkdirat(int dirfd, const char *pathname, mode_t mode);

@@ -55,4 +55,8 @@ typedef struct {
     (((unsigned long *)(set))[(fd) / (8 * sizeof(unsigned long))] & \
         (1UL << ((fd) % (8 * sizeof(unsigned long)))))
 
+/* glibc/_GNU_SOURCE behaviour: <sys/types.h> re-exports the device-id
+   macros from <sys/sysmacros.h>. Linux-targeted ports rely on this. */
+#include <sys/sysmacros.h>
+
 #endif /* __SYS_TYPES_H__ */

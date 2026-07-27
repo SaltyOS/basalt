@@ -1,14 +1,18 @@
 //! POSIX signal handling
 //! SPDX-License-Identifier: GPL-2.0-only
 //!
-//! Single-threaded signal implementation backed by libtrona's notification
-//! mechanism. Signal handlers are registered via `trona_posix::signals::posix_signal`,
-//! which sets up a kernel notification object to deliver signals asynchronously.
+//! Signal delivery is built on `trona_posix::wakeup` — every process
+//! has one signal `MessagePipe` (init writes `regs[0] = signum`) and
+//! every thread has a per-thread `EventQueue` with a one-shot `Watch`
+//! armed against the signal pipe's `KERNITE_STATE_READABLE`. The
+//! cooperative `posix_sigcheck` call (and `sigsuspend`'s wait loop)
+//! drains pending records into `__sig_pending_bits` and dispatches
+//! the registered handler.
 //!
-//! The `sigaction` interface stores `sa_mask` and `sa_flags` in shared libtrona
-//! globals (`__sig_sa_mask`, `__sig_sa_flags`) so the signal delivery trampoline
-//! can apply the correct mask before invoking the handler. Up to 32 signals
-//! are supported (`NSIG = 32`).
+//! `sigaction` stores `sa_mask` / `sa_flags` in shared libtrona
+//! globals (`__sig_sa_mask`, `__sig_sa_flags`) so the dispatch path
+//! can apply the right mask before invoking the handler. Up to 32
+//! signals are supported (`NSIG = 32`).
 
 use crate::errno;
 
@@ -17,11 +21,12 @@ pub const SIG_DFL: SighandlerT = 0;
 pub const SIG_IGN: SighandlerT = 1;
 pub const SIG_ERR: SighandlerT = usize::MAX;
 
-// SA_RESTART: In SaltyOS, POSIX signals are delivered cooperatively via
-// notification polling (posix_sigcheck). System calls (IPC to VFS/procmgr)
-// complete atomically from userland's perspective and are never interrupted
-// by signals. Therefore SA_RESTART has no behavioral effect — it is stored
-// in __sig_sa_flags for sigaction() compatibility but intentionally unused.
+// SA_RESTART: signals are delivered cooperatively via the per-process
+// wakeup EventQueue + signal pipe (see `trona_posix::wakeup`).
+// `posix_sigcheck` drains pending bits and dispatches handlers; the
+// sleep-side path (`sleep_until`) observes SA_RESTART after a handler
+// returns, deciding whether to resume the sleep or surface
+// `KERNITE_ERR_INTERRUPTED` to the caller.
 pub const SA_RESTART: i32 = 0x10000000;
 pub const SA_NOCLDSTOP: i32 = 0x00000001;
 pub const SA_NOCLDWAIT: i32 = 0x00000002;
@@ -53,13 +58,14 @@ static mut BLOCKED_MASK: Sigset = Sigset { bits: 0 };
 
 /// Mutex protecting HANDLERS and libtrona signal globals (__sig_sa_mask,
 /// __sig_sa_flags) for thread-safe signal()/sigaction().
-static SIGNAL_LOCK: trona::sync::Mutex = trona::sync::Mutex::new();
+static SIGNAL_LOCK: trona_runtime::thread::sync::Mutex = trona_runtime::thread::sync::Mutex::new();
 
 /// Install a signal handler for signal `sig`.
 ///
-/// Registers the handler with libtrona's notification-based signal delivery
-/// via `trona_posix::signals::posix_signal`. Both `SIG_DFL` and `SIG_IGN` are
-/// forwarded to libtrona so it can update the kernel notification mask.
+/// Forwards to `trona_posix::signals::posix_signal`, which records the
+/// handler in the libtrona-side `__sig_handlers` table consulted by
+/// `posix_sigcheck` / `sigsuspend`. `SIG_DFL` / `SIG_IGN` are forwarded
+/// unchanged so the dispatch path can apply the right policy.
 ///
 /// Returns the previous handler on success, or `SIG_ERR` on failure.
 #[unsafe(no_mangle)]
@@ -172,25 +178,30 @@ pub unsafe extern "C" fn sigsuspend(mask: *const Sigset) -> i32 {
         return -1;
     }
     unsafe {
-        // Save current blocked mask
+        // Save current blocked mask, install the suspend mask.
         let saved = *(&raw const trona_posix::__sig_blocked_mask);
-        // Apply temporary mask
         (*(&raw mut trona_posix::__sig_blocked_mask)) = (*mask).bits;
         (*(&raw mut BLOCKED_MASK)).bits = (*mask).bits;
 
-        // Wait on signal notification (blocking).
-        // salty_wait atomically swaps notification bits to 0 (consuming them).
-        // We must repost the consumed bits so posix_sigcheck can find them.
-        let cap_signal_ntfn: u64 = 6;
-        let pending_bits = trona::trona_wait(cap_signal_ntfn);
-        if pending_bits != 0 {
-            trona::trona_signal(cap_signal_ntfn, pending_bits);
+        // Wait on the per-process wakeup EventQueue until a signal-
+        // pipe record arrives, draining each into __sig_pending_bits.
+        // Loop until at least one bit becomes deliverable under the
+        // suspend mask (i.e. a non-blocked signal is pending).
+        loop {
+            let _ = trona_posix::wakeup::wait_record();
+            trona_posix::wakeup::drain_signal_pipe();
+            let pending =
+                trona_posix::__sig_pending_bits.load(::core::sync::atomic::Ordering::Acquire);
+            let unmasked = pending & !(*mask).bits as u64;
+            if unmasked != 0 {
+                break;
+            }
         }
 
-        // Dispatch pending signals
+        // Dispatch handlers for any deliverable signals.
         trona_posix::signals::posix_sigcheck();
 
-        // Restore original mask
+        // Restore the caller's blocked mask.
         (*(&raw mut trona_posix::__sig_blocked_mask)) = saved;
         (*(&raw mut BLOCKED_MASK)).bits = saved;
 
@@ -206,21 +217,20 @@ pub unsafe extern "C" fn sigpending(set: *mut Sigset) -> i32 {
         return -1;
     }
     unsafe {
-        // Non-blocking poll for notification bits
-        let cap_signal_ntfn: u64 = 6;
-        let mut bits: u64 = 0;
-        let err = trona::trona_poll(cap_signal_ntfn, &raw mut bits);
-
-        if err == 0 && bits != 0 {
-            // Re-signal ALL consumed bits back (poll is destructive)
-            trona::trona_signal(cap_signal_ntfn, bits);
-
-            // Pending = signaled AND blocked
-            let blocked = *(&raw const trona_posix::__sig_blocked_mask);
-            (*set).bits = (bits as u32) & blocked;
-        } else {
-            (*set).bits = 0;
+        // Drain whatever the spawner has already published into the
+        // signal pipe so __sig_pending_bits reflects the latest state.
+        // The wakeup EQ may have records queued from prior arrivals;
+        // poll once and fold any signal-pipe record into pending.
+        if let Some(rec) = trona_posix::wakeup::poll_record() {
+            if rec.cookie == trona_posix::wakeup::WAKEUP_COOKIE_SIGNAL_PIPE {
+                trona_posix::wakeup::drain_signal_pipe();
+            }
         }
+
+        // Pending = pending bits AND currently-blocked mask.
+        let pending = trona_posix::__sig_pending_bits.load(::core::sync::atomic::Ordering::Acquire);
+        let blocked = *(&raw const trona_posix::__sig_blocked_mask);
+        (*set).bits = (pending as u32) & blocked;
         0
     }
 }
@@ -294,7 +304,7 @@ pub unsafe extern "C" fn pthread_sigmask(how: i32, set: *const Sigset, oldset: *
 
 /// Wrapper to make `*const u8` usable in statics (raw pointers lack `Sync`).
 #[repr(transparent)]
-struct SyncPtr(*const u8);
+pub struct SyncPtr(*const u8);
 // SAFETY: All pointers in sys_signame point to static byte string literals
 // which are immutable and have 'static lifetime.
 unsafe impl Sync for SyncPtr {}

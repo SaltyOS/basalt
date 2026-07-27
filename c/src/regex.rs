@@ -62,11 +62,7 @@ pub struct Regmatch {
 // ---------------------------------------------------------------------------
 
 fn to_lower(c: u8) -> u8 {
-    if c >= b'A' && c <= b'Z' {
-        c + 32
-    } else {
-        c
-    }
+    if c >= b'A' && c <= b'Z' { c + 32 } else { c }
 }
 
 fn char_eq(a: u8, b: u8, icase: bool) -> bool {
@@ -174,11 +170,7 @@ unsafe fn atom_end(pattern: *const u8, plen: usize, ppos: usize) -> usize {
         }
         let c = *pattern.add(ppos);
         if c == b'\\' {
-            if ppos + 1 < plen {
-                ppos + 2
-            } else {
-                ppos + 1
-            }
+            if ppos + 1 < plen { ppos + 2 } else { ppos + 1 }
         } else if c == b'[' {
             skip_char_class(pattern, plen, ppos + 1)
         } else {
@@ -289,8 +281,10 @@ unsafe fn match_pattern(
             }
 
             // Handle '$' anchor
-            if c == b'$' && (pp + 1 >= plen || (extended && *pattern.add(pp + 1) == b'|')
-                || (extended && *pattern.add(pp + 1) == b')'))
+            if c == b'$'
+                && (pp + 1 >= plen
+                    || (extended && *pattern.add(pp + 1) == b'|')
+                    || (extended && *pattern.add(pp + 1) == b')'))
             {
                 if (eflags & REG_NOTEOL) != 0 {
                     return -1;
@@ -360,8 +354,8 @@ unsafe fn match_pattern(
                         }
                         // Try without group
                         return match_pattern(
-                            pattern, plen, rest_start, text, tlen, tp, cflags, eflags,
-                            nmatch, pmatch, text_start,
+                            pattern, plen, rest_start, text, tlen, tp, cflags, eflags, nmatch,
+                            pmatch, text_start,
                         );
                     }
 
@@ -465,7 +459,8 @@ unsafe fn match_pattern(
 
                     let mut cur = tp;
                     loop {
-                        let (matched, _, adv) = match_one(pattern, plen, pp, text, tlen, cur, cflags);
+                        let (matched, _, adv) =
+                            match_one(pattern, plen, pp, text, tlen, cur, cflags);
                         if !matched || adv == 0 {
                             break;
                         }
@@ -481,8 +476,17 @@ unsafe fn match_pattern(
                     while i > 0 {
                         i -= 1;
                         let res = match_pattern(
-                            pattern, plen, rest_start, text, tlen, positions[i],
-                            cflags, eflags, nmatch, pmatch, text_start,
+                            pattern,
+                            plen,
+                            rest_start,
+                            text,
+                            tlen,
+                            positions[i],
+                            cflags,
+                            eflags,
+                            nmatch,
+                            pmatch,
+                            text_start,
                         );
                         if res >= 0 {
                             return res;
@@ -521,8 +525,17 @@ unsafe fn match_pattern(
                     while i > 0 {
                         i -= 1;
                         let res = match_pattern(
-                            pattern, plen, rest_start, text, tlen, positions[i],
-                            cflags, eflags, nmatch, pmatch, text_start,
+                            pattern,
+                            plen,
+                            rest_start,
+                            text,
+                            tlen,
+                            positions[i],
+                            cflags,
+                            eflags,
+                            nmatch,
+                            pmatch,
+                            text_start,
                         );
                         if res >= 0 {
                             return res;
@@ -539,8 +552,17 @@ unsafe fn match_pattern(
                     let (matched, _, adv) = match_one(pattern, plen, pp, text, tlen, tp, cflags);
                     if matched {
                         let res = match_pattern(
-                            pattern, plen, rest_start, text, tlen, tp + adv,
-                            cflags, eflags, nmatch, pmatch, text_start,
+                            pattern,
+                            plen,
+                            rest_start,
+                            text,
+                            tlen,
+                            tp + adv,
+                            cflags,
+                            eflags,
+                            nmatch,
+                            pmatch,
+                            text_start,
                         );
                         if res >= 0 {
                             return res;
@@ -548,8 +570,8 @@ unsafe fn match_pattern(
                     }
                     // Try without
                     return match_pattern(
-                        pattern, plen, rest_start, text, tlen, tp,
-                        cflags, eflags, nmatch, pmatch, text_start,
+                        pattern, plen, rest_start, text, tlen, tp, cflags, eflags, nmatch, pmatch,
+                        text_start,
                     );
                 }
             }
@@ -608,8 +630,17 @@ unsafe fn match_alternation(
 
             // Try matching this branch
             let res = match_pattern(
-                pattern, plen, branch_start, text, tlen, tpos, cflags, eflags,
-                nmatch, pmatch, text_start,
+                pattern,
+                plen,
+                branch_start,
+                text,
+                tlen,
+                tpos,
+                cflags,
+                eflags,
+                nmatch,
+                pmatch,
+                text_start,
             );
             if res >= 0 {
                 return res;
@@ -643,15 +674,34 @@ unsafe fn match_group_then_rest(
     unsafe {
         let group_end = group_start + inner_len;
         let res = match_alternation(
-            pattern, plen, group_start, group_end, text, tlen, tpos, cflags, eflags,
-            nmatch, pmatch, text_start,
+            pattern,
+            plen,
+            group_start,
+            group_end,
+            text,
+            tlen,
+            tpos,
+            cflags,
+            eflags,
+            nmatch,
+            pmatch,
+            text_start,
         );
         if res < 0 {
             return -1;
         }
         match_pattern(
-            pattern, plen, rest_start, text, tlen, res as usize, cflags, eflags,
-            nmatch, pmatch, text_start,
+            pattern,
+            plen,
+            rest_start,
+            text,
+            tlen,
+            res as usize,
+            cflags,
+            eflags,
+            nmatch,
+            pmatch,
+            text_start,
         )
     }
 }
@@ -682,8 +732,18 @@ unsafe fn match_group_star(
         loop {
             let group_end = group_start + inner_len;
             let res = match_alternation(
-                pattern, plen, group_start, group_end, text, tlen, cur, cflags, eflags,
-                nmatch, pmatch, text_start,
+                pattern,
+                plen,
+                group_start,
+                group_end,
+                text,
+                tlen,
+                cur,
+                cflags,
+                eflags,
+                nmatch,
+                pmatch,
+                text_start,
             );
             if res < 0 || res as usize == cur {
                 break;
@@ -700,8 +760,17 @@ unsafe fn match_group_star(
         while i > 0 {
             i -= 1;
             let res = match_pattern(
-                pattern, plen, rest_start, text, tlen, endpoints[i], cflags, eflags,
-                nmatch, pmatch, text_start,
+                pattern,
+                plen,
+                rest_start,
+                text,
+                tlen,
+                endpoints[i],
+                cflags,
+                eflags,
+                nmatch,
+                pmatch,
+                text_start,
             );
             if res >= 0 {
                 return res;
@@ -816,13 +885,12 @@ pub unsafe extern "C" fn regexec(
         while start <= max_start {
             let result = if extended {
                 match_alternation(
-                    pattern, plen, 0, plen, string, tlen, start, cflags, eflags,
-                    nmatch, pmatch, start,
+                    pattern, plen, 0, plen, string, tlen, start, cflags, eflags, nmatch, pmatch,
+                    start,
                 )
             } else {
                 match_pattern(
-                    pattern, plen, 0, string, tlen, start, cflags, eflags,
-                    nmatch, pmatch, start,
+                    pattern, plen, 0, string, tlen, start, cflags, eflags, nmatch, pmatch, start,
                 )
             };
 

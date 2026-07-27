@@ -142,11 +142,7 @@ pub unsafe extern "C" fn xo_parse_args(argc: i32, _argv: *mut *mut u8) -> i32 {
 /// Create an XO handle for the given FILE*. In text mode the handle is simply
 /// the FILE* cast to `*mut u8`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xo_create_to_file(
-    fp: *mut FILE,
-    _style: i32,
-    _flags: i32,
-) -> *mut u8 {
+pub unsafe extern "C" fn xo_create_to_file(fp: *mut FILE, _style: i32, _flags: i32) -> *mut u8 {
     fp as *mut u8
 }
 

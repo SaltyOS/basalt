@@ -14,12 +14,7 @@ type CmpFn = unsafe extern "C" fn(*const u8, *const u8) -> i32;
 
 /// mergesort — stable sort (BSD extension).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn mergesort(
-    base: *mut u8,
-    nmemb: usize,
-    size: usize,
-    cmp: CmpFn,
-) -> i32 {
+pub unsafe extern "C" fn mergesort(base: *mut u8, nmemb: usize, size: usize, cmp: CmpFn) -> i32 {
     unsafe {
         if nmemb <= 1 {
             return 0;
@@ -37,13 +32,7 @@ pub unsafe extern "C" fn mergesort(
     }
 }
 
-unsafe fn mergesort_impl(
-    src: *mut u8,
-    dst: *mut u8,
-    n: usize,
-    size: usize,
-    cmp: CmpFn,
-) {
+unsafe fn mergesort_impl(src: *mut u8, dst: *mut u8, n: usize, size: usize, cmp: CmpFn) {
     unsafe {
         if n <= 1 {
             return;
@@ -79,12 +68,7 @@ unsafe fn mergesort_impl(
 
 /// heapsort — in-place unstable sort (BSD extension).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn heapsort(
-    base: *mut u8,
-    nmemb: usize,
-    size: usize,
-    cmp: CmpFn,
-) -> i32 {
+pub unsafe extern "C" fn heapsort(base: *mut u8, nmemb: usize, size: usize, cmp: CmpFn) -> i32 {
     unsafe {
         if nmemb <= 1 {
             return 0;

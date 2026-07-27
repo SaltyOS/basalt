@@ -9,6 +9,7 @@
 //! BSD/FreeBSD-specific functions live in `compat::freebsd`.
 
 use crate::errno;
+use core::ffi::VaList;
 use core::ptr::addr_of_mut;
 
 // ---------------------------------------------------------------------------
@@ -138,12 +139,12 @@ pub unsafe extern "C" fn chroot(_path: *const u8) -> i32 {
 }
 
 // ---------------------------------------------------------------------------
-// sched_yield — maps to SYS_YIELD (syscall 8)
+// sched_yield — invokes TCB_YIELD on CAP_SELF_TCB.
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sched_yield() -> i32 {
-    trona::syscall::syscall(trona::consts::SYS_YIELD, 0, 0, 0, 0, 0, 0);
+    trona_kernel::syscall::yield_now();
     0
 }
 
@@ -209,7 +210,7 @@ pub unsafe extern "C" fn utime(filename: *const u8, times: *const Utimbuf) -> i3
             ((*times).actime, 0i64, (*times).modtime, 0i64)
         };
         let ret = trona_posix::posix_utimensat(
-            trona::consts::posix::AT_FDCWD,
+            trona_posix::consts::AT_FDCWD,
             filename,
             atime_sec,
             atime_nsec,
@@ -245,7 +246,7 @@ pub unsafe extern "C" fn utimes(filename: *const u8, times: *const CTimeval) -> 
             )
         };
         let ret = trona_posix::posix_utimensat(
-            trona::consts::posix::AT_FDCWD,
+            trona_posix::consts::AT_FDCWD,
             filename,
             atime_sec,
             atime_nsec,
@@ -277,12 +278,13 @@ pub unsafe extern "C" fn copy_file_range(
     unsafe {
         // If off_in is provided, seek to that offset (saving current pos)
         let saved_in: i64 = if !off_in.is_null() {
-            let cur = trona_posix::posix_lseek(fd_in, 0, trona::consts::posix::SEEK_CUR as i32);
+            let cur = trona_posix::posix_lseek(fd_in, 0, trona_posix::consts::SEEK_CUR as i32);
             if cur < 0 {
                 errno::set_errno(errno::EBADF);
                 return -1;
             }
-            let ret = trona_posix::posix_lseek(fd_in, *off_in, trona::consts::posix::SEEK_SET as i32);
+            let ret =
+                trona_posix::posix_lseek(fd_in, *off_in, trona_posix::consts::SEEK_SET as i32);
             if ret < 0 {
                 errno::set_errno(errno::EINVAL);
                 return -1;
@@ -293,18 +295,19 @@ pub unsafe extern "C" fn copy_file_range(
         };
 
         let saved_out: i64 = if !off_out.is_null() {
-            let cur = trona_posix::posix_lseek(fd_out, 0, trona::consts::posix::SEEK_CUR as i32);
+            let cur = trona_posix::posix_lseek(fd_out, 0, trona_posix::consts::SEEK_CUR as i32);
             if cur < 0 {
                 if !off_in.is_null() {
-                    trona_posix::posix_lseek(fd_in, saved_in, trona::consts::posix::SEEK_SET as i32);
+                    trona_posix::posix_lseek(fd_in, saved_in, trona_posix::consts::SEEK_SET as i32);
                 }
                 errno::set_errno(errno::EBADF);
                 return -1;
             }
-            let ret = trona_posix::posix_lseek(fd_out, *off_out, trona::consts::posix::SEEK_SET as i32);
+            let ret =
+                trona_posix::posix_lseek(fd_out, *off_out, trona_posix::consts::SEEK_SET as i32);
             if ret < 0 {
                 if !off_in.is_null() {
-                    trona_posix::posix_lseek(fd_in, saved_in, trona::consts::posix::SEEK_SET as i32);
+                    trona_posix::posix_lseek(fd_in, saved_in, trona_posix::consts::SEEK_SET as i32);
                 }
                 errno::set_errno(errno::EINVAL);
                 return -1;
@@ -328,13 +331,17 @@ pub unsafe extern "C" fn copy_file_range(
             if nr < 0 {
                 if total == 0 {
                     if !off_in.is_null() {
-                        trona_posix::posix_lseek(fd_in, saved_in, trona::consts::posix::SEEK_SET as i32);
+                        trona_posix::posix_lseek(
+                            fd_in,
+                            saved_in,
+                            trona_posix::consts::SEEK_SET as i32,
+                        );
                     }
                     if !off_out.is_null() {
                         trona_posix::posix_lseek(
                             fd_out,
                             saved_out,
-                            trona::consts::posix::SEEK_SET as i32,
+                            trona_posix::consts::SEEK_SET as i32,
                         );
                     }
                     errno::set_errno(errno::EIO);
@@ -359,14 +366,14 @@ pub unsafe extern "C" fn copy_file_range(
                             trona_posix::posix_lseek(
                                 fd_in,
                                 saved_in,
-                                trona::consts::posix::SEEK_SET as i32,
+                                trona_posix::consts::SEEK_SET as i32,
                             );
                         }
                         if !off_out.is_null() {
                             trona_posix::posix_lseek(
                                 fd_out,
                                 saved_out,
-                                trona::consts::posix::SEEK_SET as i32,
+                                trona_posix::consts::SEEK_SET as i32,
                             );
                         }
                         errno::set_errno(errno::EIO);
@@ -375,14 +382,18 @@ pub unsafe extern "C" fn copy_file_range(
                     total += written;
                     if !off_in.is_null() {
                         *off_in += total as i64;
-                        trona_posix::posix_lseek(fd_in, saved_in, trona::consts::posix::SEEK_SET as i32);
+                        trona_posix::posix_lseek(
+                            fd_in,
+                            saved_in,
+                            trona_posix::consts::SEEK_SET as i32,
+                        );
                     }
                     if !off_out.is_null() {
                         *off_out += total as i64;
                         trona_posix::posix_lseek(
                             fd_out,
                             saved_out,
-                            trona::consts::posix::SEEK_SET as i32,
+                            trona_posix::consts::SEEK_SET as i32,
                         );
                     }
                     return total as isize;
@@ -398,11 +409,11 @@ pub unsafe extern "C" fn copy_file_range(
         // Update offset pointers and restore file positions
         if !off_in.is_null() {
             *off_in += total as i64;
-            trona_posix::posix_lseek(fd_in, saved_in, trona::consts::posix::SEEK_SET as i32);
+            trona_posix::posix_lseek(fd_in, saved_in, trona_posix::consts::SEEK_SET as i32);
         }
         if !off_out.is_null() {
             *off_out += total as i64;
-            trona_posix::posix_lseek(fd_out, saved_out, trona::consts::posix::SEEK_SET as i32);
+            trona_posix::posix_lseek(fd_out, saved_out, trona_posix::consts::SEEK_SET as i32);
         }
 
         total as isize
@@ -410,7 +421,7 @@ pub unsafe extern "C" fn copy_file_range(
 }
 
 // ---------------------------------------------------------------------------
-// syslog stubs — no-ops, syslog() prints to stderr via DebugPutStr
+// syslog stubs — route messages to stderr until a real syslog service exists.
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
@@ -426,10 +437,28 @@ pub unsafe extern "C" fn setlogmask(mask: i32) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn syslog(_priority: i32, _fmt: *const u8, mut _args: ...) {}
+pub unsafe extern "C" fn syslog(_priority: i32, fmt: *const u8, args: ...) {
+    if fmt.is_null() {
+        return;
+    }
+    crate::stdio::ensure_stdio_init();
+    unsafe {
+        let _ = crate::stdio::vfprintf(crate::stdio::stderr, fmt, args);
+        let _ = trona_posix::posix_write(2, b"\n".as_ptr(), 1);
+    }
+}
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vsyslog(_priority: i32, _fmt: *const u8, _ap: *mut u8) {}
+pub unsafe extern "C" fn vsyslog(_priority: i32, fmt: *const u8, ap: VaList<'_>) {
+    if fmt.is_null() {
+        return;
+    }
+    crate::stdio::ensure_stdio_init();
+    unsafe {
+        let _ = crate::stdio::vfprintf(crate::stdio::stderr, fmt, ap);
+        let _ = trona_posix::posix_write(2, b"\n".as_ptr(), 1);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // pdfork — FreeBSD Capsicum process descriptor fork (stub)
@@ -444,26 +473,17 @@ pub unsafe extern "C" fn pdfork(_fdp: *mut i32, _flags: i32) -> i32 {
 // ---------------------------------------------------------------------------
 // syscall — variadic raw syscall interface
 // ---------------------------------------------------------------------------
-
-/// Direct syscall interface for code that bypasses libc (e.g. libcxxabi futex).
-/// Maps SaltyOS syscall numbers to the kernel syscall ABI.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn syscall(number: i64, mut args: ...) -> i64 {
-    unsafe {
-        let a1 = args.arg::<u64>();
-        let a2 = args.arg::<u64>();
-        let a3 = args.arg::<u64>();
-        let a4 = args.arg::<u64>();
-        let a5 = args.arg::<u64>();
-        let a6 = args.arg::<u64>();
-        let r = trona::syscall::syscall(number as u64, a1, a2, a3, a4, a5, a6);
-        if r.error != 0 {
-            errno::set_errno(r.error as i32);
-            return -1;
-        }
-        r.value as i64
-    }
-}
+//
+// The historical libc `syscall(2)` symbol is tied to a multi-syscall
+// kernel ABI where each kernel operation has a dedicated syscall number.
+// kernite exposes a single `KERNITE_SYS_INVOKE` trap and routes every
+// operation through capability invocation, so there is no stable mapping
+// from a Linux/glibc syscall number to a kernite operation.
+//
+// The symbol is intentionally absent here. Callers that historically
+// reached for `syscall(SYS_futex, ...)` (libcxxabi) must be rewired to
+// the substrate futex helpers (`trona_kernel::syscall::futex_wait/wake`) or
+// the relevant capability invocation wrapper directly.
 
 // ---------------------------------------------------------------------------
 // mkstemps — mkstemp with suffix length
@@ -567,7 +587,9 @@ const fn build_b64_decode_table() -> [u8; 256] {
     let mut t = [0xFFu8; 256];
     let mut i = 0u8;
     loop {
-        if i >= 64 { break; }
+        if i >= 64 {
+            break;
+        }
         t[B64_ENCODE[i as usize] as usize] = i;
         i += 1;
     }
@@ -586,7 +608,9 @@ pub unsafe extern "C" fn __b64_ntop(
 ) -> i32 {
     unsafe {
         let needed = ((srclength + 2) / 3) * 4 + 1;
-        if targsize < needed { return -1; }
+        if targsize < needed {
+            return -1;
+        }
 
         let mut si = 0usize;
         let mut di = 0usize;
@@ -596,10 +620,10 @@ pub unsafe extern "C" fn __b64_ntop(
             let b = *src.add(si + 1) as u32;
             let c = *src.add(si + 2) as u32;
             let n = (a << 16) | (b << 8) | c;
-            *target.add(di)     = B64_ENCODE[((n >> 18) & 0x3F) as usize];
+            *target.add(di) = B64_ENCODE[((n >> 18) & 0x3F) as usize];
             *target.add(di + 1) = B64_ENCODE[((n >> 12) & 0x3F) as usize];
-            *target.add(di + 2) = B64_ENCODE[((n >>  6) & 0x3F) as usize];
-            *target.add(di + 3) = B64_ENCODE[(n         & 0x3F) as usize];
+            *target.add(di + 2) = B64_ENCODE[((n >> 6) & 0x3F) as usize];
+            *target.add(di + 3) = B64_ENCODE[(n & 0x3F) as usize];
             si += 3;
             di += 4;
         }
@@ -608,7 +632,7 @@ pub unsafe extern "C" fn __b64_ntop(
         if rem == 1 {
             let a = *src.add(si) as u32;
             let n = a << 16;
-            *target.add(di)     = B64_ENCODE[((n >> 18) & 0x3F) as usize];
+            *target.add(di) = B64_ENCODE[((n >> 18) & 0x3F) as usize];
             *target.add(di + 1) = B64_ENCODE[((n >> 12) & 0x3F) as usize];
             *target.add(di + 2) = b'=';
             *target.add(di + 3) = b'=';
@@ -617,9 +641,9 @@ pub unsafe extern "C" fn __b64_ntop(
             let a = *src.add(si) as u32;
             let b = *src.add(si + 1) as u32;
             let n = (a << 16) | (b << 8);
-            *target.add(di)     = B64_ENCODE[((n >> 18) & 0x3F) as usize];
+            *target.add(di) = B64_ENCODE[((n >> 18) & 0x3F) as usize];
             *target.add(di + 1) = B64_ENCODE[((n >> 12) & 0x3F) as usize];
-            *target.add(di + 2) = B64_ENCODE[((n >>  6) & 0x3F) as usize];
+            *target.add(di + 2) = B64_ENCODE[((n >> 6) & 0x3F) as usize];
             *target.add(di + 3) = b'=';
             di += 4;
         }
@@ -630,11 +654,7 @@ pub unsafe extern "C" fn __b64_ntop(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __b64_pton(
-    src: *const u8,
-    target: *mut u8,
-    targsize: usize,
-) -> i32 {
+pub unsafe extern "C" fn __b64_pton(src: *const u8, target: *mut u8, targsize: usize) -> i32 {
     unsafe {
         let mut si = 0usize;
         let mut di = 0usize;
@@ -643,21 +663,31 @@ pub unsafe extern "C" fn __b64_pton(
 
         loop {
             let ch = *src.add(si);
-            if ch == 0 { break; }
+            if ch == 0 {
+                break;
+            }
             si += 1;
 
-            if ch == b' ' || ch == b'\t' || ch == b'\n' || ch == b'\r' { continue; }
-            if ch == b'=' { break; }
+            if ch == b' ' || ch == b'\t' || ch == b'\n' || ch == b'\r' {
+                continue;
+            }
+            if ch == b'=' {
+                break;
+            }
 
             let val = B64_DECODE[ch as usize];
-            if val == 0xFF { return -1; }
+            if val == 0xFF {
+                return -1;
+            }
 
             buf = (buf << 6) | val as u32;
             bits += 6;
 
             if bits >= 8 {
                 bits -= 8;
-                if di >= targsize { return -1; }
+                if di >= targsize {
+                    return -1;
+                }
                 *target.add(di) = ((buf >> bits) & 0xFF) as u8;
                 di += 1;
             }
@@ -671,6 +701,10 @@ pub unsafe extern "C" fn __b64_pton(
 // Unwind stubs — SaltyOS uses panic=abort so unwinding never runs,
 // but Rust std's backtrace code references these symbols.
 // ---------------------------------------------------------------------------
+
+unsafe extern "C" {
+    fn basaltc_abort_trap() -> !;
+}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _Unwind_Backtrace(
@@ -692,18 +726,10 @@ pub unsafe extern "C" fn _Unwind_FindEnclosingFunction(_pc: *mut u8) -> *mut u8 
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _Unwind_RaiseException(_exception: *mut u8) -> i32 {
-    // SAFETY: unreachable with panic=abort
-    #[cfg(target_arch = "x86_64")]
-    unsafe { core::arch::asm!("ud2", options(noreturn)) }
-    #[cfg(target_arch = "aarch64")]
-    unsafe { core::arch::asm!("udf #0", options(noreturn)) }
+    unsafe { basaltc_abort_trap() }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _Unwind_Resume(_exception: *mut u8) {
-    // SAFETY: unreachable with panic=abort
-    #[cfg(target_arch = "x86_64")]
-    unsafe { core::arch::asm!("ud2", options(noreturn)) }
-    #[cfg(target_arch = "aarch64")]
-    unsafe { core::arch::asm!("udf #0", options(noreturn)) }
+    unsafe { basaltc_abort_trap() }
 }

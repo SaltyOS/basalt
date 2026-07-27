@@ -15,7 +15,7 @@ pub struct CapRights {
 pub unsafe extern "C" fn __cap_rights_init(
     _version: i32,
     rights: *mut CapRights,
-    mut _args: ...,
+    mut _args: ...
 ) -> *mut CapRights {
     if !rights.is_null() {
         unsafe {
@@ -28,20 +28,12 @@ pub unsafe extern "C" fn __cap_rights_init(
 
 /// Capsicum rights check. Always returns true — capsicum is not enforced.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __cap_rights_is_set(
-    _rights: *const u8,
-    _n: i32,
-    _args: ...,
-) -> bool {
+pub unsafe extern "C" fn __cap_rights_is_set(_rights: *const u8, _n: i32, _args: ...) -> bool {
     true
 }
 
 /// Capsicum rights manipulation. No-op — returns input unchanged.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __cap_rights_set(
-    _rights: *mut u8,
-    _n: i32,
-    _args: ...,
-) -> *mut u8 {
+pub unsafe extern "C" fn __cap_rights_set(_rights: *mut u8, _n: i32, _args: ...) -> *mut u8 {
     _rights
 }

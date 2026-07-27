@@ -17,7 +17,7 @@ fn log_select_enter(api: &[u8], nfds: i32, timeout_ms: i32, timeout_sec: i64, ti
         }
         *(&raw mut LOGGED_SELECT_CALLS) += 1;
     }
-    trona::udebug!(|_lb| {
+    trona_runtime::udebug!(|_lb| {
         _lb.str(b"[libc] ");
         _lb.str(api);
         _lb.str(b" wait nfds=");
@@ -48,8 +48,15 @@ fn log_select_enter(api: &[u8], nfds: i32, timeout_ms: i32, timeout_sec: i64, ti
     });
 }
 
-fn log_select_result(api: &[u8], nfds: i32, timeout_ms: i32, ret: i32, timeout_sec: i64, timeout_nsec: i64) {
-    trona::udebug!(|_lb| {
+fn log_select_result(
+    api: &[u8],
+    nfds: i32,
+    timeout_ms: i32,
+    ret: i32,
+    timeout_sec: i64,
+    timeout_nsec: i64,
+) {
+    trona_runtime::udebug!(|_lb| {
         _lb.str(b"[libc] ");
         _lb.str(api);
         _lb.str(b" nfds=");
@@ -175,11 +182,11 @@ pub unsafe extern "C" fn select(
             if !timeout.is_null() {
                 let ms = (*timeout).tv_sec * 1000 + (*timeout).tv_usec / 1000;
                 if ms > 0 {
-                    let ts = trona::types::Timespec {
+                    let ts = trona_posix::types::Timespec {
                         tv_sec: (*timeout).tv_sec as u64,
                         tv_nsec: ((*timeout).tv_usec * 1000) as u64,
                     };
-                    let mut rem = trona::types::Timespec::zeroed();
+                    let mut rem = trona_posix::types::Timespec::zeroed();
                     trona_posix::posix_nanosleep(&raw const ts, &raw mut rem);
                 }
             }
@@ -233,8 +240,16 @@ pub unsafe extern "C" fn select(
             }
         };
 
-        let timeout_sec = if timeout.is_null() { -1 } else { (*timeout).tv_sec };
-        let timeout_nsec = if timeout.is_null() { -1 } else { (*timeout).tv_usec * 1000 };
+        let timeout_sec = if timeout.is_null() {
+            -1
+        } else {
+            (*timeout).tv_sec
+        };
+        let timeout_nsec = if timeout.is_null() {
+            -1
+        } else {
+            (*timeout).tv_usec * 1000
+        };
         log_select_enter(b"select", nfds, timeout_ms, timeout_sec, timeout_nsec);
         let ret = trona_posix::posix_poll(poll_fds.as_mut_ptr(), pi as u32, timeout_ms);
         log_select_result(b"select", nfds, timeout_ms, ret, timeout_sec, timeout_nsec);
@@ -261,7 +276,8 @@ pub unsafe extern "C" fn select(
             let rev = poll_fds[i].revents;
             let mut counted = false;
 
-            if !readfds.is_null() && (rev & (trona_posix::POLLIN | trona_posix::POLLHUP | trona_posix::POLLERR)) != 0
+            if !readfds.is_null()
+                && (rev & (trona_posix::POLLIN | trona_posix::POLLHUP | trona_posix::POLLERR)) != 0
             {
                 fd_set(fd, readfds);
                 if !counted {
@@ -376,8 +392,16 @@ pub unsafe extern "C" fn pselect(
                 ms as i32
             }
         };
-        let timeout_sec = if timeout.is_null() { -1 } else { (*timeout).tv_sec };
-        let timeout_nsec = if timeout.is_null() { -1 } else { (*timeout).tv_nsec };
+        let timeout_sec = if timeout.is_null() {
+            -1
+        } else {
+            (*timeout).tv_sec
+        };
+        let timeout_nsec = if timeout.is_null() {
+            -1
+        } else {
+            (*timeout).tv_nsec
+        };
         log_select_enter(b"pselect", nfds, timeout_ms, timeout_sec, timeout_nsec);
         log_select_result(b"pselect", nfds, timeout_ms, ret, timeout_sec, timeout_nsec);
 

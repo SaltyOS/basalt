@@ -108,7 +108,12 @@ pub unsafe extern "C" fn open(path: *const u8, flags: i32, mut args: ...) -> i32
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn creat(path: *const u8, _mode: u32) -> i32 {
     // creat(path, mode) == open(path, O_WRONLY|O_CREAT|O_TRUNC, mode)
-    unsafe { open(path, (trona_posix::O_WRONLY | trona_posix::O_CREAT | trona_posix::O_TRUNC) as i32) }
+    unsafe {
+        open(
+            path,
+            (trona_posix::O_WRONLY | trona_posix::O_CREAT | trona_posix::O_TRUNC) as i32,
+        )
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -212,7 +217,7 @@ pub unsafe extern "C" fn pipe2(fds: *mut i32, flags: i32) -> i32 {
 pub unsafe extern "C" fn fcntl(fd: i32, cmd: i32, mut args: ...) -> i32 {
     unsafe {
         let arg: i64 = args.arg();
-        trona::udebug!(|_lb| {
+        trona_runtime::udebug!(|_lb| {
             _lb.str(b"[libc] fcntl fd=");
             _lb.dec(fd as u64);
             _lb.str(b" cmd=");
@@ -639,11 +644,11 @@ pub unsafe extern "C" fn nanosleep(req: *const Timespec, rem: *mut Timespec) -> 
     }
     unsafe {
         // Convert from our i64-based Timespec to salty's u64-based Timespec
-        let trona_req = trona::types::Timespec {
+        let trona_req = trona_posix::types::Timespec {
             tv_sec: (*req).tv_sec as u64,
             tv_nsec: (*req).tv_nsec as u64,
         };
-        let mut trona_rem = trona::types::Timespec::zeroed();
+        let mut trona_rem = trona_posix::types::Timespec::zeroed();
         let ret = trona_posix::posix_nanosleep(&raw const trona_req, &raw mut trona_rem);
         if !rem.is_null() {
             (*rem).tv_sec = trona_rem.tv_sec as i64;
@@ -755,8 +760,15 @@ pub unsafe extern "C" fn munmap(addr: *mut u8, length: usize) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn msync(_addr: *mut u8, _length: usize, _flags: i32) -> i32 {
-    0 // no-op: SaltyOS has no persistent memory-mapped I/O yet
+pub unsafe extern "C" fn msync(addr: *mut u8, length: usize, flags: i32) -> i32 {
+    unsafe {
+        let ret = trona_posix::mm::posix_msync(addr, length as u64, flags);
+        if ret < 0 {
+            errno::set_errno((-ret) as i32);
+            return -1;
+        }
+        ret
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -780,9 +792,9 @@ pub unsafe extern "C" fn munlockall() -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn shm_open(name: *const u8, oflag: i32, _mode: u32) -> i32 {
+pub unsafe extern "C" fn shm_open(name: *const u8, oflag: i32, mode: u32) -> i32 {
     unsafe {
-        let ret = trona_posix::posix_shm_open(name, oflag);
+        let ret = trona_posix::posix_shm_open(name, oflag, mode);
         if ret < 0 {
             errno::set_errno(-ret);
             return -1;
@@ -878,7 +890,7 @@ pub unsafe extern "C" fn ttyname_r(fd: i32, buf: *mut u8, len: usize) -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn chmod(path: *const u8, mode: u32) -> i32 {
-    unsafe { fchmodat(trona::consts::posix::AT_FDCWD, path, mode, 0) }
+    unsafe { fchmodat(trona_posix::consts::AT_FDCWD, path, mode, 0) }
 }
 
 #[unsafe(no_mangle)]
@@ -895,7 +907,7 @@ pub unsafe extern "C" fn fchmod(fd: i32, mode: u32) -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn chown(path: *const u8, owner: u32, group: u32) -> i32 {
-    unsafe { fchownat(trona::consts::posix::AT_FDCWD, path, owner, group, 0) }
+    unsafe { fchownat(trona_posix::consts::AT_FDCWD, path, owner, group, 0) }
 }
 
 #[unsafe(no_mangle)]
@@ -914,11 +926,11 @@ pub unsafe extern "C" fn fchown(fd: i32, owner: u32, group: u32) -> i32 {
 pub unsafe extern "C" fn lchown(path: *const u8, owner: u32, group: u32) -> i32 {
     unsafe {
         fchownat(
-            trona::consts::posix::AT_FDCWD,
+            trona_posix::consts::AT_FDCWD,
             path,
             owner,
             group,
-            trona::consts::posix::AT_SYMLINK_NOFOLLOW,
+            trona_posix::consts::AT_SYMLINK_NOFOLLOW,
         )
     }
 }
@@ -1014,9 +1026,15 @@ pub unsafe extern "C" fn mkdirat(dirfd: i32, path: *const u8, mode: u32) -> i32 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn mknodat(_dirfd: i32, _path: *const u8, _mode: u32, _dev: u64) -> i32 {
-    errno::set_errno(errno::ENOSYS);
-    -1
+pub unsafe extern "C" fn mknodat(dirfd: i32, path: *const u8, mode: u32, dev: u64) -> i32 {
+    unsafe {
+        let ret = trona_posix::posix_mknodat(dirfd, path, mode, dev);
+        if ret < 0 {
+            errno::set_errno(-ret);
+            return -1;
+        }
+        ret
+    }
 }
 
 #[unsafe(no_mangle)]

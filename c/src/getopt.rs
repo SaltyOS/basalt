@@ -257,11 +257,7 @@ unsafe fn match_long(
 // -----------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn getopt(
-    argc: i32,
-    argv: *const *mut u8,
-    optstring: *const u8,
-) -> i32 {
+pub unsafe extern "C" fn getopt(argc: i32, argv: *const *mut u8, optstring: *const u8) -> i32 {
     unsafe {
         // Handle optreset
         if *(&raw const optreset) != 0 {
@@ -293,10 +289,7 @@ pub unsafe extern "C" fn getopt(
             let cur_arg = *argv.offset(cur_optind as isize);
 
             // Check for "--" end-of-options marker
-            if *cur_arg == b'-'
-                && *cur_arg.add(1) == b'-'
-                && *cur_arg.add(2) == 0
-            {
+            if *cur_arg == b'-' && *cur_arg.add(1) == b'-' && *cur_arg.add(2) == 0 {
                 *(&raw mut optind) += 1;
                 return -1;
             }
@@ -431,10 +424,7 @@ unsafe fn getopt_long_internal(
             let cur_arg = *argv.offset(cur_optind as isize);
 
             // "--" end marker
-            if *cur_arg == b'-'
-                && *cur_arg.add(1) == b'-'
-                && *cur_arg.add(2) == 0
-            {
+            if *cur_arg == b'-' && *cur_arg.add(1) == b'-' && *cur_arg.add(2) == 0 {
                 *(&raw mut optind) += 1;
                 return -1;
             }
@@ -457,10 +447,8 @@ unsafe fn getopt_long_internal(
             // Try long option first: "--foo" or (long_only) "-foo"
             if !longopts.is_null() {
                 let is_long = *cur_arg == b'-' && *cur_arg.add(1) == b'-';
-                let try_long = is_long
-                    || (long_only != 0
-                        && *cur_arg == b'-'
-                        && *cur_arg.add(2) != 0);
+                let try_long =
+                    is_long || (long_only != 0 && *cur_arg == b'-' && *cur_arg.add(2) != 0);
 
                 if try_long {
                     let longarg = if is_long {
@@ -506,8 +494,7 @@ unsafe fn getopt_long_internal(
                                 *(&raw mut optind) += 1;
                             } else if *(&raw const optind) + 1 < argc {
                                 *(&raw mut optind) += 1;
-                                *(&raw mut optarg) =
-                                    *argv.offset(*(&raw const optind) as isize);
+                                *(&raw mut optarg) = *argv.offset(*(&raw const optind) as isize);
                                 *(&raw mut optind) += 1;
                             } else {
                                 if *(&raw const opterr) != 0 {

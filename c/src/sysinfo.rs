@@ -42,7 +42,11 @@ pub const _SC_PHYS_PAGES: i32 = 85;
 /// Copy `src` bytes into `dst`, padding the remainder with zeroes.
 unsafe fn copy_str(dst: *mut u8, dst_len: usize, src: &[u8]) {
     unsafe {
-        let copy_len = if src.len() < dst_len { src.len() } else { dst_len - 1 };
+        let copy_len = if src.len() < dst_len {
+            src.len()
+        } else {
+            dst_len - 1
+        };
         let mut i = 0;
         while i < copy_len {
             *dst.add(i) = src[i];
@@ -80,7 +84,11 @@ pub unsafe extern "C" fn gethostname(name: *mut u8, len: usize) -> i32 {
     }
     unsafe {
         let hostname = b"salty\0";
-        let copy_len = if hostname.len() < len { hostname.len() } else { len };
+        let copy_len = if hostname.len() < len {
+            hostname.len()
+        } else {
+            len
+        };
         let mut i = 0;
         while i < copy_len {
             *name.add(i) = hostname[i];
@@ -102,7 +110,11 @@ pub unsafe extern "C" fn getdomainname(name: *mut u8, len: usize) -> i32 {
     }
     unsafe {
         let domain = b"localdomain\0";
-        let copy_len = if domain.len() < len { domain.len() } else { len };
+        let copy_len = if domain.len() < len {
+            domain.len()
+        } else {
+            len
+        };
         let mut i = 0;
         while i < copy_len {
             *name.add(i) = domain[i];

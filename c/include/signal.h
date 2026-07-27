@@ -27,8 +27,17 @@
 #define SIGTSTP     20
 #define SIGTTIN     21
 #define SIGTTOU     22
+#define SIGURG      23
+#define SIGXCPU     24
+#define SIGXFSZ     25
+#define SIGVTALRM   26
+#define SIGPROF     27
 #define SIGWINCH    28
 #define SIGINFO     29
+#define SIGIO       29  /* Linux alias for SIGPOLL/SIGIO; coexists with BSD SIGINFO. */
+#define SIGPOLL     SIGIO
+#define SIGPWR      30
+#define SIGSYS      31
 
 #define NSIG        32
 
